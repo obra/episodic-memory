@@ -1,0 +1,82 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+case "$1" in
+  --help|-h)
+    cat <<'EOF'
+index-conversations - Index and manage conversation archives
+
+USAGE:
+  index-conversations [COMMAND] [OPTIONS]
+
+COMMANDS:
+  (default)      Index all conversations
+  --cleanup      Process only unindexed conversations (fast, cheap)
+  --session ID   Index specific session (used by hook)
+  --verify       Check index health
+  --repair       Fix detected issues
+  --rebuild      Delete DB and re-index everything (requires confirmation)
+
+OPTIONS:
+  --concurrency N    Parallel summarization (1-16, default: 1)
+  -c N               Short form of --concurrency
+  --no-summaries     Skip AI summary generation (free, but no summaries in results)
+  --help, -h         Show this help
+
+EXAMPLES:
+  # Index all unprocessed (recommended for backfill)
+  index-conversations --cleanup
+
+  # Index with 8 parallel summarizations (8x faster)
+  index-conversations --cleanup --concurrency 8
+
+  # Index without AI summaries (free, fast)
+  index-conversations --cleanup --no-summaries
+
+  # Check index health
+  index-conversations --verify
+
+  # Fix any issues found
+  index-conversations --repair
+
+  # Nuclear option (deletes everything, re-indexes)
+  index-conversations --rebuild
+
+WORKFLOW:
+  1. Initial setup: index-conversations --cleanup
+  2. Ongoing: Auto-indexed by sessionEnd hook
+  3. Health check: index-conversations --verify (weekly)
+  4. Recovery: index-conversations --repair (if issues found)
+
+SEE ALSO:
+  INDEXING.md - Setup and maintenance guide
+  DEPLOYMENT.md - Production runbook
+EOF
+    exit 0
+    ;;
+  --session)
+    npx tsx "$SCRIPT_DIR/../src/index-cli.ts" index-session "$@"
+    ;;
+  --cleanup)
+    npx tsx "$SCRIPT_DIR/../src/index-cli.ts" index-cleanup "$@"
+    ;;
+  --verify)
+    npx tsx "$SCRIPT_DIR/../src/index-cli.ts" verify "$@"
+    ;;
+  --repair)
+    npx tsx "$SCRIPT_DIR/../src/index-cli.ts" repair "$@"
+    ;;
+  --rebuild)
+    echo "⚠️  This will DELETE the entire database and re-index everything."
+    read -p "Are you sure? [yes/NO]: " confirm
+    if [ "$confirm" = "yes" ]; then
+      npx tsx "$SCRIPT_DIR/../src/index-cli.ts" rebuild "$@"
+    else
+      echo "Cancelled"
+    fi
+    ;;
+  *)
+    npx tsx "$SCRIPT_DIR/../src/index-cli.ts" index-all "$@"
+    ;;
+esac

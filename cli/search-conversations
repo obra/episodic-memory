@@ -1,0 +1,106 @@
+#!/bin/bash
+cd "$(dirname "$0")"
+
+# Parse arguments
+MODE="vector"
+AFTER=""
+BEFORE=""
+LIMIT="10"
+QUERY=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --help|-h)
+      cat <<'EOF'
+search-conversations - Search previous Claude Code conversations
+
+USAGE:
+  search-conversations [OPTIONS] <query>
+
+MODES:
+  (default)      Vector similarity search (semantic)
+  --text         Exact string matching (for git SHAs, error codes)
+  --both         Combine vector + text search
+
+OPTIONS:
+  --after DATE   Only conversations after YYYY-MM-DD
+  --before DATE  Only conversations before YYYY-MM-DD
+  --limit N      Max results (default: 10)
+  --help, -h     Show this help
+
+EXAMPLES:
+  # Semantic search
+  search-conversations "React Router authentication errors"
+
+  # Find exact string (git SHA, error message)
+  search-conversations --text "a1b2c3d4e5f6"
+
+  # Time filtering
+  search-conversations --after 2025-09-01 "refactoring"
+  search-conversations --before 2025-10-01 --limit 20 "bug fix"
+
+  # Combine modes
+  search-conversations --both "React Router data loading"
+
+OUTPUT FORMAT:
+  For each result:
+  - Project name and date
+  - Conversation summary (AI-generated)
+  - Matched exchange with similarity % (vector mode)
+  - File path with line numbers
+
+  Example:
+  1. [react-router-7-starter, 2025-09-17]
+     Built authentication with JWT, implemented protected routes.
+
+     92% match: "How do I handle auth errors in loaders?"
+     ~/.config/superpowers/conversation-archive/.../uuid.jsonl:145-167
+
+QUERY TIPS:
+  - Use natural language: "How did we handle X?"
+  - Be specific: "React Router data loading" not "routing"
+  - Include context: "TypeScript type narrowing in guards"
+
+SEE ALSO:
+  skills/collaboration/remembering-conversations/INDEXING.md - Manage index
+  skills/collaboration/remembering-conversations/SKILL.md - Usage guide
+EOF
+      exit 0
+      ;;
+    --text)
+      MODE="text"
+      shift
+      ;;
+    --both)
+      MODE="both"
+      shift
+      ;;
+    --after)
+      AFTER="$2"
+      shift 2
+      ;;
+    --before)
+      BEFORE="$2"
+      shift 2
+      ;;
+    --limit)
+      LIMIT="$2"
+      shift 2
+      ;;
+    *)
+      QUERY="$QUERY $1"
+      shift
+      ;;
+  esac
+done
+
+QUERY=$(echo "$QUERY" | sed 's/^ *//')
+
+if [ -z "$QUERY" ]; then
+  echo "Usage: search-conversations [options] <query>"
+  echo "Try: search-conversations --help"
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+npx tsx "$SCRIPT_DIR/../src/search-cli.ts" "$QUERY" "$MODE" "$LIMIT" "$AFTER" "$BEFORE"

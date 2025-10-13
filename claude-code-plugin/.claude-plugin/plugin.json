@@ -1,0 +1,14 @@
+{
+  "name": "episodic-memory",
+  "description": "Semantic search for Claude Code conversations - remember past discussions, decisions, and patterns",
+  "version": "1.0.0",
+  "author": {
+    "name": "Jesse Vincent",
+    "email": "jesse@fsck.com"
+  },
+  "homepage": "https://github.com/obra/episodic-memory",
+  "repository": "https://github.com/obra/episodic-memory",
+  "license": "MIT",
+  "keywords": ["memory", "search", "conversations", "semantic-search", "episodic"],
+  "category": "productivity"
+}
