@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { initDatabase, migrateSchema, insertExchange } from './db.js';
-import { ConversationExchange } from './types.js';
+import { initDatabase, migrateSchema, insertExchange } from '../src/db.js';
+import { ConversationExchange } from '../src/types.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
