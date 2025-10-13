@@ -7,33 +7,38 @@
 import { initDatabase, insertExchange } from '../src/db.js';
 import { initEmbeddings, generateExchangeEmbedding } from '../src/embeddings.js';
 import { parseConversationFile } from '../src/parser.js';
+import { suppressConsole } from './test-utils.js';
 
 /**
  * Index a list of conversation files directly (for testing)
  * Unlike the main indexConversations(), this doesn't expect .claude/projects structure
+ * Suppresses console output for clean test runs
  */
 export async function indexTestFiles(filePaths: string[]): Promise<void> {
-  const db = initDatabase();
-  await initEmbeddings();
+  const restore = suppressConsole();
 
-  for (const filePath of filePaths) {
-    const { project, exchanges } = await parseConversationFile(filePath);
+  try {
+    const db = initDatabase();
+    await initEmbeddings();
 
-    if (exchanges.length === 0) {
-      console.log(`Skipping ${filePath} - no exchanges`);
-      continue;
+    for (const filePath of filePaths) {
+      const { project, exchanges } = await parseConversationFile(filePath);
+
+      if (exchanges.length === 0) {
+        continue;
+      }
+
+      for (const exchange of exchanges) {
+        const embedding = await generateExchangeEmbedding(
+          exchange.userMessage,
+          exchange.assistantMessage
+        );
+        insertExchange(db, exchange, embedding);
+      }
     }
 
-    for (const exchange of exchanges) {
-      const embedding = await generateExchangeEmbedding(
-        exchange.userMessage,
-        exchange.assistantMessage
-      );
-      insertExchange(db, exchange, embedding);
-    }
-
-    console.log(`Indexed ${filePath}: ${exchanges.length} exchanges`);
+    db.close();
+  } finally {
+    restore();
   }
-
-  db.close();
 }

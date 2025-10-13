@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initDatabase, migrateSchema, insertExchange } from '../src/db.js';
 import { ConversationExchange } from '../src/types.js';
+import { suppressConsole } from './test-utils.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import Database from 'better-sqlite3';
+
+// Suppress console output for clean test runs
+const restoreConsole = suppressConsole();
 
 describe('database migration', () => {
   const testDir = path.join(os.tmpdir(), 'db-migration-test-' + Date.now());

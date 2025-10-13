@@ -4,6 +4,25 @@ import os from 'os';
 import Database from 'better-sqlite3';
 
 /**
+ * Suppress console output during test execution
+ */
+export function suppressConsole(): () => void {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+
+  console.log = () => {};
+  console.error = () => {};
+  console.warn = () => {};
+
+  return () => {
+    console.log = originalLog;
+    console.error = originalError;
+    console.warn = originalWarn;
+  };
+}
+
+/**
  * Create a temporary test database that will be cleaned up automatically
  */
 export function createTestDb(): { db: Database.Database; cleanup: () => void } {
