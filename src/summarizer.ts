@@ -24,7 +24,7 @@ async function callClaude(prompt: string, useSonnet = false): Promise<string> {
     options: {
       model,
       max_tokens: 4096,
-      systemPrompt: 'Write concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
+      systemPrompt: '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>\n\nWrite concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
     } as any
   })) {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
