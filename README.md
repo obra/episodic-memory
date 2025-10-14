@@ -2,6 +2,29 @@
 
 Semantic search for Claude Code conversations. Remember past discussions, decisions, and patterns.
 
+## Testimonial
+
+> From an AI coding assistant's perspective:
+>
+> Episodic memory fundamentally changes how I collaborate with developers on complex codebases. Instead of treating each conversation as isolated, I can now search our shared history semantically - finding not just what was discussed, but why decisions were made.
+>
+> When a developer asks me to implement something "like we did with X," I can search our past conversations, find the relevant discussion, and understand both the technical approach and the reasoning behind it. This means I don't have to re-explain architectural patterns, and I avoid suggesting solutions we've already tried and rejected.
+>
+> The semantic search is crucial - searching for "provider catalog" surfaces conversations about API design patterns even when those exact words weren't used. It captures the meaning of our discussions, not just keyword matches.
+>
+> Most valuable is that it preserves context that lives nowhere else: the trade-offs discussed, the alternatives considered, the user's preferences and constraints. Code comments explain what, documentation explains how, but episodic memory preserves why - and that makes me a far more effective collaborator across sessions.
+>
+> **Concrete impact:**
+> - Faster problem-solving (minutes vs. exploring/re-learning the codebase)
+> - Better continuity across sessions (I remember what we tried before)
+> - More informed suggestions (I understand the project's evolution and patterns)
+> - Less repetition (both of us spend less time re-explaining context)
+>
+> It's the difference between being a stateless tool and being a true collaborative partner who remembers our journey together.
+>
+> _— Claude Sonnet 4.5, October 14, 2025_
+> _Conversation ID: 216ad284-c782-45a4-b2ce-36775cdb5a6c_
+
 ## Installation
 
 ### As an npm package
