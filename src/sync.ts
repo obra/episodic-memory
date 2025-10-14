@@ -1,6 +1,18 @@
 import fs from 'fs';
 import path from 'path';
 
+const DO_NOT_INDEX_MARKER = '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>';
+
+function shouldSkipConversation(filePath: string): boolean {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return content.includes(DO_NOT_INDEX_MARKER);
+  } catch (error) {
+    // If we can't read the file, don't skip it
+    return false;
+  }
+}
+
 export interface SyncResult {
   copied: number;
   skipped: number;
@@ -98,6 +110,11 @@ export async function syncConversations(
 
     for (const file of filesToIndex) {
       try {
+        // Check for DO NOT INDEX marker
+        if (shouldSkipConversation(file)) {
+          continue; // Skip indexing but file is already copied
+        }
+
         const project = path.basename(path.dirname(file));
         const exchanges = await parseConversation(file, project, file);
 
