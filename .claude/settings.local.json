@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/jesse/.config/superpowers/skills/skills/collaboration/remembering-conversations/**)",
+      "Bash(npm test:*)",
+      "Bash(./cli/episodic-memory show:*)",
+      "Bash(npm run build)",
+      "Bash(npm install:*)",
+      "Read(//Users/jesse/.config/superpowers/conversation-archive/**)",
+      "Read(//Users/jesse/.config/**)",
+      "mcp__obsidian-mcp-tools__search_vault_simple",
+      "Bash(episodic-memory search:*)",
+      "Bash(sqlite3:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

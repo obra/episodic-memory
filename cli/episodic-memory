@@ -1,6 +1,13 @@
 #!/bin/bash
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve the real directory even if this script is symlinked
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 # Main CLI entry point with subcommands
 COMMAND="$1"
@@ -13,13 +20,18 @@ case "$COMMAND" in
     ;;
 
   search)
-    # Route to search-conversations script with remaining args
-    "$SCRIPT_DIR/search-conversations" "$@"
+    # Route to search implementation
+    npx tsx "$SCRIPT_DIR/../src/search-cli.ts" "$@"
     ;;
 
   show)
     # Route to show implementation
     npx tsx "$SCRIPT_DIR/../src/show-cli.ts" "$@"
+    ;;
+
+  stats)
+    # Route to stats implementation
+    npx tsx "$SCRIPT_DIR/../src/stats-cli.ts" "$@"
     ;;
 
   --help|-h|"")
@@ -33,6 +45,7 @@ COMMANDS:
   index       Index conversations for search
   search      Search indexed conversations
   show        Display a conversation in readable format
+  stats       Show index statistics
 
 Run 'episodic-memory <command> --help' for command-specific help.
 
