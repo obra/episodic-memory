@@ -67,10 +67,17 @@ export async function searchConversations(
       ORDER BY vec.distance ASC
     `);
 
-    results = stmt.all(
+    const rawResults = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
-      limit
+      limit * 3 // Get extra results to filter
     );
+
+    // Filter out very poor matches (distance > 1.0 means negative similarity)
+    // Keep anything with > 0% similarity
+    results = rawResults.filter((r: any) => r.distance < 1.0);
+
+    // Limit after filtering
+    results = results.slice(0, limit);
   }
 
   if (mode === 'text' || mode === 'both') {
@@ -129,9 +136,9 @@ export async function searchConversations(
       summary = fs.readFileSync(summaryPath, 'utf-8').trim();
     }
 
-    // Create snippet (first 200 chars)
-    const snippet = exchange.userMessage.substring(0, 200) +
-      (exchange.userMessage.length > 200 ? '...' : '');
+    // Create snippet (first 200 chars, collapse newlines)
+    const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, ' ').trim();
+    const snippet = snippetText + (exchange.userMessage.length > 200 ? '...' : '');
 
     return {
       exchange,
@@ -147,25 +154,40 @@ export function formatResults(results: Array<SearchResult & { summary?: string }
     return 'No results found.';
   }
 
-  let output = `Found ${results.length} relevant conversations:\n\n`;
+  let output = `Found ${results.length} relevant conversation${results.length > 1 ? 's' : ''}:\n\n`;
 
   results.forEach((result, index) => {
     const date = new Date(result.exchange.timestamp).toISOString().split('T')[0];
-    output += `${index + 1}. [${result.exchange.project}, ${date}]\n`;
+    const simPct = result.similarity !== undefined ? Math.round(result.similarity * 100) : null;
 
-    // Show conversation summary if available
-    if (result.summary) {
-      output += `   ${result.summary}\n\n`;
+    // Header with match percentage
+    output += `${index + 1}. [${result.exchange.project}, ${date}]`;
+    if (simPct !== null) {
+      output += ` - ${simPct}% match`;
+    }
+    output += '\n';
+
+    // Show summary only if it's concise (< 300 chars)
+    if (result.summary && result.summary.length < 300) {
+      output += `   ${result.summary}\n`;
     }
 
-    // Show match with similarity percentage
-    if (result.similarity !== undefined) {
-      const pct = Math.round(result.similarity * 100);
-      output += `   ${pct}% match: "${result.snippet}"\n`;
-    } else {
-      output += `   Match: "${result.snippet}"\n`;
+    // Show snippet
+    output += `   "${result.snippet}"\n`;
+
+    // Show tool usage if available
+    if (result.exchange.toolCalls && result.exchange.toolCalls.length > 0) {
+      const toolCounts = new Map<string, number>();
+      result.exchange.toolCalls.forEach(tc => {
+        toolCounts.set(tc.toolName, (toolCounts.get(tc.toolName) || 0) + 1);
+      });
+      const toolSummary = Array.from(toolCounts.entries())
+        .map(([name, count]) => `${name}(${count})`)
+        .join(', ');
+      output += `   Tools: ${toolSummary}\n`;
     }
 
+    // File path
     output += `   ${result.exchange.archivePath}:${result.exchange.lineStart}-${result.exchange.lineEnd}\n\n`;
   });
 
