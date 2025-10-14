@@ -34,6 +34,11 @@ case "$COMMAND" in
     npx tsx "$SCRIPT_DIR/../src/stats-cli.ts" "$@"
     ;;
 
+  sync)
+    # Route to sync implementation
+    npx tsx "$SCRIPT_DIR/../src/sync-cli.ts" "$@"
+    ;;
+
   --help|-h|"")
     cat <<'EOF'
 episodic-memory - Manage and search Claude Code conversations
@@ -42,6 +47,7 @@ USAGE:
   episodic-memory <command> [options]
 
 COMMANDS:
+  sync        Sync conversations from ~/.claude/projects and index them
   index       Index conversations for search
   search      Search indexed conversations
   show        Display a conversation in readable format
