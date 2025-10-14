@@ -10,7 +10,11 @@
       "Read(//Users/jesse/.config/**)",
       "mcp__obsidian-mcp-tools__search_vault_simple",
       "Bash(episodic-memory search:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(episodic-memory stats:*)"
     ],
     "deny": [],
     "ask": []

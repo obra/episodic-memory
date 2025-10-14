@@ -6,14 +6,32 @@ import * as sqliteVec from 'sqlite-vec';
 import { getDbPath } from './paths.js';
 
 export function migrateSchema(db: Database.Database): void {
-  const hasColumn = db.prepare(`
-    SELECT COUNT(*) as count FROM pragma_table_info('exchanges')
-    WHERE name='last_indexed'
-  `).get() as { count: number };
+  const columns = db.prepare(`SELECT name FROM pragma_table_info('exchanges')`).all() as Array<{ name: string }>;
+  const columnNames = new Set(columns.map(c => c.name));
 
-  if (hasColumn.count === 0) {
-    console.log('Migrating schema: adding last_indexed column...');
-    db.prepare('ALTER TABLE exchanges ADD COLUMN last_indexed INTEGER').run();
+  const migrations: Array<{ name: string; sql: string }> = [
+    { name: 'last_indexed', sql: 'ALTER TABLE exchanges ADD COLUMN last_indexed INTEGER' },
+    { name: 'parent_uuid', sql: 'ALTER TABLE exchanges ADD COLUMN parent_uuid TEXT' },
+    { name: 'is_sidechain', sql: 'ALTER TABLE exchanges ADD COLUMN is_sidechain BOOLEAN DEFAULT 0' },
+    { name: 'session_id', sql: 'ALTER TABLE exchanges ADD COLUMN session_id TEXT' },
+    { name: 'cwd', sql: 'ALTER TABLE exchanges ADD COLUMN cwd TEXT' },
+    { name: 'git_branch', sql: 'ALTER TABLE exchanges ADD COLUMN git_branch TEXT' },
+    { name: 'claude_version', sql: 'ALTER TABLE exchanges ADD COLUMN claude_version TEXT' },
+    { name: 'thinking_level', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_level TEXT' },
+    { name: 'thinking_disabled', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_disabled BOOLEAN' },
+    { name: 'thinking_triggers', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_triggers TEXT' },
+  ];
+
+  let migrated = false;
+  for (const migration of migrations) {
+    if (!columnNames.has(migration.name)) {
+      console.log(`Migrating schema: adding ${migration.name} column...`);
+      db.prepare(migration.sql).run();
+      migrated = true;
+    }
+  }
+
+  if (migrated) {
     console.log('Migration complete.');
   }
 }
@@ -46,7 +64,31 @@ export function initDatabase(): Database.Database {
       archive_path TEXT NOT NULL,
       line_start INTEGER NOT NULL,
       line_end INTEGER NOT NULL,
-      embedding BLOB
+      embedding BLOB,
+      last_indexed INTEGER,
+      parent_uuid TEXT,
+      is_sidechain BOOLEAN DEFAULT 0,
+      session_id TEXT,
+      cwd TEXT,
+      git_branch TEXT,
+      claude_version TEXT,
+      thinking_level TEXT,
+      thinking_disabled BOOLEAN,
+      thinking_triggers TEXT
+    )
+  `);
+
+  // Create tool_calls table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tool_calls (
+      id TEXT PRIMARY KEY,
+      exchange_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      tool_input TEXT,
+      tool_result TEXT,
+      is_error BOOLEAN DEFAULT 0,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
     )
   `);
 
@@ -58,13 +100,31 @@ export function initDatabase(): Database.Database {
     )
   `);
 
-  // Create index on timestamp for sorting
+  // Run migrations first
+  migrateSchema(db);
+
+  // Create indexes (after migrations ensure columns exist)
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_timestamp ON exchanges(timestamp DESC)
   `);
-
-  // Run migrations
-  migrateSchema(db);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_id ON exchanges(session_id)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_project ON exchanges(project)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sidechain ON exchanges(is_sidechain)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_git_branch ON exchanges(git_branch)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tool_name ON tool_calls(tool_name)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tool_exchange ON tool_calls(exchange_id)
+  `);
 
   return db;
 }
@@ -78,8 +138,10 @@ export function insertExchange(
 
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO exchanges
-    (id, project, timestamp, user_message, assistant_message, archive_path, line_start, line_end, last_indexed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, project, timestamp, user_message, assistant_message, archive_path, line_start, line_end, last_indexed,
+     parent_uuid, is_sidechain, session_id, cwd, git_branch, claude_version,
+     thinking_level, thinking_disabled, thinking_triggers)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -91,7 +153,16 @@ export function insertExchange(
     exchange.archivePath,
     exchange.lineStart,
     exchange.lineEnd,
-    now
+    now,
+    exchange.parentUuid || null,
+    exchange.isSidechain ? 1 : 0,
+    exchange.sessionId || null,
+    exchange.cwd || null,
+    exchange.gitBranch || null,
+    exchange.claudeVersion || null,
+    exchange.thinkingLevel || null,
+    exchange.thinkingDisabled ? 1 : 0,
+    exchange.thinkingTriggers || null
   );
 
   // Insert into vector table (delete first since virtual tables don't support REPLACE)
@@ -104,6 +175,27 @@ export function insertExchange(
   `);
 
   vecStmt.run(exchange.id, Buffer.from(new Float32Array(embedding).buffer));
+
+  // Insert tool calls if present
+  if (exchange.toolCalls && exchange.toolCalls.length > 0) {
+    const toolStmt = db.prepare(`
+      INSERT OR REPLACE INTO tool_calls
+      (id, exchange_id, tool_name, tool_input, tool_result, is_error, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const toolCall of exchange.toolCalls) {
+      toolStmt.run(
+        toolCall.id,
+        toolCall.exchangeId,
+        toolCall.toolName,
+        toolCall.toolInput ? JSON.stringify(toolCall.toolInput) : null,
+        toolCall.toolResult || null,
+        toolCall.isError ? 1 : 0,
+        toolCall.timestamp
+      );
+    }
+  }
 }
 
 export function getAllExchanges(db: Database.Database): Array<{ id: string; archivePath: string }> {

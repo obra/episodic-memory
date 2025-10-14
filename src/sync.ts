@@ -2,11 +2,12 @@ import fs from 'fs';
 import path from 'path';
 
 const DO_NOT_INDEX_MARKER = '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>';
+const INSIGHTS_MARKER = 'Only use NO_INSIGHTS_FOUND';
 
 function shouldSkipConversation(filePath: string): boolean {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    return content.includes(DO_NOT_INDEX_MARKER);
+    return content.includes(DO_NOT_INDEX_MARKER) || content.includes(INSIGHTS_MARKER);
   } catch (error) {
     // If we can't read the file, don't skip it
     return false;
