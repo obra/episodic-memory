@@ -1,0 +1,59 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Main CLI entry point with subcommands
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+  index)
+    # Route to index-conversations script with remaining args
+    "$SCRIPT_DIR/index-conversations" "$@"
+    ;;
+
+  search)
+    # Route to search-conversations script with remaining args
+    "$SCRIPT_DIR/search-conversations" "$@"
+    ;;
+
+  show)
+    # Route to show implementation
+    npx tsx "$SCRIPT_DIR/../src/show-cli.ts" "$@"
+    ;;
+
+  --help|-h|"")
+    cat <<'EOF'
+episodic-memory - Manage and search Claude Code conversations
+
+USAGE:
+  episodic-memory <command> [options]
+
+COMMANDS:
+  index       Index conversations for search
+  search      Search indexed conversations
+  show        Display a conversation in readable format
+
+Run 'episodic-memory <command> --help' for command-specific help.
+
+EXAMPLES:
+  # Index all conversations
+  episodic-memory index --cleanup
+
+  # Search for something
+  episodic-memory search "React Router auth"
+
+  # Display a conversation
+  episodic-memory show path/to/conversation.jsonl
+
+  # Generate HTML output
+  episodic-memory show --format html conversation.jsonl > output.html
+EOF
+    ;;
+
+  *)
+    echo "Unknown command: $COMMAND"
+    echo "Try: episodic-memory --help"
+    exit 1
+    ;;
+esac
