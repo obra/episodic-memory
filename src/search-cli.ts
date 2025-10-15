@@ -3,7 +3,7 @@ import { searchConversations, formatResults, SearchOptions } from './search.js';
 const args = process.argv.slice(2);
 
 // Parse arguments
-let mode: 'vector' | 'text' | 'both' = 'vector';
+let mode: 'vector' | 'text' | 'both' = 'both';
 let after: string | undefined;
 let before: string | undefined;
 let limit = 10;
@@ -19,9 +19,9 @@ Usage: episodic-memory search [OPTIONS] <query>
 Search indexed conversations using semantic similarity or exact text matching.
 
 MODES:
-  (default)      Vector similarity search (semantic)
-  --text         Exact string matching (for git SHAs, error codes)
-  --both         Combine vector + text search
+  (default)      Combined vector + text search
+  --vector       Vector similarity only (semantic)
+  --text         Exact string matching only (for git SHAs, error codes)
 
 OPTIONS:
   --after DATE   Only conversations after YYYY-MM-DD
@@ -43,10 +43,10 @@ EXAMPLES:
   episodic-memory search --both "React Router data loading"
 `);
     process.exit(0);
+  } else if (arg === '--vector') {
+    mode = 'vector';
   } else if (arg === '--text') {
     mode = 'text';
-  } else if (arg === '--both') {
-    mode = 'both';
   } else if (arg === '--after') {
     after = args[++i];
   } else if (arg === '--before') {

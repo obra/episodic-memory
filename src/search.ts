@@ -27,7 +27,7 @@ export async function searchConversations(
   query: string,
   options: SearchOptions = {}
 ): Promise<SearchResult[]> {
-  const { limit = 10, mode = 'vector', after, before } = options;
+  const { limit = 10, mode = 'both', after, before } = options;
 
   // Validate date parameters
   if (after) validateISODate(after, '--after');
