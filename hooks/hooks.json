@@ -2,9 +2,13 @@
   "hooks": {
     "SessionEnd": [
       {
-        "type": "command",
-        "command": "${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory",
-        "args": ["sync"]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory",
+            "args": ["sync"]
+          }
+        ]
       }
     ]
   }
