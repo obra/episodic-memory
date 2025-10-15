@@ -132,7 +132,8 @@ export function initDatabase(): Database.Database {
 export function insertExchange(
   db: Database.Database,
   exchange: ConversationExchange,
-  embedding: number[]
+  embedding: number[],
+  toolNames?: string[]
 ): void {
   const now = Date.now();
 

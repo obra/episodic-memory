@@ -31,9 +31,16 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 export async function generateExchangeEmbedding(
   userMessage: string,
-  assistantMessage: string
+  assistantMessage: string,
+  toolNames?: string[]
 ): Promise<number[]> {
-  // Combine user question and assistant answer for better searchability
-  const combined = `User: ${userMessage}\n\nAssistant: ${assistantMessage}`;
+  // Combine user question, assistant answer, and tools used for better searchability
+  let combined = `User: ${userMessage}\n\nAssistant: ${assistantMessage}`;
+
+  // Include tool names in embedding for tool-based searches
+  if (toolNames && toolNames.length > 0) {
+    combined += `\n\nTools: ${toolNames.join(', ')}`;
+  }
+
   return generateEmbedding(combined);
 }

@@ -171,12 +171,14 @@ export async function indexConversations(
     // Now process embeddings and DB inserts (fast, sequential is fine)
     for (const conv of toProcess) {
       for (const exchange of conv.exchanges) {
+        const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
         const embedding = await generateExchangeEmbedding(
           exchange.userMessage,
-          exchange.assistantMessage
+          exchange.assistantMessage,
+          toolNames
         );
 
-        insertExchange(db, exchange, embedding);
+        insertExchange(db, exchange, embedding, toolNames);
       }
 
       totalExchanges += conv.exchanges.length;
@@ -246,11 +248,13 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
 
         // Index
         for (const exchange of exchanges) {
+          const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
           const embedding = await generateExchangeEmbedding(
             exchange.userMessage,
-            exchange.assistantMessage
+            exchange.assistantMessage,
+            toolNames
           );
-          insertExchange(db, exchange, embedding);
+          insertExchange(db, exchange, embedding, toolNames);
         }
 
         console.log(`✅ Indexed session ${sessionId}: ${exchanges.length} exchanges`);
@@ -361,11 +365,13 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
   console.log(`\nIndexing embeddings...`);
   for (const conv of unprocessed) {
     for (const exchange of conv.exchanges) {
+      const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
       const embedding = await generateExchangeEmbedding(
         exchange.userMessage,
-        exchange.assistantMessage
+        exchange.assistantMessage,
+        toolNames
       );
-      insertExchange(db, exchange, embedding);
+      insertExchange(db, exchange, embedding, toolNames);
     }
   }
 

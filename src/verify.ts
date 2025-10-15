@@ -152,11 +152,13 @@ export async function repairIndex(issues: VerificationResult): Promise<void> {
 
       // Index exchanges
       for (const exchange of exchanges) {
+        const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
         const embedding = await generateExchangeEmbedding(
           exchange.userMessage,
-          exchange.assistantMessage
+          exchange.assistantMessage,
+          toolNames
         );
-        insertExchange(db, exchange, embedding);
+        insertExchange(db, exchange, embedding, toolNames);
       }
 
       console.log(`  Indexed ${exchanges.length} exchanges`);

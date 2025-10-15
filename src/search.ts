@@ -67,17 +67,10 @@ export async function searchConversations(
       ORDER BY vec.distance ASC
     `);
 
-    const rawResults = stmt.all(
+    results = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
-      limit * 3 // Get extra results to filter
+      limit
     );
-
-    // Filter out very poor matches (distance > 1.0 means negative similarity)
-    // Keep anything with > 0% similarity
-    results = rawResults.filter((r: any) => r.distance < 1.0);
-
-    // Limit after filtering
-    results = results.slice(0, limit);
   }
 
   if (mode === 'text' || mode === 'both') {

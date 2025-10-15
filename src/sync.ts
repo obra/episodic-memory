@@ -123,11 +123,13 @@ export async function syncConversations(
         const exchanges = await parseConversation(file, project, file);
 
         for (const exchange of exchanges) {
+          const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
           const embedding = await generateExchangeEmbedding(
             exchange.userMessage,
-            exchange.assistantMessage
+            exchange.assistantMessage,
+            toolNames
           );
-          insertExchange(db, exchange, embedding);
+          insertExchange(db, exchange, embedding, toolNames);
         }
 
         result.indexed++;
