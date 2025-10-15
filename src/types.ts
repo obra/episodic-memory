@@ -42,3 +42,10 @@ export interface SearchResult {
   similarity: number;
   snippet: string;
 }
+
+export interface MultiConceptResult {
+  exchange: ConversationExchange;
+  snippet: string;
+  conceptSimilarities: number[];
+  averageSimilarity: number;
+}

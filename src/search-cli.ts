@@ -1,4 +1,4 @@
-import { searchConversations, formatResults, SearchOptions } from './search.js';
+import { searchConversations, formatResults, searchMultipleConcepts, formatMultiConceptResults, SearchOptions } from './search.js';
 
 const args = process.argv.slice(2);
 
@@ -7,7 +7,7 @@ let mode: 'vector' | 'text' | 'both' = 'both';
 let after: string | undefined;
 let before: string | undefined;
 let limit = 10;
-let query: string | null = null;
+const queries: string[] = [];
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
@@ -41,6 +41,9 @@ EXAMPLES:
 
   # Combine modes
   episodic-memory search --both "React Router data loading"
+
+  # Multi-concept search (AND - all concepts must match)
+  episodic-memory search "React Router" "authentication" "JWT"
 `);
     process.exit(0);
   } else if (arg === '--vector') {
@@ -53,29 +56,46 @@ EXAMPLES:
     before = args[++i];
   } else if (arg === '--limit') {
     limit = parseInt(args[++i]);
-  } else if (!query) {
-    query = arg;
+  } else {
+    // All non-flag args are query terms
+    queries.push(arg);
   }
 }
 
-if (!query) {
-  console.error('Usage: episodic-memory search [OPTIONS] <query>');
+if (queries.length === 0) {
+  console.error('Usage: episodic-memory search [OPTIONS] <query> [query2] [query3]...');
   console.error('Try: episodic-memory search --help');
   process.exit(1);
 }
 
-const options: SearchOptions = {
-  mode,
-  limit,
-  after,
-  before
-};
+// Multi-concept search if multiple queries provided
+if (queries.length > 1) {
+  const options = { limit, after, before };
 
-searchConversations(query, options)
-  .then(results => {
-    console.log(formatResults(results));
-  })
-  .catch(error => {
-    console.error('Error searching:', error);
-    process.exit(1);
-  });
+  searchMultipleConcepts(queries, options)
+    .then(results => {
+      console.log(formatMultiConceptResults(results, queries));
+    })
+    .catch(error => {
+      console.error('Error searching:', error);
+      process.exit(1);
+    });
+} else {
+  // Single query - use regular search
+  const options: SearchOptions = {
+    mode,
+    limit,
+    after,
+    before
+  };
+
+  searchConversations(queries[0], options)
+    .then(results => {
+      console.log(formatResults(results));
+    })
+    .catch(error => {
+      console.error('Error searching:', error);
+      process.exit(1);
+    });
+}
+

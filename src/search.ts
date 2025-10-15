@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { initDatabase } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
-import { SearchResult, ConversationExchange } from './types.js';
+import { SearchResult, ConversationExchange, MultiConceptResult } from './types.js';
 import fs from 'fs';
 
 export interface SearchOptions {
@@ -186,3 +186,111 @@ export function formatResults(results: Array<SearchResult & { summary?: string }
 
   return output;
 }
+
+export async function searchMultipleConcepts(
+  concepts: string[],
+  options: Omit<SearchOptions, 'mode'> = {}
+): Promise<MultiConceptResult[]> {
+  const { limit = 10 } = options;
+
+  if (concepts.length === 0) {
+    return [];
+  }
+
+  // Search for each concept independently
+  const conceptResults = await Promise.all(
+    concepts.map(concept => searchConversations(concept, { ...options, limit: limit * 5, mode: 'vector' }))
+  );
+
+  // Build map of conversation path -> array of results (one per concept)
+  const conversationMap = new Map<string, Array<SearchResult & { conceptIndex: number }>>();
+
+  conceptResults.forEach((results, conceptIndex) => {
+    results.forEach(result => {
+      const key = result.exchange.archivePath;
+      if (!conversationMap.has(key)) {
+        conversationMap.set(key, []);
+      }
+      conversationMap.get(key)!.push({ ...result, conceptIndex });
+    });
+  });
+
+  // Find conversations that match ALL concepts
+  const multiConceptResults: MultiConceptResult[] = [];
+
+  for (const [archivePath, results] of conversationMap.entries()) {
+    // Check if all concepts are represented
+    const representedConcepts = new Set(results.map(r => r.conceptIndex));
+    if (representedConcepts.size === concepts.length) {
+      // All concepts found in this conversation
+      const conceptSimilarities = concepts.map((_concept, index) => {
+        const result = results.find(r => r.conceptIndex === index);
+        return result?.similarity || 0;
+      });
+
+      const averageSimilarity = conceptSimilarities.reduce((sum, sim) => sum + sim, 0) / conceptSimilarities.length;
+
+      // Use the first result's exchange data (they're all from the same conversation)
+      const firstResult = results[0];
+
+      multiConceptResults.push({
+        exchange: firstResult.exchange,
+        snippet: firstResult.snippet,
+        conceptSimilarities,
+        averageSimilarity
+      });
+    }
+  }
+
+  // Sort by average similarity (highest first)
+  multiConceptResults.sort((a, b) => b.averageSimilarity - a.averageSimilarity);
+
+  // Apply limit
+  return multiConceptResults.slice(0, limit);
+}
+
+export function formatMultiConceptResults(
+  results: MultiConceptResult[],
+  concepts: string[]
+): string {
+  if (results.length === 0) {
+    return `No conversations found matching all concepts: ${concepts.join(', ')}`;
+  }
+
+  let output = `Found ${results.length} conversation${results.length > 1 ? 's' : ''} matching all concepts [${concepts.join(' + ')}]:\n\n`;
+
+  results.forEach((result, index) => {
+    const date = new Date(result.exchange.timestamp).toISOString().split('T')[0];
+    const avgPct = Math.round(result.averageSimilarity * 100);
+
+    // Header with average match percentage
+    output += `${index + 1}. [${result.exchange.project}, ${date}] - ${avgPct}% avg match\n`;
+
+    // Show individual concept scores
+    const scores = result.conceptSimilarities
+      .map((sim, i) => `${concepts[i]}: ${Math.round(sim * 100)}%`)
+      .join(', ');
+    output += `   Concepts: ${scores}\n`;
+
+    // Show snippet
+    output += `   "${result.snippet}"\n`;
+
+    // Show tool usage if available
+    if (result.exchange.toolCalls && result.exchange.toolCalls.length > 0) {
+      const toolCounts = new Map<string, number>();
+      result.exchange.toolCalls.forEach(tc => {
+        toolCounts.set(tc.toolName, (toolCounts.get(tc.toolName) || 0) + 1);
+      });
+      const toolSummary = Array.from(toolCounts.entries())
+        .map(([name, count]) => `${name}(${count})`)
+        .join(', ');
+      output += `   Tools: ${toolSummary}\n`;
+    }
+
+    // File path
+    output += `   ${result.exchange.archivePath}:${result.exchange.lineStart}-${result.exchange.lineEnd}\n\n`;
+  });
+
+  return output;
+}
+
