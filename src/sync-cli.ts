@@ -45,6 +45,7 @@ syncConversations(sourceDir, destDir)
     console.log(`  Copied: ${result.copied}`);
     console.log(`  Skipped: ${result.skipped}`);
     console.log(`  Indexed: ${result.indexed}`);
+    console.log(`  Summarized: ${result.summarized}`);
 
     if (result.errors.length > 0) {
       console.log(`\n⚠️  Errors: ${result.errors.length}`);

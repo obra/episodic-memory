@@ -27,17 +27,24 @@ Semantic search for Claude Code conversations. Remember past discussions, decisi
 
 ## Installation
 
-### As an npm package
+### As a Claude Code plugin (Recommended)
 
-```bash
-npm install episodic-memory
-```
-
-### As a Claude Code plugin
+The plugin provides MCP server integration, automatic session-end indexing, and seamless access to your conversation history.
 
 ```bash
 # In Claude Code
 /plugin install episodic-memory@superpowers-marketplace
+```
+
+The plugin automatically:
+- Indexes conversations at the end of each session
+- Exposes MCP tools for searching and viewing conversations
+- Makes your conversation history searchable via natural language
+
+### As an npm package
+
+```bash
+npm install episodic-memory
 ```
 
 ## Usage
@@ -164,7 +171,8 @@ open output.html
 
 - **Core package** - TypeScript library for indexing and searching conversations
 - **CLI tools** - Unified command-line interface for manual use
-- **Claude Code plugin** - Integration with Claude Code (auto-indexing, slash commands)
+- **MCP Server** - Model Context Protocol server exposing search and conversation tools
+- **Claude Code plugin** - Integration with Claude Code (auto-indexing, MCP tools, hooks)
 
 ## How It Works
 
@@ -193,6 +201,63 @@ Conversations containing this marker anywhere in their content will be archived 
 - Any conversation you don't want searchable
 
 The marker can appear in any message (user or assistant) and excludes the entire conversation from the search index.
+
+## MCP Server
+
+When installed as a Claude Code plugin, episodic-memory provides an MCP (Model Context Protocol) server that exposes tools for searching and viewing conversations.
+
+### Available MCP Tools
+
+#### `episodic_memory_search`
+
+Search indexed conversations using semantic similarity or exact text matching.
+
+**Single-concept search**: Pass a string query
+```json
+{
+  "query": "React Router authentication",
+  "mode": "vector",
+  "limit": 10
+}
+```
+
+**Multi-concept AND search**: Pass an array of concepts
+```json
+{
+  "query": ["React Router", "authentication", "JWT"],
+  "limit": 10
+}
+```
+
+**Parameters:**
+- `query` (string | string[]): Single string for regular search, or array of 2-5 strings for multi-concept AND search
+- `mode` ('vector' | 'text' | 'both'): Search mode for single-concept searches (default: 'both')
+- `limit` (number): Max results, 1-50 (default: 10)
+- `after` (string, optional): Only show conversations after YYYY-MM-DD
+- `before` (string, optional): Only show conversations before YYYY-MM-DD
+- `response_format` ('markdown' | 'json'): Output format (default: 'markdown')
+
+#### `episodic_memory_show`
+
+Display a full conversation in readable markdown format.
+
+```json
+{
+  "path": "/path/to/conversation.jsonl"
+}
+```
+
+**Parameters:**
+- `path` (string): Absolute path to the JSONL conversation file
+
+### Using the MCP Server Directly
+
+The MCP server can also be used outside of Claude Code with any MCP-compatible client:
+
+```bash
+# Run the MCP server (stdio transport)
+episodic-memory-mcp-server
+```
 
 ## Development
 

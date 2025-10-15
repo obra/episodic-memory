@@ -16,7 +16,7 @@ function extractSummary(text: string): string {
   return text.trim();
 }
 
-async function callClaude(prompt: string, useSonnet = false): Promise<string> {
+async function callClaude(prompt: string, sessionId?: string, useSonnet = false): Promise<string> {
   const model = useSonnet ? 'sonnet' : 'haiku';
 
   for await (const message of query({
@@ -24,7 +24,12 @@ async function callClaude(prompt: string, useSonnet = false): Promise<string> {
     options: {
       model,
       max_tokens: 4096,
-      systemPrompt: '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>\n\nWrite concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
+      resume: sessionId,
+      // Don't override systemPrompt when resuming - it uses the original session's prompt
+      // Instead, the prompt itself should provide clear instructions
+      ...(sessionId ? {} : {
+        systemPrompt: 'Write concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
+      })
     } as any
   })) {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
@@ -34,7 +39,7 @@ async function callClaude(prompt: string, useSonnet = false): Promise<string> {
       if (typeof result === 'string' && result.includes('API Error') && result.includes('thinking.budget_tokens')) {
         if (!useSonnet) {
           console.log(`    Haiku hit thinking budget error, retrying with Sonnet`);
-          return await callClaude(prompt, true);
+          return await callClaude(prompt, sessionId, true);
         }
         // If Sonnet also fails, return error message
         return result;
@@ -54,7 +59,7 @@ function chunkExchanges(exchanges: ConversationExchange[], chunkSize: number): C
   return chunks;
 }
 
-export async function summarizeConversation(exchanges: ConversationExchange[]): Promise<string> {
+export async function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string> {
   // Handle trivial conversations
   if (exchanges.length === 0) {
     return 'Trivial conversation with no substantive content.';
@@ -69,8 +74,11 @@ export async function summarizeConversation(exchanges: ConversationExchange[]): 
 
   // For short conversations (≤15 exchanges), summarize directly
   if (exchanges.length <= 15) {
-    const conversationText = formatConversationText(exchanges);
-    const prompt = `Context: This summary will be shown in a list to help users and Claude choose which conversations are relevant to a future activity.
+    const conversationText = sessionId
+      ? '' // When resuming, no need to include conversation text - it's already in context
+      : formatConversationText(exchanges);
+
+    const prompt = `Please write a concise, factual summary of this conversation. Output ONLY the summary - no preamble. Claude will see this summary when searching previous conversations for useful memories and information.
 
 Summarize what happened in 2-4 sentences. Be factual and specific. Output in <summary></summary> tags.
 
@@ -92,12 +100,15 @@ Bad:
 
 ${conversationText}`;
 
-    const result = await callClaude(prompt);
+    const result = await callClaude(prompt, sessionId);
     return extractSummary(result);
   }
 
   // For long conversations, use hierarchical summarization
   console.log(`  Long conversation (${exchanges.length} exchanges) - using hierarchical summarization`);
+
+  // Note: Hierarchical summarization doesn't support resume mode (needs fresh session for each chunk)
+  // This is fine since we only use resume for the main session-end hook
 
   // Chunk into groups of 8 exchanges
   const chunks = chunkExchanges(exchanges, 8);
@@ -107,14 +118,14 @@ ${conversationText}`;
   const chunkSummaries: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
     const chunkText = formatConversationText(chunks[i]);
-    const prompt = `Summarize this part of a conversation in 2-3 sentences. What happened, what was built/discussed. Use <summary></summary> tags.
+    const prompt = `Please write a concise summary of this part of a conversation in 2-3 sentences. What happened, what was built/discussed. Use <summary></summary> tags.
 
 ${chunkText}
 
 Example: <summary>Implemented HID keyboard functionality for ESP32. Hit Bluetooth controller initialization error, fixed by adjusting memory allocation.</summary>`;
 
     try {
-      const summary = await callClaude(prompt);
+      const summary = await callClaude(prompt); // No sessionId for chunks
       const extracted = extractSummary(summary);
       chunkSummaries.push(extracted);
       console.log(`  Chunk ${i + 1}/${chunks.length}: ${extracted.split(/\s+/).length} words`);
@@ -128,9 +139,7 @@ Example: <summary>Implemented HID keyboard functionality for ESP32. Hit Bluetoot
   }
 
   // Synthesize chunks into final summary
-  const synthesisPrompt = `Context: This summary will be shown in a list to help users and Claude choose which past conversations are relevant to a future activity.
-
-Synthesize these part-summaries into one cohesive paragraph. Focus on what was accomplished and any notable technical decisions or challenges. Output in <summary></summary> tags.
+  const synthesisPrompt = `Please write a concise, factual summary that synthesizes these part-summaries into one cohesive paragraph. Focus on what was accomplished and any notable technical decisions or challenges. Output in <summary></summary> tags. Claude will see this summary when searching previous conversations for useful memories and information.
 
 Part summaries:
 ${chunkSummaries.map((s, i) => `${i + 1}. ${s}`).join('\n')}
@@ -145,7 +154,7 @@ Your summary (max 200 words):`;
 
   console.log(`  Synthesizing final summary...`);
   try {
-    const result = await callClaude(synthesisPrompt);
+    const result = await callClaude(synthesisPrompt); // No sessionId for synthesis
     return extractSummary(result);
   } catch (error) {
     console.log(`  Synthesis failed, using chunk summaries`);

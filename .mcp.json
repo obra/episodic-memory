@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "episodic-memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "tsx",
+        "${CLAUDE_PLUGIN_ROOT}/src/mcp-server.ts"
+      ],
+      "env": {}
+    }
+  }
+}

@@ -21,11 +21,14 @@ export interface SyncResult {
   copied: number;
   skipped: number;
   indexed: number;
+  summarized: number;
   errors: Array<{ file: string; error: string }>;
 }
 
 export interface SyncOptions {
   skipIndex?: boolean;
+  skipSummaries?: boolean;
+  summaryLimit?: number; // Max summaries to generate per run (default: 10)
 }
 
 function copyIfNewer(src: string, dest: string): boolean {
@@ -51,6 +54,16 @@ function copyIfNewer(src: string, dest: string): boolean {
   return true;
 }
 
+function extractSessionIdFromPath(filePath: string): string | null {
+  // Extract session ID from filename: /path/to/abc-123-def.jsonl -> abc-123-def
+  const basename = path.basename(filePath, '.jsonl');
+  // Session IDs are UUIDs, validate format
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(basename)) {
+    return basename;
+  }
+  return null;
+}
+
 export async function syncConversations(
   sourceDir: string,
   destDir: string,
@@ -60,6 +73,7 @@ export async function syncConversations(
     copied: 0,
     skipped: 0,
     indexed: 0,
+    summarized: 0,
     errors: []
   };
 
@@ -68,8 +82,9 @@ export async function syncConversations(
     return result;
   }
 
-  // Collect files to index
+  // Collect files to index and summarize
   const filesToIndex: string[] = [];
+  const filesToSummarize: Array<{ path: string; sessionId: string }> = [];
 
   // Walk source directory
   const projects = fs.readdirSync(sourceDir);
@@ -93,6 +108,17 @@ export async function syncConversations(
           filesToIndex.push(destFile);
         } else {
           result.skipped++;
+        }
+
+        // Check if this file needs a summary (whether newly copied or existing)
+        if (!options.skipSummaries) {
+          const summaryPath = destFile.replace('.jsonl', '-summary.txt');
+          if (!fs.existsSync(summaryPath) && !shouldSkipConversation(destFile)) {
+            const sessionId = extractSessionIdFromPath(destFile);
+            if (sessionId) {
+              filesToSummarize.push({ path: destFile, sessionId });
+            }
+          }
         }
       } catch (error) {
         result.errors.push({
@@ -142,6 +168,44 @@ export async function syncConversations(
     }
 
     db.close();
+  }
+
+  // Generate summaries for files that need them
+  if (!options.skipSummaries && filesToSummarize.length > 0) {
+    const { parseConversation } = await import('./parser.js');
+    const { summarizeConversation } = await import('./summarizer.js');
+
+    const summaryLimit = options.summaryLimit ?? 10;
+    const toSummarize = filesToSummarize.slice(0, summaryLimit);
+    const remaining = filesToSummarize.length - toSummarize.length;
+
+    console.log(`Generating summaries for ${toSummarize.length} conversation(s)...`);
+    if (remaining > 0) {
+      console.log(`  (${remaining} more need summaries - will process on next sync)`);
+    }
+
+    for (const { path: filePath, sessionId } of toSummarize) {
+      try {
+        const project = path.basename(path.dirname(filePath));
+        const exchanges = await parseConversation(filePath, project, filePath);
+
+        if (exchanges.length === 0) {
+          continue; // Skip empty conversations
+        }
+
+        console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
+        const summary = await summarizeConversation(exchanges, sessionId);
+
+        const summaryPath = filePath.replace('.jsonl', '-summary.txt');
+        fs.writeFileSync(summaryPath, summary, 'utf-8');
+        result.summarized++;
+      } catch (error) {
+        result.errors.push({
+          file: filePath,
+          error: `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`
+        });
+      }
+    }
   }
 
   return result;
