@@ -7,13 +7,9 @@
     "email": "jesse@fsck.com"
   },
   "homepage": "https://github.com/obra/episodic-memory",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/obra/episodic-memory"
-  },
+  "repository": "https://github.com/obra/episodic-memory",
   "license": "MIT",
   "keywords": ["memory", "search", "conversations", "semantic-search", "episodic"],
-  "category": "productivity",
   "commands": ["./commands/search-conversations.md"],
   "mcpServers": "./.mcp.json",
   "hooks": "./hooks/hooks.json"
