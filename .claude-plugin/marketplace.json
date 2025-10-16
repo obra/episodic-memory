@@ -1,0 +1,20 @@
+{
+  "name": "episodic-memory-dev",
+  "description": "Development marketplace for episodic memory plugin",
+  "owner": {
+    "name": "Jesse Vincent",
+    "email": "jesse@fsck.com"
+  },
+  "plugins": [
+    {
+      "name": "episodic-memory",
+      "description": "Semantic search for Claude Code conversations. Remember past discussions, decisions, and patterns.",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "Jesse Vincent",
+        "email": "jesse@fsck.com"
+      }
+    }
+  ]
+}
