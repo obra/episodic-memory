@@ -7,3 +7,5 @@ tmp/
 *.db-shm
 *.db-wal
 .env
+.claude/settings.local.json
+.claude-plugin/marketplace.json
