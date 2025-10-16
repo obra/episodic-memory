@@ -26,9 +26,12 @@ Example focus areas:
 
 ## How to Search
 
-Run:
-```bash
-~/.claude/skills/collaboration/remembering-conversations/tool/search-conversations "{SEARCH_QUERY}"
+Use the MCP tool `search`:
+```
+mcp__plugin_episodic-memory_episodic-memory__search
+  query: "{SEARCH_QUERY}"
+  mode: "both"  # or "vector" (default) or "text"
+  limit: 10
 ```
 
 This returns:
@@ -37,7 +40,7 @@ This returns:
 - Matched exchange with similarity score
 - File path and line numbers
 
-Read the full conversations for top 2-5 results to get complete context.
+Read the full conversations for top 2-5 results using `read` to get complete context.
 
 ## Output Format
 

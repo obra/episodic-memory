@@ -23,8 +23,17 @@ interface ConversationMessage {
   toolUseResult?: Array<{ type: string; text: string }> | string;
 }
 
-export function formatConversationAsMarkdown(jsonl: string): string {
-  const lines = jsonl.trim().split('\n').filter(line => line.trim());
+export function formatConversationAsMarkdown(jsonl: string, startLine?: number, endLine?: number): string {
+  const allLines = jsonl.trim().split('\n').filter(line => line.trim());
+
+  // Apply line range if specified (1-indexed, inclusive)
+  const lines = startLine !== undefined || endLine !== undefined
+    ? allLines.slice(
+        startLine !== undefined ? startLine - 1 : 0,
+        endLine !== undefined ? endLine : undefined
+      )
+    : allLines;
+
   const allMessages: ConversationMessage[] = lines.map(line => JSON.parse(line));
 
   // Filter out system messages and messages with no content

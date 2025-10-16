@@ -75,6 +75,18 @@ const ShowConversationInputSchema = z
       .string()
       .min(1, 'Path is required')
       .describe('Absolute path to the JSONL conversation file to display'),
+    startLine: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Starting line number (1-indexed, inclusive). Omit to start from beginning.'),
+    endLine: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Ending line number (1-indexed, inclusive). Omit to read to end.'),
   })
   .strict();
 
@@ -109,70 +121,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: 'episodic_memory_search',
-        description: `Search indexed Claude Code conversations using semantic similarity or exact text matching.
-
-This tool searches through all indexed conversation exchanges, finding relevant discussions based on your query.
-
-**Single-concept search**: Pass a string as query parameter. Supports three search modes:
-- "vector" (semantic): Finds conceptually similar conversations even if exact words don't match
-- "text" (exact): Finds conversations containing the exact query string
-- "both" (default): Combines both methods for best results
-
-**Multi-concept AND search**: Pass an array of strings as query parameter. Finds conversations that semantically match ALL provided concepts (2-5 concepts). Mode parameter is ignored for multi-concept searches.
-
-The tool can filter by date range and returns conversation snippets with metadata including:
-- Project name and timestamp
-- Similarity score (for semantic search)
-- Snippet of the user's question
-- Tools used during the conversation
-- File path and line numbers for the full conversation
-
-Args:
-  - query (string | string[]): Single string for regular search, or array of 2-5 strings for multi-concept AND search
-  - mode ('vector' | 'text' | 'both'): Search mode for single-concept searches (default: 'both'). Ignored for multi-concept.
-  - limit (number): Max results to return, 1-50 (default: 10)
-  - after (string, optional): Only show conversations after YYYY-MM-DD
-  - before (string, optional): Only show conversations before YYYY-MM-DD
-  - response_format ('markdown' | 'json'): Output format (default: 'markdown')
-
-Returns:
-  For single-concept JSON format:
-  {
-    "results": [
-      {
-        "exchange": { "id": string, "project": string, "timestamp": string, ... },
-        "similarity": number (0-1, only for vector search),
-        "snippet": string (first 200 chars of userMessage)
-      }
-    ],
-    "count": number,
-    "mode": string
-  }
-
-  For multi-concept JSON format:
-  {
-    "results": [
-      {
-        "exchange": { ... },
-        "snippet": string,
-        "conceptSimilarities": number[], // Similarity for each concept (0-1)
-        "averageSimilarity": number // Average across all concepts (0-1)
-      }
-    ],
-    "count": number,
-    "concepts": string[]
-  }
-
-Examples:
-  - Single-concept: query="React Router authentication", mode="vector"
-  - Exact match: query="ECONNREFUSED", mode="text"
-  - Multi-concept: query=["React Router", "authentication", "JWT"]
-
-Error Handling:
-  - Returns clear error if invalid date format provided
-  - Returns "No results found" if search returns empty
-  - Handles database errors gracefully`,
+        name: 'search',
+        description: `Find past decisions, solutions, and context from previous conversations. Search before implementing features, debugging issues, or making technical decisions - past context prevents reinventing solutions and repeating mistakes. Use single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -200,37 +150,14 @@ Error Handling:
         },
       },
       {
-        name: 'episodic_memory_show',
-        description: `Display a full conversation in a readable markdown format.
-
-This tool takes the path to a JSONL conversation file and formats it as readable markdown, including:
-- Metadata (project, timestamp, session info)
-- Full exchange history (user messages and assistant responses)
-- Tool calls with parameters and results
-- Sidechain conversations (subagent calls)
-- Token usage statistics
-
-Useful for reading the full context of a conversation after finding it via search.
-
-Args:
-  - path (string): Absolute file path to the JSONL conversation file
-
-Returns:
-  A markdown-formatted string with the complete conversation, including all messages, tool calls, and metadata.
-
-Examples:
-  - Use when: After finding a conversation via search, use the archivePath to display it
-  - Use when: "Show me the full conversation from /path/to/conversation.jsonl"
-  - Don't use when: You just need to search (use episodic_memory_search instead)
-
-Error Handling:
-  - Returns error if file doesn't exist
-  - Returns error if file is not a valid JSONL conversation
-  - Handles malformed JSONL gracefully`,
+        name: 'read',
+        description: `Read full conversations to extract detailed context after finding relevant results with search. Essential for understanding the complete rationale, evolution, and gotchas behind past decisions. Use startLine/endLine pagination for large conversations to avoid context bloat (line numbers are 1-indexed).`,
         inputSchema: {
           type: 'object',
           properties: {
             path: { type: 'string', minLength: 1 },
+            startLine: { type: 'number', minimum: 1 },
+            endLine: { type: 'number', minimum: 1 },
           },
           required: ['path'],
           additionalProperties: false,
@@ -253,7 +180,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     const { name, arguments: args } = request.params;
 
-    if (name === 'episodic_memory_search') {
+    if (name === 'search') {
       const params = SearchInputSchema.parse(args);
       let resultText: string;
 
@@ -321,7 +248,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    if (name === 'episodic_memory_show') {
+    if (name === 'read') {
       const params = ShowConversationInputSchema.parse(args);
 
       // Verify file exists
@@ -329,9 +256,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`File not found: ${params.path}`);
       }
 
-      // Read and format conversation
+      // Read and format conversation with optional line range
       const jsonlContent = fs.readFileSync(params.path, 'utf-8');
-      const markdownContent = formatConversationAsMarkdown(jsonlContent);
+      const markdownContent = formatConversationAsMarkdown(
+        jsonlContent,
+        params.startLine,
+        params.endLine
+      );
 
       return {
         content: [
