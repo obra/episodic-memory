@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "episodic-memory": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/cli/mcp-server",
-      "args": [],
-      "env": {}
-    }
-  }
-}
