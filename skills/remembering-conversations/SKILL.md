@@ -1,6 +1,6 @@
 ---
-name: Remembering Conversations
-description: Use ANY TIME starting work on bugs, features, architecture, or debugging. Use ANY TIME before suggesting solutions - you have no memory between sessions and will reinvent solutions or repeat past mistakes without searching first. Search past conversations for authentication issues, API patterns, testing approaches, build problems, deployment configs, error messages, framework usage, or ANY technical decision. Use when user references prior work or when beginning ANY non-trivial task.
+name: remembering-conversations
+description: ALWAYS USE THIS SKILL WHEN STARTING ANY KIND OF WORK, NO MATTER HOW TRIVIAL.  You have no memory between sessions and will reinvent solutions or repeat past mistakes UNLESS YOU USE THIS SKILL. Gives you perfect recall of all your past conversations and projects.
 ---
 
 # Remembering Conversations
