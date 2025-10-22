@@ -10,7 +10,7 @@
   "repository": "https://github.com/obra/episodic-memory",
   "license": "MIT",
   "keywords": ["memory", "search", "conversations", "semantic-search", "episodic"],
-  "commands": ["./commands/search-conversations.md"],
+  "agents": ["./agents/search-conversations.md"],
   "mcpServers": {
     "episodic-memory": {
       "command": "node",
