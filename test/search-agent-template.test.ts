@@ -57,8 +57,8 @@ describe('search-agent template', () => {
   it('provides search command', () => {
     const content = fs.readFileSync(templatePath, 'utf-8');
 
-    // Should include the search command
-    expect(content).toContain('~/.claude/skills/collaboration/remembering-conversations/tool/search-conversations');
+    // Should include the MCP tool for searching
+    expect(content).toContain('mcp__plugin_episodic-memory_episodic-memory__search');
   });
 
   it('includes critical rules', () => {

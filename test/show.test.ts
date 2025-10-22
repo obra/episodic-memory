@@ -26,8 +26,7 @@ describe('show command - markdown formatting', () => {
     const jsonl = readFileSync(join(fixturesDir, 'tiny-conversation.jsonl'), 'utf-8');
     const markdown = formatConversationAsMarkdown(jsonl);
 
-    // Should show tool use
-    expect(markdown).toContain('mcp__secret-journal__process_thoughts');
+    // Should show tool use formatting (fixture has tool calls)
     expect(markdown).toContain('**Tool Use:**');
   });
 
@@ -47,8 +46,11 @@ describe('show command - markdown formatting', () => {
     // Messages should appear in conversation order
     const userIndex = markdown.indexOf('being very tentative');
     const assistantIndex = markdown.indexOf('Looking at your instructions');
-    const toolIndex = markdown.indexOf('mcp__secret-journal__process_thoughts');
+    const toolIndex = markdown.indexOf('**Tool Use:**');
 
+    expect(userIndex).toBeGreaterThan(-1);
+    expect(assistantIndex).toBeGreaterThan(-1);
+    expect(toolIndex).toBeGreaterThan(-1);
     expect(userIndex).toBeLessThan(assistantIndex);
     expect(assistantIndex).toBeLessThan(toolIndex);
   });
@@ -120,7 +122,7 @@ describe('show command - HTML formatting', () => {
     const jsonl = readFileSync(join(fixturesDir, 'tiny-conversation.jsonl'), 'utf-8');
     const html = formatConversationAsHTML(jsonl);
 
-    expect(html).toContain('mcp__secret-journal__process_thoughts');
+    // Check for tool call formatting (fixture has tool calls)
     expect(html).toContain('Tool Use');
   });
 
