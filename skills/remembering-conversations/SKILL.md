@@ -1,6 +1,6 @@
 ---
 name: Remembering Conversations
-description: Search previous Claude Code conversations for past decisions, patterns, solutions, and context. Search proactively at the start of any non-trivial task - historical context consistently improves decision-making, prevents reinventing solutions, and avoids repeating past mistakes.
+description: Use ANY TIME starting work on bugs, features, architecture, or debugging. Use ANY TIME before suggesting solutions - you have no memory between sessions and will reinvent solutions or repeat past mistakes without searching first. Search past conversations for authentication issues, API patterns, testing approaches, build problems, deployment configs, error messages, framework usage, or ANY technical decision. Use when user references prior work or when beginning ANY non-trivial task.
 ---
 
 # Remembering Conversations
