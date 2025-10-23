@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2025-10-23
+
+### Fixed
+- MCP server now automatically installs npm dependencies on first startup via wrapper script
+- Resolves "Cannot find module" errors for @modelcontextprotocol/sdk and native dependencies
+
+### Added
+- MCP server wrapper script (`cli/mcp-server-wrapper`) that auto-installs dependencies before starting
+- esbuild bundling for MCP server to reduce dependency load time
+
+### Changed
+- MCP server now uses wrapper script instead of direct node execution
+- Removed SessionStart ensure-dependencies hook (no longer needed)
+
+### Removed
+- `cli/ensure-dependencies` script (replaced by MCP server wrapper)
+
 ## [1.0.2] - 2025-10-23
 
 ### Fixed
