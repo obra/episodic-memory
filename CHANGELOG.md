@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2025-10-23
+
+### Fixed
+- Pre-build and commit dist/ directory to avoid MCP server startup errors
+- Remove dist/ from .gitignore to ensure built files are available after plugin install
+
+### Changed
+- Built JavaScript files now tracked in git for immediate plugin availability
+
 ## [1.0.1] - 2025-10-23
 
 ### Added
