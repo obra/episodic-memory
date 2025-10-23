@@ -122,7 +122,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'search',
-        description: `Find past decisions, solutions, and context from previous conversations. Search before implementing features, debugging issues, or making technical decisions - past context prevents reinventing solutions and repeating mistakes. Use single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
         inputSchema: {
           type: 'object',
           properties: {
