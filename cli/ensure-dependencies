@@ -1,0 +1,17 @@
+#!/bin/bash
+# Ensure plugin dependencies are installed
+# This runs on SessionStart to handle plugin installation
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
+
+# If CLAUDE_PLUGIN_ROOT is not set, exit silently
+if [ -z "$PLUGIN_ROOT" ]; then
+  exit 0
+fi
+
+# Check if node_modules exists
+if [ ! -d "$PLUGIN_ROOT/node_modules" ]; then
+  echo "Installing episodic-memory dependencies..." >&2
+  cd "$PLUGIN_ROOT" && npm install --quiet 2>&1 | grep -v "^npm WARN"
+  echo "Dependencies installed." >&2
+fi
