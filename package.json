@@ -1,6 +1,6 @@
 {
   "name": "episodic-memory",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Semantic search for Claude Code conversations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
