@@ -5,14 +5,14 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "episodic-memory": "./cli/episodic-memory",
-    "episodic-memory-index": "./cli/index-conversations",
+    "episodic-memory": "./cli/episodic-memory.js",
+    "episodic-memory-index": "./cli/index-conversations.js",
     "episodic-memory-search": "./cli/search-conversations",
     "episodic-memory-mcp-server": "./cli/mcp-server"
   },
   "scripts": {
     "build": "tsc && npm run bundle",
-    "bundle": "esbuild src/mcp-server.ts --bundle --platform=node --format=esm --outfile=dist/mcp-server.js --external:fsevents --external:@anthropic-ai/claude-agent-sdk --external:sharp --external:onnxruntime-node --external:better-sqlite3 --external:@xenova/transformers",
+    "bundle": "esbuild src/mcp-server.ts --bundle --platform=node --format=esm --outfile=dist/mcp-server.js --external:fsevents --external:@anthropic-ai/claude-agent-sdk --external:sharp --external:onnxruntime-node --external:better-sqlite3 --external:@xenova/transformers --external:sqlite-vec",
     "test": "vitest run",
     "test:watch": "vitest"
   },
