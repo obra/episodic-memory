@@ -11935,50 +11935,7 @@ var StdioServerTransport = class {
 import Database from "better-sqlite3";
 import path2 from "path";
 import fs from "fs";
-
-// node_modules/sqlite-vec/index.mjs
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { arch, platform } from "node:process";
-import { statSync } from "node:fs";
-var BASE_PACKAGE_NAME = "sqlite-vec";
-var ENTRYPOINT_BASE_NAME = "vec0";
-var supportedPlatforms = [["macos", "aarch64"], ["linux", "aarch64"], ["windows", "x86_64"], ["linux", "x86_64"], ["macos", "x86_64"]];
-var invalidPlatformErrorMessage = `Unsupported platform for ${BASE_PACKAGE_NAME}, on a ${platform}-${arch} machine. Supported platforms are (${supportedPlatforms.map(([p, a]) => `${p}-${a}`).join(",")}). Consult the ${BASE_PACKAGE_NAME} NPM package README for details.`;
-var extensionNotFoundErrorMessage = (packageName) => `Loadble extension for ${BASE_PACKAGE_NAME} not found. Was the ${packageName} package installed?`;
-function validPlatform(platform2, arch2) {
-  return supportedPlatforms.find(([p, a]) => platform2 == p && arch2 === a) !== null;
-}
-function extensionSuffix(platform2) {
-  if (platform2 === "win32") return "dll";
-  if (platform2 === "darwin") return "dylib";
-  return "so";
-}
-function platformPackageName(platform2, arch2) {
-  const os2 = platform2 === "win32" ? "windows" : platform2;
-  return `${BASE_PACKAGE_NAME}-${os2}-${arch2}`;
-}
-function getLoadablePath() {
-  if (!validPlatform(platform, arch)) {
-    throw new Error(
-      invalidPlatformErrorMessage
-    );
-  }
-  const packageName = platformPackageName(platform, arch);
-  const loadablePath = join(
-    fileURLToPath(new URL(join("."), import.meta.url)),
-    "..",
-    packageName,
-    `${ENTRYPOINT_BASE_NAME}.${extensionSuffix(platform)}`
-  );
-  if (!statSync(loadablePath, { throwIfNoEntry: false })) {
-    throw new Error(extensionNotFoundErrorMessage(packageName));
-  }
-  return loadablePath;
-}
-function load(db) {
-  db.loadExtension(getLoadablePath());
-}
+import * as sqliteVec from "sqlite-vec";
 
 // src/paths.ts
 import os from "os";
@@ -12041,7 +11998,7 @@ function initDatabase() {
     fs.mkdirSync(dbDir, { recursive: true });
   }
   const db = new Database(dbPath);
-  load(db);
+  sqliteVec.load(db);
   db.pragma("journal_mode = WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS exchanges (

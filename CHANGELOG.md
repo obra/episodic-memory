@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2025-10-27
+
+### Fixed
+- **Issue #1**: Fixed Windows CLI execution failure by replacing bash scripts with cross-platform Node.js implementation
+- **Issue #4**: Fixed sqlite-vec extension loading error on macOS ARM64 and Linux by adding `--external:sqlite-vec` to esbuild configuration
+- Resolved "Loadable extension for sqlite-vec not found" error on affected platforms
+
+### Added
+- Cross-platform CLI support using Node.js instead of bash scripts
+- Enhanced error handling with clear error messages and troubleshooting guidance
+- Automatic dependency validation (npx, tsx) in CLI tools
+- Proper symlink resolution for npm link and global installations
+
+### Changed
+- CLI entry points now use `.js` extension for universal compatibility
+- Replaced `shell: true` spawn calls with direct spawn for improved security
+- Updated build configuration to externalize sqlite-vec native module
+- Improved process execution without shell interpretation to prevent command injection
+
+### Security
+- Removed shell dependencies from CLI execution
+- Added input validation and protection against command injection vulnerabilities
+- Safer process execution using direct spawn calls
+
 ## [1.0.5] - 2025-10-25
 
 ### Fixed
