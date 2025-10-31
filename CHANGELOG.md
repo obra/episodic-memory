@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2025-10-31
+
+### Removed
+- **Dead code cleanup**: Removed obsolete bash script `cli/mcp-server-wrapper`
+  - Eliminates duplicate wrapper implementations
+  - Only Node.js cross-platform wrapper `mcp-server-wrapper.js` remains
+  - Prevents confusion about which wrapper to use
+  - Cleaner codebase with single MCP server entry point
+
+### Changed
+- Simplified MCP server architecture with single wrapper implementation
+- Improved maintainability by removing redundant bash script
+
 ## [1.0.8] - 2025-10-31
 
 ### Fixed
