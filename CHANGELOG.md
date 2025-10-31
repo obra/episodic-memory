@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2025-10-31
+
+### Fixed
+- **Issue #10**: Fixed SessionStart hook configuration that prevented memory sync from running
+  - Removed invalid `args` property from hook configuration
+  - Added `async: true` and `--background` flag to prevent blocking Claude startup
+- **Issue #5**: Fixed summary generation failure during sync command
+  - Resolved confusion between archived conversation IDs and active session IDs
+  - Sync now properly generates summaries for archived conversations
+- **Issue #9**: Fixed better-sqlite3 Node.js version compatibility issues
+  - Added postinstall script to automatically rebuild native modules
+  - Resolves NODE_MODULE_VERSION mismatch errors on Node.js v25+
+- **Issue #8**: Fixed version mismatch between git tags and marketplace.json
+  - Synchronized plugin version metadata with release tags
+
+### Added
+- Background sync mode with `--background` flag for non-blocking operation
+- Automatic native module rebuilding for cross-Node.js version compatibility
+- Enhanced CLI help documentation with background mode usage examples
+
+### Changed
+- SessionStart hook now uses `episodic-memory sync --background` for instant startup
+- Sync command forks to background process when `--background` flag is used
+- Improved hook configuration follows Claude Code hook specification exactly
+- Updated marketplace.json versions in both embedded and superpowers-marketplace locations
+
+### Security
+- Fixed potential process blocking during Claude Code startup
+- Improved process detachment for background operations
+
 ## [1.0.6] - 2025-10-27
 
 ### Fixed
