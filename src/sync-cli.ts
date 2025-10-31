@@ -2,12 +2,13 @@ import { syncConversations } from './sync.js';
 import { getArchiveDir } from './paths.js';
 import path from 'path';
 import os from 'os';
+import { spawn } from 'child_process';
 
 const args = process.argv.slice(2);
 
 if (args.includes('--help') || args.includes('-h')) {
   console.log(`
-Usage: episodic-memory sync
+Usage: episodic-memory sync [--background]
 
 Sync conversations from ~/.claude/projects to archive and index them.
 
@@ -19,16 +20,41 @@ This command:
 Only processes files that are new or have been modified since last sync.
 Safe to run multiple times - subsequent runs are fast no-ops.
 
-Designed for use in session-end hooks to automatically index new conversations.
+OPTIONS:
+  --background    Run sync in background (for hooks, returns immediately)
 
 EXAMPLES:
   # Sync all new conversations
   episodic-memory sync
 
+  # Sync in background (for hooks)
+  episodic-memory sync --background
+
   # Use in Claude Code hook
   # In .claude/hooks/session-end:
-  episodic-memory sync
+  episodic-memory sync --background
 `);
+  process.exit(0);
+}
+
+// Check if running in background mode
+const isBackground = args.includes('--background');
+
+// If background mode, fork the process and exit immediately
+if (isBackground) {
+  const filteredArgs = args.filter(arg => arg !== '--background');
+
+  // Spawn a detached process
+  const child = spawn(process.execPath, [
+    process.argv[1], // This script
+    ...filteredArgs
+  ], {
+    detached: true,
+    stdio: 'ignore'
+  });
+
+  child.unref(); // Allow parent to exit
+  console.log('Sync started in background...');
   process.exit(0);
 }
 
