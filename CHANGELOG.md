@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2025-10-31
+
+### Fixed
+- **Issue #7**: Fixed Windows support for MCP server provided in plugin
+  - Replaced bash script `mcp-server-wrapper` with cross-platform Node.js version
+  - MCP server now works on Windows with Claude Code native install
+  - Resolves "No such file or directory" errors on Windows when using `/bin/bash`
+
+### Changed
+- MCP server wrapper now uses `node cli/mcp-server-wrapper.js` instead of bash script
+- Cross-platform dependency installation with proper Windows npm.cmd handling
+- Improved signal forwarding and process management in wrapper
+
+### Added
+- Cross-platform Node.js wrapper script for MCP server initialization
+- Better error handling and messaging for missing dependencies
+- Windows-compatible npm command detection (`npm.cmd` vs `npm`)
+
 ## [1.0.7] - 2025-10-31
 
 ### Fixed
