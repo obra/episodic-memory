@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory",
-            "args": ["sync"]
+            "command": "${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory sync",
+            "async": true
           }
         ]
       }

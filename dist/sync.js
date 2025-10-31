@@ -148,7 +148,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                     continue; // Skip empty conversations
                 }
                 console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
-                const summary = await summarizeConversation(exchanges, sessionId);
+                const summary = await summarizeConversation(exchanges);
                 const summaryPath = filePath.replace('.jsonl', '-summary.txt');
                 fs.writeFileSync(summaryPath, summary, 'utf-8');
                 result.summarized++;
