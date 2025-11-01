@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Resolve the real directory even if this script is symlinked
 SOURCE="${BASH_SOURCE[0]}"

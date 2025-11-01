@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Scrub PII and project info from test fixtures
 
 set -e
