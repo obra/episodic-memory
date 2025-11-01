@@ -140,7 +140,7 @@ Features:
 **Usage in Claude Code:**
 Add to `.claude/hooks/session-end`:
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 episodic-memory sync
 ```
 
