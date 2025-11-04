@@ -1,5 +1,5 @@
 
-/#!/usr/bin/env node
+#!/usr/bin/env node
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { spawn, execSync } from 'child_process';
