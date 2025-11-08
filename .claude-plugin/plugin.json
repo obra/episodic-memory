@@ -17,6 +17,5 @@
       "args": ["${CLAUDE_PLUGIN_ROOT}/cli/mcp-server-wrapper.js"],
       "env": {}
     }
-  },
-  "hooks": "./hooks/hooks.json"
+  }
 }
