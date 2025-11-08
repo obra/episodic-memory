@@ -4,10 +4,18 @@ import fs from 'fs';
 
 /**
  * Ensure a directory exists, creating it if necessary
+ * @throws {Error} If directory creation fails
  */
 function ensureDir(dir: string): void {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to create directory: ${dir}`);
+    console.error(`Error: ${errorMessage}`);
+    throw new Error(`Failed to create directory '${dir}': ${errorMessage}`);
   }
 }
 
