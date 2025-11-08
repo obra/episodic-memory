@@ -1,12 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { initDatabase, insertExchange } from './db.js';
 import { parseConversation } from './parser.js';
 import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
 import { ConversationExchange } from './types.js';
-import { getArchiveDir, getExcludeConfigPath } from './paths.js';
+import { getArchiveDir, getExcludeConfigPath, getProjectsDir } from './paths.js';
 
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
@@ -14,11 +13,6 @@ process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
 // Increase max listeners for concurrent API calls
 import { EventEmitter } from 'events';
 EventEmitter.defaultMaxListeners = 20;
-
-// Allow overriding paths for testing
-function getProjectsDir(): string {
-  return process.env.TEST_PROJECTS_DIR || path.join(os.homedir(), '.claude', 'projects');
-}
 
 // Projects to exclude from indexing (configurable via env or config file)
 function getExcludedProjects(): string[] {

@@ -11934,27 +11934,39 @@ var StdioServerTransport = class {
 // src/db.ts
 import Database from "better-sqlite3";
 import path2 from "path";
-import fs from "fs";
+import fs2 from "fs";
 import * as sqliteVec from "sqlite-vec";
 
 // src/paths.ts
 import os from "os";
 import path from "path";
+import fs from "fs";
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
 function getSuperpowersDir() {
+  let dir;
   if (process.env.EPISODIC_MEMORY_CONFIG_DIR) {
-    return process.env.EPISODIC_MEMORY_CONFIG_DIR;
+    dir = process.env.EPISODIC_MEMORY_CONFIG_DIR;
+  } else if (process.env.PERSONAL_SUPERPOWERS_DIR) {
+    dir = process.env.PERSONAL_SUPERPOWERS_DIR;
+  } else {
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+    if (xdgConfigHome) {
+      dir = path.join(xdgConfigHome, "superpowers");
+    } else {
+      dir = path.join(os.homedir(), ".config", "superpowers");
+    }
   }
-  if (process.env.PERSONAL_SUPERPOWERS_DIR) {
-    return process.env.PERSONAL_SUPERPOWERS_DIR;
-  }
-  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
-  if (xdgConfigHome) {
-    return path.join(xdgConfigHome, "superpowers");
-  }
-  return path.join(os.homedir(), ".config", "superpowers");
+  ensureDir(dir);
+  return dir;
 }
 function getIndexDir() {
-  return path.join(getSuperpowersDir(), "conversation-index");
+  const dir = path.join(getSuperpowersDir(), "conversation-index");
+  ensureDir(dir);
+  return dir;
 }
 function getDbPath() {
   if (process.env.EPISODIC_MEMORY_DB_PATH || process.env.TEST_DB_PATH) {
@@ -11994,8 +12006,8 @@ function migrateSchema(db) {
 function initDatabase() {
   const dbPath = getDbPath();
   const dbDir = path2.dirname(dbPath);
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
+  if (!fs2.existsSync(dbDir)) {
+    fs2.mkdirSync(dbDir, { recursive: true });
   }
   const db = new Database(dbPath);
   sqliteVec.load(db);
@@ -12092,7 +12104,7 @@ async function generateEmbedding(text) {
 }
 
 // src/search.ts
-import fs2 from "fs";
+import fs3 from "fs";
 function validateISODate(dateStr, paramName) {
   const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoDateRegex.test(dateStr)) {
@@ -12183,8 +12195,8 @@ async function searchConversations(query, options = {}) {
     };
     const summaryPath = row.archive_path.replace(".jsonl", "-summary.txt");
     let summary;
-    if (fs2.existsSync(summaryPath)) {
-      summary = fs2.readFileSync(summaryPath, "utf-8").trim();
+    if (fs3.existsSync(summaryPath)) {
+      summary = fs3.readFileSync(summaryPath, "utf-8").trim();
     }
     const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, " ").trim();
     const snippet = snippetText + (exchange.userMessage.length > 200 ? "..." : "");
@@ -13657,7 +13669,7 @@ ${JSON.stringify(value, null, 2)}
 }
 
 // src/mcp-server.ts
-import fs3 from "fs";
+import fs4 from "fs";
 var SearchModeEnum = external_exports.enum(["vector", "text", "both"]);
 var ResponseFormatEnum = external_exports.enum(["markdown", "json"]);
 var SearchInputSchema = external_exports.object({
@@ -13818,10 +13830,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     if (name === "read") {
       const params = ShowConversationInputSchema.parse(args);
-      if (!fs3.existsSync(params.path)) {
+      if (!fs4.existsSync(params.path)) {
         throw new Error(`File not found: ${params.path}`);
       }
-      const jsonlContent = fs3.readFileSync(params.path, "utf-8");
+      const jsonlContent = fs4.readFileSync(params.path, "utf-8");
       const markdownContent = formatConversationAsMarkdown(
         jsonlContent,
         params.startLine,

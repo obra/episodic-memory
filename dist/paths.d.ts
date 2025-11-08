@@ -24,3 +24,7 @@ export declare function getDbPath(): string;
  * Get exclude config path
  */
 export declare function getExcludeConfigPath(): string;
+/**
+ * Get the Claude projects directory (where conversations are stored)
+ */
+export declare function getProjectsDir(): string;
