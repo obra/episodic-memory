@@ -107,8 +107,8 @@ async function main() {
         break;
 
       case 'sync':
-        // Route to sync implementation
-        await runTsxCommand(join(__dirname, '../src/sync-cli.ts'), args);
+        // Route to sync implementation (using compiled version for --background compatibility)
+        await runCommand('node', [join(__dirname, '../dist/sync-cli.js'), ...args]);
         break;
 
       case '--help':
