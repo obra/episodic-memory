@@ -206,7 +206,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             2
           );
         } else {
-          resultText = formatMultiConceptResults(results, params.query);
+          resultText = await formatMultiConceptResults(results, params.query);
         }
       } else {
         // Single-concept search
@@ -234,7 +234,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             2
           );
         } else {
-          resultText = formatResults(results);
+          resultText = await formatResults(results);
         }
       }
 
