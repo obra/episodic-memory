@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.11] - 2025-11-20
+
+### Fixed
+- **Plugin Configuration**: Fix duplicate hooks file error in Claude Code
+  - Remove duplicate `"hooks": "./hooks/hooks.json"` reference from plugin.json
+  - Claude Code automatically loads hooks/hooks.json, so manifest should only reference additional hook files
+  - Update MCP server reference from obsolete `mcp-server-wrapper.js` to direct `mcp-server` script
+
+### Changed
+- Simplified plugin.json configuration for cleaner Claude Code integration
+
 ## [1.0.10] - 2025-11-20
 
 ### Fixed
