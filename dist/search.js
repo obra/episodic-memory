@@ -1,6 +1,7 @@
 import { initDatabase } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
 import fs from 'fs';
+import readline from 'readline';
 function validateISODate(dateStr, paramName) {
     const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!isoDateRegex.test(dateStr)) {
@@ -114,12 +115,43 @@ export async function searchConversations(query, options = {}) {
         };
     });
 }
-export function formatResults(results) {
+// Helper function to count lines in a file efficiently
+async function countLines(filePath) {
+    try {
+        const fileStream = fs.createReadStream(filePath);
+        const rl = readline.createInterface({
+            input: fileStream,
+            crlfDelay: Infinity
+        });
+        let count = 0;
+        for await (const line of rl) {
+            if (line.trim())
+                count++;
+        }
+        return count;
+    }
+    catch (error) {
+        return 0; // Return 0 if file can't be read
+    }
+}
+// Helper function to get file size in KB
+function getFileSizeInKB(filePath) {
+    try {
+        const stats = fs.statSync(filePath);
+        return Math.round(stats.size / 1024 * 10) / 10; // Round to 1 decimal place
+    }
+    catch (error) {
+        return 0;
+    }
+}
+export async function formatResults(results) {
     if (results.length === 0) {
         return 'No results found.';
     }
     let output = `Found ${results.length} relevant conversation${results.length > 1 ? 's' : ''}:\n\n`;
-    results.forEach((result, index) => {
+    // Process results sequentially to get file metadata
+    for (let index = 0; index < results.length; index++) {
+        const result = results[index];
         const date = new Date(result.exchange.timestamp).toISOString().split('T')[0];
         const simPct = result.similarity !== undefined ? Math.round(result.similarity * 100) : null;
         // Header with match percentage
@@ -145,9 +177,13 @@ export function formatResults(results) {
                 .join(', ');
             output += `   Tools: ${toolSummary}\n`;
         }
-        // File path
-        output += `   ${result.exchange.archivePath}:${result.exchange.lineStart}-${result.exchange.lineEnd}\n\n`;
-    });
+        // Get file metadata
+        const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
+        const totalLines = await countLines(result.exchange.archivePath);
+        const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
+        // File information with metadata (clean format for smart tool selection)
+        output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)\n\n`;
+    }
     return output;
 }
 export async function searchMultipleConcepts(concepts, options = {}) {
@@ -195,12 +231,14 @@ export async function searchMultipleConcepts(concepts, options = {}) {
     // Apply limit
     return multiConceptResults.slice(0, limit);
 }
-export function formatMultiConceptResults(results, concepts) {
+export async function formatMultiConceptResults(results, concepts) {
     if (results.length === 0) {
         return `No conversations found matching all concepts: ${concepts.join(', ')}`;
     }
     let output = `Found ${results.length} conversation${results.length > 1 ? 's' : ''} matching all concepts [${concepts.join(' + ')}]:\n\n`;
-    results.forEach((result, index) => {
+    // Process results sequentially to get file metadata
+    for (let index = 0; index < results.length; index++) {
+        const result = results[index];
         const date = new Date(result.exchange.timestamp).toISOString().split('T')[0];
         const avgPct = Math.round(result.averageSimilarity * 100);
         // Header with average match percentage
@@ -223,8 +261,12 @@ export function formatMultiConceptResults(results, concepts) {
                 .join(', ');
             output += `   Tools: ${toolSummary}\n`;
         }
-        // File path
-        output += `   ${result.exchange.archivePath}:${result.exchange.lineStart}-${result.exchange.lineEnd}\n\n`;
-    });
+        // Get file metadata
+        const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
+        const totalLines = await countLines(result.exchange.archivePath);
+        const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
+        // File information with metadata (clean format for smart tool selection)
+        output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)\n\n`;
+    }
     return output;
 }

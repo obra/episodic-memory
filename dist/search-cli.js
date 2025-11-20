@@ -72,8 +72,8 @@ if (queries.length === 0) {
 if (queries.length > 1) {
     const options = { limit, after, before };
     searchMultipleConcepts(queries, options)
-        .then(results => {
-        console.log(formatMultiConceptResults(results, queries));
+        .then(async (results) => {
+        console.log(await formatMultiConceptResults(results, queries));
     })
         .catch(error => {
         console.error('Error searching:', error);
@@ -89,8 +89,8 @@ else {
         before
     };
     searchConversations(queries[0], options)
-        .then(results => {
-        console.log(formatResults(results));
+        .then(async (results) => {
+        console.log(await formatResults(results));
     })
         .catch(error => {
         console.error('Error searching:', error);

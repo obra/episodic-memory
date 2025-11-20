@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.10] - 2025-11-20
+
+### Fixed
+- **Search result formatting**: Prevent Claude's Read tool 256KB limit failures
+  - Search results now include file metadata (size in KB, total line count)
+  - Changed from verbose 3-line format to clean 1-line: "Lines 10-25 in /path/file.jsonl (295.7KB, 1247 lines)"
+  - Removes prescriptive MCP tool instructions, trusting Claude to choose correct tool based on file size
+  - Eliminates issue where episodic memory search triggered built-in Read tool instead of specialized MCP read tool
+
+### Changed
+- Enhanced `formatResults()` and `formatMultiConceptResults()` with async file metadata collection
+- Added efficient streaming line counting and file size utilities
+- Updated MCP server and CLI callers to handle async formatting functions
+
 ## [1.0.9] - 2025-10-31
 
 ### Removed

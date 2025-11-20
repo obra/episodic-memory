@@ -12093,6 +12093,7 @@ async function generateEmbedding(text) {
 
 // src/search.ts
 import fs2 from "fs";
+import readline from "readline";
 function validateISODate(dateStr, paramName) {
   const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoDateRegex.test(dateStr)) {
@@ -12196,14 +12197,39 @@ async function searchConversations(query, options = {}) {
     };
   });
 }
-function formatResults(results) {
+async function countLines(filePath) {
+  try {
+    const fileStream = fs2.createReadStream(filePath);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity
+    });
+    let count = 0;
+    for await (const line of rl) {
+      if (line.trim()) count++;
+    }
+    return count;
+  } catch (error) {
+    return 0;
+  }
+}
+function getFileSizeInKB(filePath) {
+  try {
+    const stats = fs2.statSync(filePath);
+    return Math.round(stats.size / 1024 * 10) / 10;
+  } catch (error) {
+    return 0;
+  }
+}
+async function formatResults(results) {
   if (results.length === 0) {
     return "No results found.";
   }
   let output = `Found ${results.length} relevant conversation${results.length > 1 ? "s" : ""}:
 
 `;
-  results.forEach((result, index) => {
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index];
     const date = new Date(result.exchange.timestamp).toISOString().split("T")[0];
     const simPct = result.similarity !== void 0 ? Math.round(result.similarity * 100) : null;
     output += `${index + 1}. [${result.exchange.project}, ${date}]`;
@@ -12226,10 +12252,13 @@ function formatResults(results) {
       output += `   Tools: ${toolSummary}
 `;
     }
-    output += `   ${result.exchange.archivePath}:${result.exchange.lineStart}-${result.exchange.lineEnd}
+    const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
+    const totalLines = await countLines(result.exchange.archivePath);
+    const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
+    output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)
 
 `;
-  });
+  }
   return output;
 }
 async function searchMultipleConcepts(concepts, options = {}) {
@@ -12271,14 +12300,15 @@ async function searchMultipleConcepts(concepts, options = {}) {
   multiConceptResults.sort((a, b2) => b2.averageSimilarity - a.averageSimilarity);
   return multiConceptResults.slice(0, limit);
 }
-function formatMultiConceptResults(results, concepts) {
+async function formatMultiConceptResults(results, concepts) {
   if (results.length === 0) {
     return `No conversations found matching all concepts: ${concepts.join(", ")}`;
   }
   let output = `Found ${results.length} conversation${results.length > 1 ? "s" : ""} matching all concepts [${concepts.join(" + ")}]:
 
 `;
-  results.forEach((result, index) => {
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index];
     const date = new Date(result.exchange.timestamp).toISOString().split("T")[0];
     const avgPct = Math.round(result.averageSimilarity * 100);
     output += `${index + 1}. [${result.exchange.project}, ${date}] - ${avgPct}% avg match
@@ -12297,10 +12327,13 @@ function formatMultiConceptResults(results, concepts) {
       output += `   Tools: ${toolSummary}
 `;
     }
-    output += `   ${result.exchange.archivePath}:${result.exchange.lineStart}-${result.exchange.lineEnd}
+    const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
+    const totalLines = await countLines(result.exchange.archivePath);
+    const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
+    output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)
 
 `;
-  });
+  }
   return output;
 }
 
@@ -13779,7 +13812,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             2
           );
         } else {
-          resultText = formatMultiConceptResults(results, params.query);
+          resultText = await formatMultiConceptResults(results, params.query);
         }
       } else {
         const options = {
@@ -13804,7 +13837,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             2
           );
         } else {
-          resultText = formatResults(results);
+          resultText = await formatResults(results);
         }
       }
       return {
