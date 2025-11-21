@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+set -o pipefail
 
 # Resolve the real directory even if this script is symlinked
 SOURCE="${BASH_SOURCE[0]}"
@@ -8,6 +10,12 @@ while [ -h "$SOURCE" ]; do
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# Validate SCRIPT_DIR was resolved successfully
+if [ -z "$SCRIPT_DIR" ]; then
+  echo "Error: Failed to determine script directory" >&2
+  exit 1
+fi
 
 # Main CLI entry point with subcommands
 COMMAND="$1"
@@ -21,22 +29,26 @@ case "$COMMAND" in
 
   search)
     # Route to search implementation
-    npx tsx "$SCRIPT_DIR/../src/search-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/search-cli.ts" "$@")
+    exit $?
     ;;
 
   show)
     # Route to show implementation
-    npx tsx "$SCRIPT_DIR/../src/show-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/show-cli.ts" "$@")
+    exit $?
     ;;
 
   stats)
     # Route to stats implementation
-    npx tsx "$SCRIPT_DIR/../src/stats-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/stats-cli.ts" "$@")
+    exit $?
     ;;
 
   sync)
     # Route to sync implementation
-    npx tsx "$SCRIPT_DIR/../src/sync-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/sync-cli.ts" "$@")
+    exit $?
     ;;
 
   --help|-h|"")

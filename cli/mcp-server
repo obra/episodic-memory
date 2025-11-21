@@ -1,4 +1,7 @@
 #!/bin/bash
+set -e
+set -o pipefail
+
 # MCP Server entry point for episodic-memory
 # This runs the MCP server using stdio transport
 
@@ -11,5 +14,12 @@ while [ -h "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
+# Validate SCRIPT_DIR was resolved successfully
+if [ -z "$SCRIPT_DIR" ]; then
+  echo "Error: Failed to determine script directory" >&2
+  exit 1
+fi
+
 # Run the MCP server
-npx tsx "$SCRIPT_DIR/../src/mcp-server.ts" "$@"
+(cd "$SCRIPT_DIR/.." && npx tsx "./src/mcp-server.ts" "$@")
+exit $?
