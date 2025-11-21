@@ -21,22 +21,22 @@ case "$COMMAND" in
 
   search)
     # Route to search implementation
-    npx tsx "$SCRIPT_DIR/../src/search-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/search-cli.ts" "$@")
     ;;
 
   show)
     # Route to show implementation
-    npx tsx "$SCRIPT_DIR/../src/show-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/show-cli.ts" "$@")
     ;;
 
   stats)
     # Route to stats implementation
-    npx tsx "$SCRIPT_DIR/../src/stats-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/stats-cli.ts" "$@")
     ;;
 
   sync)
     # Route to sync implementation
-    npx tsx "$SCRIPT_DIR/../src/sync-cli.ts" "$@"
+    (cd "$SCRIPT_DIR/.." && npx tsx "./src/sync-cli.ts" "$@")
     ;;
 
   --help|-h|"")
