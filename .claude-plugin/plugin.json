@@ -14,7 +14,7 @@
   "mcpServers": {
     "episodic-memory": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/cli/mcp-server"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/cli/mcp-server-wrapper.js"],
       "env": {}
     }
   }
