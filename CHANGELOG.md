@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.12] - 2025-11-22
+
+### Changed
+- **Skill triggering behavior**: Improved episodic memory skill to trigger at appropriate times
+  - Changed from "ALWAYS USE THIS SKILL WHEN STARTING ANY KIND OF WORK" to contextual triggers
+  - Now triggers when user asks for approach/decision after exploring code
+  - Now triggers when stuck on complex problems after investigating
+  - Now triggers for unfamiliar workflows or explicit historical references
+  - Prevents premature memory searches before understanding current codebase
+  - Empirically tested with subagents: 5/5 scenarios passed vs 3/5 with previous description
+
 ## [1.0.11] - 2025-11-20
 
 ### Fixed
