@@ -1,6 +1,6 @@
 {
   "name": "episodic-memory",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Semantic search for Claude Code conversations. Remember past discussions, decisions, and patterns.",
   "author": {
     "name": "Jesse Vincent",
