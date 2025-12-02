@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { ConversationExchange } from './types.js';
+import { SessionSummary } from './session-summary-types.js';
 import path from 'path';
 import fs from 'fs';
 import * as sqliteVec from 'sqlite-vec';
@@ -100,6 +101,35 @@ export function initDatabase(): Database.Database {
     )
   `);
 
+  // Create session_summaries table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_summaries (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      project TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      duration_minutes INTEGER,
+      one_liner TEXT NOT NULL,
+      detailed TEXT NOT NULL,
+      decisions TEXT,
+      files_modified TEXT,
+      work_items TEXT,
+      tools_used TEXT,
+      outcomes TEXT,
+      next_steps TEXT,
+      tags TEXT,
+      UNIQUE(session_id)
+    )
+  `);
+
+  // Create vector search index for summaries
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_summaries USING vec0(
+      id TEXT PRIMARY KEY,
+      embedding FLOAT[384]
+    )
+  `);
+
   // Run migrations first
   migrateSchema(db);
 
@@ -124,6 +154,14 @@ export function initDatabase(): Database.Database {
   `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_tool_exchange ON tool_calls(exchange_id)
+  `);
+
+  // Create indexes for summaries
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_summary_project ON session_summaries(project)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_summary_timestamp ON session_summaries(timestamp DESC)
   `);
 
   return db;
@@ -220,4 +258,124 @@ export function deleteExchange(db: Database.Database, id: string): void {
 
   // Delete from main table
   db.prepare(`DELETE FROM exchanges WHERE id = ?`).run(id);
+}
+
+export function insertSessionSummary(
+  db: Database.Database,
+  summary: SessionSummary,
+  embedding: number[]
+): void {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO session_summaries
+    (id, session_id, project, timestamp, duration_minutes, one_liner, detailed,
+     decisions, files_modified, work_items, tools_used, outcomes, next_steps, tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    summary.id,
+    summary.sessionId,
+    summary.project,
+    summary.timestamp,
+    summary.durationMinutes,
+    summary.summary.oneLiner,
+    summary.summary.detailed,
+    JSON.stringify(summary.decisions),
+    JSON.stringify(summary.filesModified),
+    JSON.stringify(summary.workItems),
+    JSON.stringify(summary.toolsUsed),
+    JSON.stringify(summary.outcomes),
+    JSON.stringify(summary.nextSteps),
+    JSON.stringify(summary.tags)
+  );
+
+  // Insert into vector table (delete first since virtual tables don't support REPLACE)
+  const delStmt = db.prepare(`DELETE FROM vec_summaries WHERE id = ?`);
+  delStmt.run(summary.id);
+
+  const vecStmt = db.prepare(`
+    INSERT INTO vec_summaries (id, embedding)
+    VALUES (?, ?)
+  `);
+  vecStmt.run(summary.id, Buffer.from(new Float32Array(embedding).buffer));
+}
+
+export function searchSummaries(
+  db: Database.Database,
+  embedding: number[],
+  limit: number = 10
+): SessionSummary[] {
+  const stmt = db.prepare(`
+    SELECT
+      s.id, s.session_id, s.project, s.timestamp, s.duration_minutes,
+      s.one_liner, s.detailed, s.decisions, s.files_modified,
+      s.work_items, s.tools_used, s.outcomes, s.next_steps, s.tags,
+      v.distance
+    FROM vec_summaries v
+    JOIN session_summaries s ON v.id = s.id
+    WHERE v.embedding MATCH ? AND k = ?
+    ORDER BY v.distance
+  `);
+
+  const rows = stmt.all(
+    Buffer.from(new Float32Array(embedding).buffer),
+    limit
+  ) as any[];
+
+  return rows.map(row => ({
+    id: row.id,
+    sessionId: row.session_id,
+    project: row.project,
+    timestamp: row.timestamp,
+    durationMinutes: row.duration_minutes,
+    summary: {
+      oneLiner: row.one_liner,
+      detailed: row.detailed
+    },
+    decisions: JSON.parse(row.decisions || '[]'),
+    filesModified: JSON.parse(row.files_modified || '[]'),
+    workItems: JSON.parse(row.work_items || '[]'),
+    toolsUsed: JSON.parse(row.tools_used || '[]'),
+    outcomes: JSON.parse(row.outcomes || '[]'),
+    nextSteps: JSON.parse(row.next_steps || '[]'),
+    tags: JSON.parse(row.tags || '[]')
+  }));
+}
+
+export function getSummaryBySessionId(
+  db: Database.Database,
+  sessionId: string
+): SessionSummary | null {
+  const stmt = db.prepare(`
+    SELECT id, session_id, project, timestamp, duration_minutes,
+           one_liner, detailed, decisions, files_modified,
+           work_items, tools_used, outcomes, next_steps, tags
+    FROM session_summaries
+    WHERE session_id = ?
+  `);
+
+  const row = stmt.get(sessionId) as any;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    project: row.project,
+    timestamp: row.timestamp,
+    durationMinutes: row.duration_minutes,
+    summary: {
+      oneLiner: row.one_liner,
+      detailed: row.detailed
+    },
+    decisions: JSON.parse(row.decisions || '[]'),
+    filesModified: JSON.parse(row.files_modified || '[]'),
+    workItems: JSON.parse(row.work_items || '[]'),
+    toolsUsed: JSON.parse(row.tools_used || '[]'),
+    outcomes: JSON.parse(row.outcomes || '[]'),
+    nextSteps: JSON.parse(row.next_steps || '[]'),
+    tags: JSON.parse(row.tags || '[]')
+  };
 }

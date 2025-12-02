@@ -174,6 +174,9 @@ export async function syncConversations(
   if (!options.skipSummaries && filesToSummarize.length > 0) {
     const { parseConversation } = await import('./parser.js');
     const { summarizeConversation } = await import('./summarizer.js');
+    const { generateSessionSummary } = await import('./session-summary.js');
+    const { initDatabase, insertSessionSummary, getSummaryBySessionId } = await import('./db.js');
+    const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
 
     const summaryLimit = options.summaryLimit ?? 10;
     const toSummarize = filesToSummarize.slice(0, summaryLimit);
@@ -183,6 +186,9 @@ export async function syncConversations(
     if (remaining > 0) {
       console.log(`  (${remaining} more need summaries - will process on next sync)`);
     }
+
+    const db = initDatabase();
+    await initEmbeddings();
 
     for (const { path: filePath, sessionId } of toSummarize) {
       try {
@@ -194,10 +200,25 @@ export async function syncConversations(
         }
 
         console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
-        const summary = await summarizeConversation(exchanges);
 
+        // Generate text summary for file
+        const summary = await summarizeConversation(exchanges);
         const summaryPath = filePath.replace('.jsonl', '-summary.txt');
         fs.writeFileSync(summaryPath, summary, 'utf-8');
+
+        // Generate structured session summary for database (if not already exists)
+        const existingSummary = getSummaryBySessionId(db, sessionId);
+        if (!existingSummary) {
+          console.log(`    Generating structured session summary...`);
+          const sessionSummary = await generateSessionSummary(sessionId, project, exchanges);
+
+          // Generate embedding for the summary text
+          const summaryText = `${sessionSummary.summary.oneLiner} ${sessionSummary.summary.detailed}`;
+          const embedding = await generateExchangeEmbedding(summaryText, '', []);
+
+          insertSessionSummary(db, sessionSummary, embedding);
+        }
+
         result.summarized++;
       } catch (error) {
         result.errors.push({
@@ -206,6 +227,8 @@ export async function syncConversations(
         });
       }
     }
+
+    db.close();
   }
 
   return result;

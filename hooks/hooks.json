@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "SessionStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory sync --background",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }
