@@ -1,0 +1,213 @@
+id: feat-em-002
+title: Implement pagination for episodic memory search results
+tracking:
+  status: proposed
+  release: null
+  priority: high
+  category: enhancement
+  estimated_effort: 16.0
+  actual_effort: null
+  assignee: null
+  created: '2025-12-02T12:21:23.425307'
+  updated: '2025-12-02T12:21:23.425307'
+  tags:
+  - pagination
+  - search
+  - context-management
+  - performance
+  - mcp-tools
+  - user-experience
+  project: null
+  phase: null
+specification:
+  description: |
+    Add pagination support to episodic memory search results to prevent context
+    overflow and result truncation when fetching conversation history.
+
+    Current search implementation returns all matching results in a single response,
+    which can overwhelm the Claude context window, cause result truncation, and
+    make it difficult to process large result sets efficiently.
+
+    This is especially problematic for:
+    - Broad queries that match many conversations
+    - Session summary searches across long project histories
+    - Work item correlation searches (feat-XXX, bug-XXX) across releases
+  requirements:
+  - id: feat-em-002-req-01
+    description: Add limit/offset parameters to MCP search tools
+    priority: must
+    testable: true
+  - id: feat-em-002-req-02
+    description: Implement database-level pagination with LIMIT/OFFSET
+    priority: must
+    testable: true
+  - id: feat-em-002-req-03
+    description: Return pagination metadata (total, hasMore, nextOffset) with search results
+    priority: must
+    testable: true
+  - id: feat-em-002-req-04
+    description: Implement cursor-based pagination for vector searches
+    priority: should
+    testable: true
+  - id: feat-em-002-req-05
+    description: Support pagination in search_summaries tool
+    priority: must
+    testable: true
+  - id: feat-em-002-req-06
+    description: Add configurable default page size (default 10)
+    priority: must
+    testable: true
+  - id: feat-em-002-req-07
+    description: Implement search result ranking by relevance
+    priority: should
+    testable: true
+  - id: feat-em-002-req-08
+    description: Write comprehensive pagination tests
+    priority: must
+    testable: true
+  - id: feat-em-002-req-09
+    description: Document pagination usage with examples
+    priority: must
+    testable: true
+  acceptance_criteria:
+  - Search tools accept limit and offset parameters
+  - Default page size is configurable (default 10)
+  - Search results include pagination metadata (total, hasMore, nextOffset)
+  - Large result sets don't overflow context window
+  - Users can fetch additional pages via offset parameter
+  - Session summaries tool supports pagination
+  - Tests verify pagination correctness and edge cases
+  - Documentation includes progressive disclosure examples
+  constraints:
+    technical:
+    - Must maintain backward compatibility with existing search API
+    - Pagination should work with both vector and text search modes
+    - Cursor-based pagination for performance with large result sets
+    user_experience:
+    - Default page size should balance context usage and UX
+    - Pagination metadata must be clear and actionable
+    - Summary-first pattern enables progressive disclosure
+dependencies:
+  required_before: []
+  required_after:
+  - feat-em-001
+  related:
+  - feat-em-001
+  blocks: []
+  blocked_by: []
+notes: |
+  ## Implementation Approach
+
+  ### 1. MCP Tool Pagination
+  Add limit/offset parameters to search tools with default page size of 10:
+
+  ```typescript
+  export interface SearchOptions {
+    query: string | string[];
+    limit?: number;        // Default: 10
+    offset?: number;       // Default: 0
+    mode?: 'vector' | 'text' | 'both';
+    after?: string;        // ISO date filter
+    before?: string;       // ISO date filter
+  }
+
+  export interface SearchResult {
+    results: ConversationMatch[];
+    pagination: {
+      total: number;
+      limit: number;
+      offset: number;
+      hasMore: boolean;
+      nextOffset?: number;
+    };
+  }
+  ```
+
+  ### 2. Database-Level Pagination
+  Efficient LIMIT/OFFSET queries with total count:
+
+  ```typescript
+  // Paginated vector search
+  const results = await db.all(`
+    SELECT *,
+           vec_distance_cosine(embedding, ?) as distance
+    FROM conversations
+    WHERE distance < 0.5
+    ORDER BY distance ASC
+    LIMIT ? OFFSET ?
+  `, [embedding, limit, offset]);
+
+  // Count total matches
+  const total = await db.get(`
+    SELECT COUNT(*) as count
+    FROM conversations
+    WHERE vec_distance_cosine(embedding, ?) < 0.5
+  `, [embedding]);
+  ```
+
+  ### 3. Progressive Disclosure Pattern
+  Summary-first approach for efficient context usage:
+
+  1. Search session_summaries first (compact metadata)
+  2. User reviews summaries, identifies relevant sessions
+  3. User fetches full transcript via read(path, startLine, endLine)
+  4. User can paginate through more summaries if needed
+
+  ### 4. Example Usage
+
+  ```typescript
+  // First page
+  mcp__search({
+    query: "authentication implementation",
+    limit: 10,
+    offset: 0
+  })
+  // Returns: 10 results + {total: 47, hasMore: true, nextOffset: 10}
+
+  // Next page
+  mcp__search({
+    query: "authentication implementation",
+    limit: 10,
+    offset: 10
+  })
+  // Returns: 10 more results
+
+  // Summary-first workflow
+  mcp__search_summaries({
+    query: "feature implementation",
+    limit: 5
+  })
+  // Returns: 5 compact summaries with work items and files
+
+  // Then fetch specific conversation
+  mcp__read({
+    path: ".../conversation-20250115-143022.md",
+    startLine: 1,
+    endLine: 100
+  })
+  ```
+
+  ## Files to Modify
+
+  - src/server.ts - Add pagination parameters to MCP tools
+  - src/search.ts - Implement pagination logic
+  - src/db.ts - Add paginated query methods
+  - test/search-pagination.test.ts - Pagination tests
+  - README.md - Documentation with examples
+
+  ## Benefits
+
+  - Prevents context window overflow
+  - Avoids result truncation
+  - Improves search performance
+  - Enables progressive disclosure workflow
+  - Better UX for large result sets
+  - Efficient memory usage
+  - Supports cursor-based navigation
+
+  ## Related Work
+
+  This feature builds on feat-em-001 (session summaries) which provides the
+  compact metadata layer that makes summary-first progressive disclosure
+  practical and efficient.
+history: []

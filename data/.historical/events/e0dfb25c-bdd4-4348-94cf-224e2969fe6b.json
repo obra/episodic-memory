@@ -1,0 +1,17 @@
+{
+  "event_id": "e0dfb25c-bdd4-4348-94cf-224e2969fe6b",
+  "event_type": "workflow_transition",
+  "timestamp": "2025-12-02T12:21:23.425608",
+  "correlation_id": "91a1191b-d316-4a87-8f89-e333a9d2a6e1",
+  "data": {
+    "event_type": "pre_feature_create",
+    "mapped_event_type": "workflow.transition",
+    "data": {
+      "source": "feature_registry",
+      "timestamp": "2025-12-02T12:21:23.425438"
+    },
+    "timestamp": "2025-12-02T12:21:23.425608",
+    "correlation_id": "91a1191b-d316-4a87-8f89-e333a9d2a6e1",
+    "source_service": "event_bus"
+  }
+}

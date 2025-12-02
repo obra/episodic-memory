@@ -1,0 +1,22 @@
+{
+  "event_id": "b01ab1a9-e00d-4a45-9dee-d45413bab880",
+  "event_type": "workflow_transition",
+  "timestamp": "2025-12-02T12:20:57.383657",
+  "correlation_id": "6e08c03e-c5c2-4ec1-bb5f-889bfb286b2c",
+  "data": {
+    "event_type": "plugin.feature_registry.started",
+    "mapped_event_type": "plugin.lifecycle",
+    "data": {
+      "plugin_name": "feature-registry",
+      "plugin_version": "3.5.0",
+      "plugin_type": "STATE_MANAGEMENT",
+      "timestamp": "2025-12-02T12:20:57.383529",
+      "metadata": {
+        "version": "3.5.0"
+      }
+    },
+    "timestamp": "2025-12-02T12:20:57.383657",
+    "correlation_id": "6e08c03e-c5c2-4ec1-bb5f-889bfb286b2c",
+    "source_service": "event_bus"
+  }
+}

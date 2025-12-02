@@ -1,0 +1,19 @@
+{
+  "event_id": "987af08b-2b20-4bf9-8a4f-4fcd2202f488",
+  "event_type": "workflow_transition",
+  "timestamp": "2025-12-02T12:21:16.346262",
+  "correlation_id": "9b1169c6-8e24-45bf-81bd-a3ba21e14a8d",
+  "data": {
+    "event_type": "post_index_rebuild",
+    "mapped_event_type": "workflow.transition",
+    "data": {
+      "index": {
+        "version": "2.0",
+        "last_updated": "2025-12-02T12:21:16.344848",
+        "metrics": {
+          "total_features": 0,
+          "by_status": {}
+        },
+        "features": []
+      },
+      "index_path": 
