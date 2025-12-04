@@ -1,4 +1,6 @@
 import { marked } from 'marked';
+import { PAGINATION_DEFAULTS } from './constants';
+import { ReadPaginationMetadata, PaginatedConversation } from './types';
 
 interface ConversationMessage {
   uuid: string;
@@ -23,34 +25,11 @@ interface ConversationMessage {
   toolUseResult?: Array<{ type: string; text: string }> | string;
 }
 
-export function formatConversationAsMarkdown(jsonl: string, startLine?: number, endLine?: number): string {
-  const allLines = jsonl.trim().split('\n').filter(line => line.trim());
-
-  // Apply line range if specified (1-indexed, inclusive)
-  const lines = startLine !== undefined || endLine !== undefined
-    ? allLines.slice(
-        startLine !== undefined ? startLine - 1 : 0,
-        endLine !== undefined ? endLine : undefined
-      )
-    : allLines;
-
-  const allMessages: ConversationMessage[] = lines.map(line => JSON.parse(line));
-
-  // Filter out system messages and messages with no content
-  const messages = allMessages.filter(msg => {
-    if (msg.type !== 'user' && msg.type !== 'assistant') return false;
-    if (!msg.timestamp) return false;
-    if (!msg.message || !msg.message.content) {
-      if (msg.type === 'assistant' && msg.message?.usage) return true;
-      return false;
-    }
-    if (Array.isArray(msg.message.content) && msg.message.content.length === 0) {
-      if (msg.type === 'assistant' && msg.message?.usage) return true;
-      return false;
-    }
-    return true;
-  });
-
+/**
+ * Format an array of parsed message objects to markdown
+ * Helper function extracted for use by both formatConversationWithMetadata and formatConversationAsMarkdown
+ */
+function formatMessages(messages: ConversationMessage[]): string {
   if (messages.length === 0) {
     return '';
   }
@@ -218,6 +197,95 @@ export function formatConversationAsMarkdown(jsonl: string, startLine?: number, 
   }
 
   return output;
+}
+
+/**
+ * Format conversation with pagination metadata
+ */
+export function formatConversationWithMetadata(
+  jsonl: string,
+  startLine?: number,
+  endLine?: number,
+  pageSize: number = PAGINATION_DEFAULTS.PAGE_SIZE
+): PaginatedConversation {
+  const allLines = jsonl.trim().split('\n').filter(line => line.trim());
+  const totalLines = allLines.length;
+  const totalSizeKB = Math.round(jsonl.length / 1024 * 10) / 10;
+
+  // Calculate effective range
+  const effectiveStart = startLine ?? 1;
+  const effectiveEnd = endLine ?? Math.min(effectiveStart + pageSize - 1, totalLines);
+
+  // Slice lines (convert to 0-indexed)
+  const lines = allLines.slice(effectiveStart - 1, effectiveEnd);
+
+  // Parse and filter messages
+  const allMessages: ConversationMessage[] = lines.map(line => JSON.parse(line));
+  const messages = allMessages.filter(msg => {
+    if (msg.type !== 'user' && msg.type !== 'assistant') return false;
+    if (!msg.timestamp) return false;
+    if (!msg.message || !msg.message.content) {
+      if (msg.type === 'assistant' && msg.message?.usage) return true;
+      return false;
+    }
+    if (Array.isArray(msg.message.content) && msg.message.content.length === 0) {
+      if (msg.type === 'assistant' && msg.message?.usage) return true;
+      return false;
+    }
+    return true;
+  });
+
+  // Format the filtered messages
+  const content = formatMessages(messages);
+
+  const hasMore = effectiveEnd < totalLines;
+
+  return {
+    content,
+    metadata: {
+      totalLines,
+      totalSizeKB,
+      startLine: effectiveStart,
+      endLine: Math.min(effectiveEnd, totalLines),
+      hasMore,
+      suggestedNextRange: hasMore
+        ? {
+            start: effectiveEnd + 1,
+            end: Math.min(effectiveEnd + pageSize, totalLines)
+          }
+        : undefined
+    }
+  };
+}
+
+/**
+ * Original function - now delegates to formatConversationWithMetadata
+ * Maintains backward compatibility
+ */
+export function formatConversationAsMarkdown(jsonl: string, startLine?: number, endLine?: number): string {
+  // If no range specified, return all (backward compatible)
+  if (startLine === undefined && endLine === undefined) {
+    const allLines = jsonl.trim().split('\n').filter(line => line.trim());
+    const allMessages: ConversationMessage[] = allLines.map(line => JSON.parse(line));
+    const messages = allMessages.filter(msg => {
+      if (msg.type !== 'user' && msg.type !== 'assistant') return false;
+      if (!msg.timestamp) return false;
+      if (!msg.message || !msg.message.content) {
+        if (msg.type === 'assistant' && msg.message?.usage) return true;
+        return false;
+      }
+      if (Array.isArray(msg.message.content) && msg.message.content.length === 0) {
+        if (msg.type === 'assistant' && msg.message?.usage) return true;
+        return false;
+      }
+      return true;
+    });
+    return formatMessages(messages);
+  }
+
+  // Otherwise use new pagination logic
+  const result = formatConversationWithMetadata(jsonl, startLine, endLine);
+  return result.content;
 }
 
 export function formatConversationAsHTML(jsonl: string): string {

@@ -1,0 +1,201 @@
+id: feat-em-003
+title: CLI pagination and large file handling for conversation reading
+tracking:
+  status: proposed
+  release: null
+  priority: high
+  category: enhancement
+  estimated_effort: 8.0
+  actual_effort: null
+  assignee: null
+  created: '2025-12-03'
+  updated: '2025-12-03'
+  tags:
+  - pagination
+  - cli
+  - large-files
+  - user-experience
+  - mcp-tools
+  project: null
+  phase: null
+specification:
+  description: |
+    Add CLI pagination support and large file handling for the `episodic-memory show`
+    command and enhance the MCP `read` tool response with pagination metadata.
+
+    The MCP `read` tool already supports `startLine`/`endLine` parameters, but:
+    - CLI doesn't expose these parameters
+    - No warnings for large files that may overflow context
+    - No pagination metadata returned (total lines, hasMore, etc.)
+    - No convenient page-based navigation
+
+    This feature completes the pagination story for conversation reading,
+    complementing feat-em-002 (search result pagination).
+
+  requirements:
+  - id: feat-em-003-req-01
+    description: Add --start-line and --end-line arguments to show-cli.ts
+    priority: must
+    testable: true
+  - id: feat-em-003-req-02
+    description: Add --page and --page-size arguments for page-based navigation
+    priority: must
+    testable: true
+  - id: feat-em-003-req-03
+    description: Add --info flag to show file statistics without loading content
+    priority: must
+    testable: true
+  - id: feat-em-003-req-04
+    description: Implement large file warning with auto-truncation
+    priority: must
+    testable: true
+  - id: feat-em-003-req-05
+    description: Return pagination metadata (totalLines, hasMore, suggestedNextRange) from formatConversation
+    priority: must
+    testable: true
+  - id: feat-em-003-req-06
+    description: Enhance MCP read tool response to include pagination hints
+    priority: should
+    testable: true
+  - id: feat-em-003-req-07
+    description: Add pagination constants (PAGE_SIZE, WARN_THRESHOLD_LINES, etc.)
+    priority: must
+    testable: true
+  - id: feat-em-003-req-08
+    description: Write comprehensive pagination tests using existing fixtures
+    priority: must
+    testable: true
+  - id: feat-em-003-req-09
+    description: Update README with pagination usage examples
+    priority: must
+    testable: true
+
+  acceptance_criteria:
+  - episodic-memory show conv.jsonl --start-line 100 --end-line 200 works
+  - episodic-memory show conv.jsonl --page 3 --page-size 50 works
+  - episodic-memory show conv.jsonl --info shows file statistics
+  - Large files (>100 lines) show warning and auto-truncate with pagination hint
+  - MCP read tool returns pagination metadata for Claude to use
+  - All existing tests pass
+  - New pagination tests pass using long-conversation.jsonl fixture
+
+  constraints:
+    technical:
+    - Must maintain backward compatibility with existing CLI and MCP interface
+    - Full file still loaded into memory (streaming deferred to future enhancement)
+    - Line-based pagination (exchange-aware pagination deferred to v2)
+    user_experience:
+    - Default behavior unchanged for small files
+    - Clear actionable hints for navigating large files
+    - Info mode provides suggested page ranges
+
+dependencies:
+  required_before: []
+  required_after: []
+  related:
+  - feat-em-002  # Search result pagination (complementary)
+  blocks: []
+  blocked_by: []
+
+notes: |
+  ## Implementation Phases
+
+  ### Phase 1: CLI Pagination (3 SP)
+  Files: src/show-cli.ts, src/constants.ts (new)
+
+  Add argument parsing:
+  ```typescript
+  const args = parseArgs({
+    options: {
+      format: { type: 'string', default: 'markdown' },
+      'start-line': { type: 'string' },
+      'end-line': { type: 'string' },
+      'page-size': { type: 'string', default: '100' },
+      'page': { type: 'string' },
+      info: { type: 'boolean', default: false },
+    },
+    allowPositionals: true,
+  });
+  ```
+
+  ### Phase 2: Metadata Response (2 SP)
+  Files: src/show.ts, src/types.ts
+
+  Add pagination metadata:
+  ```typescript
+  export interface PaginationMetadata {
+    totalLines: number;
+    totalSizeKB: number;
+    startLine: number;
+    endLine: number;
+    hasMore: boolean;
+    suggestedNextRange?: { start: number; end: number };
+  }
+  ```
+
+  ### Phase 3: MCP Enhancement (2 SP)
+  Files: src/mcp-server.ts
+
+  Include pagination info in read response:
+  ```
+  Showing lines 1-100 of 460 total.
+  Use startLine: 101, endLine: 200 to see more.
+  ```
+
+  ### Phase 4: Testing & Docs (1 SP)
+  Files: test/show.test.ts, README.md
+
+  Use existing test fixtures:
+  - tiny-conversation.jsonl (7 lines) - No pagination needed
+  - long-conversation.jsonl (295 lines) - Pagination required
+  - large-conversation.jsonl (460 lines) - Stress test
+
+  ## CLI Usage Examples
+
+  ```bash
+  # Line range pagination
+  episodic-memory show conversation.jsonl --start-line 1 --end-line 50
+
+  # Page-based navigation
+  episodic-memory show conversation.jsonl --page 2 --page-size 50
+
+  # File info only
+  episodic-memory show conversation.jsonl --info
+  # Output:
+  # Conversation Info:
+  #   File: conversation.jsonl
+  #   Size: 1.4 MB
+  #   Lines: 460 messages
+  #   Suggested pagination:
+  #     Page 1: --start-line 1 --end-line 100
+  #     Page 2: --start-line 101 --end-line 200
+  #     ...
+
+  # Large file auto-warning
+  episodic-memory show large-conversation.jsonl
+  # Warning: This conversation has 460 lines (1.4 MB).
+  # Showing first 100 lines. Use --page or --start-line/--end-line for more.
+  ```
+
+  ## Constants
+
+  ```typescript
+  export const PAGINATION_DEFAULTS = {
+    PAGE_SIZE: 100,
+    WARN_THRESHOLD_LINES: 100,
+    WARN_THRESHOLD_KB: 500,
+    AUTO_TRUNCATE_LINES: 100,
+  };
+  ```
+
+  ## Related Work
+
+  - feat-em-002: Search result pagination (limit/offset on queries)
+  - This feature: Conversation read pagination (CLI and metadata)
+  - Together they complete the pagination story for episodic-memory
+
+  ## Design Document
+
+  Full design at: claude-ecosystem/docs/design/episodic-memory-pagination-design.md
+
+history: []

@@ -8,3 +8,9 @@ tmp/
 *.db-wal
 .env
 .claude/settings.local.json
+
+# Ephemeral implementation specs (generated, not committed)
+*-spec.md
+
+# Git worktrees
+.worktrees/

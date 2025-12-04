@@ -20,7 +20,7 @@ import {
   formatMultiConceptResults,
   SearchOptions,
 } from './search.js';
-import { formatConversationAsMarkdown } from './show.js';
+import { formatConversationWithMetadata } from './show.js';
 import fs from 'fs';
 
 // Zod Schemas for Input Validation
@@ -263,19 +263,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`File not found: ${params.path}`);
       }
 
-      // Read and format conversation with optional line range
+      // Read and format conversation with pagination metadata
       const jsonlContent = fs.readFileSync(params.path, 'utf-8');
-      const markdownContent = formatConversationAsMarkdown(
+      const result = formatConversationWithMetadata(
         jsonlContent,
         params.startLine,
         params.endLine
       );
 
+      // Build response with pagination hints
+      let response = result.content;
+
+      if (result.metadata.hasMore) {
+        const next = result.metadata.suggestedNextRange!;
+        response += `\n\n---\n`;
+        response += `**Pagination:** Showing lines ${result.metadata.startLine}-${result.metadata.endLine} `;
+        response += `of ${result.metadata.totalLines} total.\n`;
+        response += `Use \`startLine: ${next.start}, endLine: ${next.end}\` to see more.`;
+      }
+
       return {
         content: [
           {
             type: 'text',
-            text: markdownContent,
+            text: response,
           },
         ],
       };
