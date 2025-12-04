@@ -95,38 +95,39 @@ describe('Integration Tests', () => {
     });
 
     it('should find conversations by semantic similarity', async () => {
-      const results = await searchConversations('Employee class design', {
+      const resultWithPagination = await searchConversations('Employee class design', {
         limit: 5,
         mode: 'vector'
       });
 
-      expect(results).toBeDefined();
-      expect(Array.isArray(results)).toBe(true);
-      expect(results.length).toBeGreaterThan(0);
+      expect(resultWithPagination).toBeDefined();
+      expect(resultWithPagination.results).toBeDefined();
+      expect(Array.isArray(resultWithPagination.results)).toBe(true);
+      expect(resultWithPagination.results.length).toBeGreaterThan(0);
     });
 
     it('should return similarity scores', async () => {
-      const results = await searchConversations('Python dataclass', {
+      const resultWithPagination = await searchConversations('Python dataclass', {
         limit: 5,
         mode: 'vector'
       });
 
-      if (results.length > 0) {
-        expect(results[0].similarity).toBeDefined();
+      if (resultWithPagination.results.length > 0) {
+        expect(resultWithPagination.results[0].similarity).toBeDefined();
         // Similarity is 1 - distance, where distance can be > 1 for dissimilar items
         // So similarity can be negative (valid for poor matches)
-        expect(typeof results[0].similarity).toBe('number');
-        expect(results[0].similarity).toBeLessThanOrEqual(1);
+        expect(typeof resultWithPagination.results[0].similarity).toBe('number');
+        expect(resultWithPagination.results[0].similarity).toBeLessThanOrEqual(1);
       }
     });
 
     it('should respect limit parameter', async () => {
-      const results = await searchConversations('class', {
+      const resultWithPagination = await searchConversations('class', {
         limit: 2,
         mode: 'vector'
       });
 
-      expect(results.length).toBeLessThanOrEqual(2);
+      expect(resultWithPagination.results.length).toBeLessThanOrEqual(2);
     });
   });
 
@@ -136,17 +137,18 @@ describe('Integration Tests', () => {
     });
 
     it('should find exact text matches', async () => {
-      const results = await searchConversations('Docker', {
+      const resultWithPagination = await searchConversations('Docker', {
         limit: 10,
         mode: 'text'
       });
 
-      expect(results).toBeDefined();
-      expect(Array.isArray(results)).toBe(true);
+      expect(resultWithPagination).toBeDefined();
+      expect(resultWithPagination.results).toBeDefined();
+      expect(Array.isArray(resultWithPagination.results)).toBe(true);
 
       // If Docker appears in the conversation, we should find it
-      if (results.length > 0) {
-        const hasDocker = results.some(r =>
+      if (resultWithPagination.results.length > 0) {
+        const hasDocker = resultWithPagination.results.some(r =>
           r.exchange.userMessage.includes('Docker') ||
           r.exchange.assistantMessage.includes('Docker')
         );
@@ -166,7 +168,7 @@ describe('Integration Tests', () => {
       });
 
       // Should find same results regardless of case
-      expect(lowerResults.length).toBe(upperResults.length);
+      expect(lowerResults.results.length).toBe(upperResults.results.length);
     });
   });
 
@@ -179,23 +181,24 @@ describe('Integration Tests', () => {
     });
 
     it('should combine vector and text results', async () => {
-      const results = await searchConversations('testing', {
+      const resultWithPagination = await searchConversations('testing', {
         limit: 10,
         mode: 'both'
       });
 
-      expect(results).toBeDefined();
-      expect(Array.isArray(results)).toBe(true);
+      expect(resultWithPagination).toBeDefined();
+      expect(resultWithPagination.results).toBeDefined();
+      expect(Array.isArray(resultWithPagination.results)).toBe(true);
     });
 
     it('should deduplicate combined results', async () => {
-      const results = await searchConversations('conversation', {
+      const resultWithPagination = await searchConversations('conversation', {
         limit: 20,
         mode: 'both'
       });
 
       // Check for duplicate IDs
-      const ids = results.map(r => r.exchange.id);
+      const ids = resultWithPagination.results.map(r => r.exchange.id);
       const uniqueIds = new Set(ids);
 
       expect(ids.length).toBe(uniqueIds.size); // No duplicates
@@ -208,12 +211,12 @@ describe('Integration Tests', () => {
     });
 
     it('should filter by after date', async () => {
-      const results = await searchConversations('class', {
+      const resultWithPagination = await searchConversations('class', {
         mode: 'vector',
         after: '2025-10-08'
       });
 
-      results.forEach(r => {
+      resultWithPagination.results.forEach(r => {
         const date = new Date(r.exchange.timestamp);
         const filterDate = new Date('2025-10-08');
         expect(date >= filterDate).toBe(true);
@@ -221,12 +224,12 @@ describe('Integration Tests', () => {
     });
 
     it('should filter by before date', async () => {
-      const results = await searchConversations('class', {
+      const resultWithPagination = await searchConversations('class', {
         mode: 'vector',
         before: '2025-10-09'
       });
 
-      results.forEach(r => {
+      resultWithPagination.results.forEach(r => {
         const date = new Date(r.exchange.timestamp);
         const filterDate = new Date('2025-10-09');
         expect(date <= filterDate).toBe(true);
@@ -234,13 +237,13 @@ describe('Integration Tests', () => {
     });
 
     it('should handle date range', async () => {
-      const results = await searchConversations('class', {
+      const resultWithPagination = await searchConversations('class', {
         mode: 'vector',
         after: '2025-10-01',
         before: '2025-10-31'
       });
 
-      results.forEach(r => {
+      resultWithPagination.results.forEach(r => {
         const date = new Date(r.exchange.timestamp);
         expect(date >= new Date('2025-10-01')).toBe(true);
         expect(date <= new Date('2025-10-31')).toBe(true);

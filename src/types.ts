@@ -49,3 +49,21 @@ export interface MultiConceptResult {
   conceptSimilarities: number[];
   averageSimilarity: number;
 }
+
+export interface PaginationMeta {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset?: number;
+}
+
+export interface SearchResultWithPagination {
+  results: SearchResult[];
+  pagination: PaginationMeta;
+}
+
+export interface MultiConceptResultWithPagination {
+  results: MultiConceptResult[];
+  pagination: PaginationMeta;
+}

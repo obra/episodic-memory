@@ -73,8 +73,12 @@ if (queries.length > 1) {
   const options = { limit, after, before };
 
   searchMultipleConcepts(queries, options)
-    .then(async results => {
-      console.log(await formatMultiConceptResults(results, queries));
+    .then(async resultWithPagination => {
+      console.log(await formatMultiConceptResults(
+        resultWithPagination.results,
+        queries,
+        resultWithPagination.pagination
+      ));
     })
     .catch(error => {
       console.error('Error searching:', error);
@@ -90,8 +94,11 @@ if (queries.length > 1) {
   };
 
   searchConversations(queries[0], options)
-    .then(async results => {
-      console.log(await formatResults(results));
+    .then(async resultWithPagination => {
+      console.log(await formatResults(
+        resultWithPagination.results,
+        resultWithPagination.pagination
+      ));
     })
     .catch(error => {
       console.error('Error searching:', error);

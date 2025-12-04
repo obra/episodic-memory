@@ -5,41 +5,45 @@ describe('multi-concept search', () => {
   it('should find conversations matching all concepts', async () => {
     // This test will use the actual database
     // Looking for conversations that discuss both "React Router" AND "authentication"
-    const results = await searchMultipleConcepts(['React', 'Router'], { limit: 5 });
+    const resultWithPagination = await searchMultipleConcepts(['React', 'Router'], { limit: 5 });
 
     // Should return results
-    expect(Array.isArray(results)).toBe(true);
+    expect(resultWithPagination).toBeDefined();
+    expect(resultWithPagination.results).toBeDefined();
+    expect(Array.isArray(resultWithPagination.results)).toBe(true);
 
     // Results should be sorted by average similarity
-    if (results.length > 1) {
-      expect(results[0].averageSimilarity).toBeGreaterThanOrEqual(results[1].averageSimilarity);
+    if (resultWithPagination.results.length > 1) {
+      expect(resultWithPagination.results[0].averageSimilarity).toBeGreaterThanOrEqual(resultWithPagination.results[1].averageSimilarity);
     }
   });
 
   it('should have low similarity for unrelated concepts', async () => {
-    const results = await searchMultipleConcepts(['xyzabc123', 'qwerty789'], { limit: 5 });
+    const resultWithPagination = await searchMultipleConcepts(['xyzabc123', 'qwerty789'], { limit: 5 });
 
-    expect(Array.isArray(results)).toBe(true);
+    expect(resultWithPagination).toBeDefined();
+    expect(resultWithPagination.results).toBeDefined();
+    expect(Array.isArray(resultWithPagination.results)).toBe(true);
     // Might return some results (weak matches)
     // but average similarity should be very low
-    if (results.length > 0) {
-      expect(results[0].averageSimilarity).toBeLessThan(0.1); // < 10%
+    if (resultWithPagination.results.length > 0) {
+      expect(resultWithPagination.results[0].averageSimilarity).toBeLessThan(0.1); // < 10%
     }
   });
 
   it('should respect limit parameter', async () => {
-    const results = await searchMultipleConcepts(['React', 'Router'], { limit: 2 });
+    const resultWithPagination = await searchMultipleConcepts(['React', 'Router'], { limit: 2 });
 
-    expect(results.length).toBeLessThanOrEqual(2);
+    expect(resultWithPagination.results.length).toBeLessThanOrEqual(2);
   });
 
   it('should include similarity scores for each concept', async () => {
-    const results = await searchMultipleConcepts(['React', 'Router'], { limit: 1 });
+    const resultWithPagination = await searchMultipleConcepts(['React', 'Router'], { limit: 1 });
 
-    if (results.length > 0) {
-      expect(results[0].conceptSimilarities).toBeDefined();
-      expect(results[0].conceptSimilarities?.length).toBe(2);
-      expect(results[0].averageSimilarity).toBeDefined();
+    if (resultWithPagination.results.length > 0) {
+      expect(resultWithPagination.results[0].conceptSimilarities).toBeDefined();
+      expect(resultWithPagination.results[0].conceptSimilarities?.length).toBe(2);
+      expect(resultWithPagination.results[0].averageSimilarity).toBeDefined();
     }
   });
 });

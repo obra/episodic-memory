@@ -1,12 +1,13 @@
 import Database from 'better-sqlite3';
 import { initDatabase } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
-import { SearchResult, ConversationExchange, MultiConceptResult } from './types.js';
+import { SearchResult, ConversationExchange, MultiConceptResult, SearchResultWithPagination, MultiConceptResultWithPagination, PaginationMeta } from './types.js';
 import fs from 'fs';
 import readline from 'readline';
 
 export interface SearchOptions {
   limit?: number;
+  offset?: number;
   mode?: 'vector' | 'text' | 'both';
   after?: string;  // ISO date string
   before?: string; // ISO date string
@@ -27,8 +28,8 @@ function validateISODate(dateStr: string, paramName: string): void {
 export async function searchConversations(
   query: string,
   options: SearchOptions = {}
-): Promise<SearchResult[]> {
-  const { limit = 10, mode = 'both', after, before } = options;
+): Promise<SearchResultWithPagination> {
+  const { limit = 10, offset = 0, mode = 'both', after, before } = options;
 
   // Validate date parameters
   if (after) validateISODate(after, '--after');
@@ -37,6 +38,7 @@ export async function searchConversations(
   const db = initDatabase();
 
   let results: any[] = [];
+  let total = 0;
 
   // Build time filter clause
   const timeFilter = [];
@@ -48,8 +50,11 @@ export async function searchConversations(
     // Vector similarity search
     await initEmbeddings();
     const queryEmbedding = await generateEmbedding(query);
+    const embeddingBuffer = Buffer.from(new Float32Array(queryEmbedding).buffer);
 
-    const stmt = db.prepare(`
+    // For vector search with sqlite-vec, we need to get all results first and then paginate
+    // because MATCH + k parameter doesn't support OFFSET
+    const vectorStmt = db.prepare(`
       SELECT
         e.id,
         e.project,
@@ -68,35 +73,74 @@ export async function searchConversations(
       ORDER BY vec.distance ASC
     `);
 
-    results = stmt.all(
-      Buffer.from(new Float32Array(queryEmbedding).buffer),
-      limit
-    );
+    // Get limit + offset results to properly paginate
+    const allVectorResults = vectorStmt.all(embeddingBuffer, limit + offset);
+
+    if (mode === 'vector') {
+      // For vector-only mode, count is straightforward
+      total = allVectorResults.length;
+      results = allVectorResults.slice(offset, offset + limit);
+    } else {
+      // For 'both' mode, store all results for deduplication
+      results = allVectorResults;
+    }
   }
 
   if (mode === 'text' || mode === 'both') {
     // Text search
-    const textStmt = db.prepare(`
-      SELECT
-        e.id,
-        e.project,
-        e.timestamp,
-        e.user_message,
-        e.assistant_message,
-        e.archive_path,
-        e.line_start,
-        e.line_end,
-        0 as distance
-      FROM exchanges AS e
-      WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
-        ${timeClause}
-      ORDER BY e.timestamp DESC
-      LIMIT ?
-    `);
+    if (mode === 'text') {
+      // Count total text results
+      const countStmt = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM exchanges AS e
+        WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+          ${timeClause}
+      `);
+      const countResult = countStmt.get(`%${query}%`, `%${query}%`) as { count: number };
+      total = countResult.count;
 
-    const textResults = textStmt.all(`%${query}%`, `%${query}%`, limit);
+      // Get paginated text results
+      const textStmt = db.prepare(`
+        SELECT
+          e.id,
+          e.project,
+          e.timestamp,
+          e.user_message,
+          e.assistant_message,
+          e.archive_path,
+          e.line_start,
+          e.line_end,
+          0 as distance
+        FROM exchanges AS e
+        WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+          ${timeClause}
+        ORDER BY e.timestamp DESC
+        LIMIT ? OFFSET ?
+      `);
 
-    if (mode === 'both') {
+      results = textStmt.all(`%${query}%`, `%${query}%`, limit, offset);
+    } else {
+      // mode === 'both': Merge and deduplicate
+      const textStmt = db.prepare(`
+        SELECT
+          e.id,
+          e.project,
+          e.timestamp,
+          e.user_message,
+          e.assistant_message,
+          e.archive_path,
+          e.line_start,
+          e.line_end,
+          0 as distance
+        FROM exchanges AS e
+        WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+          ${timeClause}
+        ORDER BY e.timestamp DESC
+        LIMIT ?
+      `);
+
+      const textResults = textStmt.all(`%${query}%`, `%${query}%`, limit + offset);
+
       // Merge and deduplicate by ID
       const seenIds = new Set(results.map(r => r.id));
       for (const textResult of textResults) {
@@ -104,14 +148,18 @@ export async function searchConversations(
           results.push(textResult);
         }
       }
-    } else {
-      results = textResults;
+
+      // For 'both' mode, total is the merged count before pagination
+      total = results.length;
+      // Apply pagination to merged results
+      results = results.slice(offset, offset + limit);
     }
   }
 
   db.close();
 
-  return results.map((row: any) => {
+  // Map to SearchResult objects
+  const searchResults = results.map((row: any) => {
     const exchange: ConversationExchange = {
       id: row.id,
       project: row.project,
@@ -141,6 +189,20 @@ export async function searchConversations(
       summary
     } as SearchResult & { summary?: string };
   });
+
+  // Build pagination metadata
+  const pagination: PaginationMeta = {
+    total,
+    limit,
+    offset,
+    hasMore: offset + searchResults.length < total,
+    nextOffset: offset + searchResults.length < total ? offset + limit : undefined
+  };
+
+  return {
+    results: searchResults,
+    pagination
+  };
 }
 
 // Helper function to count lines in a file efficiently
@@ -172,12 +234,29 @@ function getFileSizeInKB(filePath: string): number {
   }
 }
 
-export async function formatResults(results: Array<SearchResult & { summary?: string }>): Promise<string> {
-  if (results.length === 0) {
-    return 'No results found.';
+export async function formatResults(
+  results: Array<SearchResult & { summary?: string }>,
+  pagination: PaginationMeta,
+  format: 'json' | 'markdown' = 'markdown'
+): Promise<string> {
+  if (format === 'json') {
+    return JSON.stringify({
+      results: results.map(r => ({
+        exchange: r.exchange,
+        similarity: r.similarity,
+        snippet: r.snippet
+      })),
+      pagination
+    }, null, 2);
   }
 
-  let output = `Found ${results.length} relevant conversation${results.length > 1 ? 's' : ''}:\n\n`;
+  // Markdown format
+  if (results.length === 0) {
+    return `No results found.\n\nShowing 0 of ${pagination.total} results`;
+  }
+
+  let output = `## Search Results\n\n`;
+  output += `Showing ${pagination.offset + 1}-${pagination.offset + results.length} of ${pagination.total} results\n\n`;
 
   // Process results sequentially to get file metadata
   for (let index = 0; index < results.length; index++) {
@@ -186,7 +265,7 @@ export async function formatResults(results: Array<SearchResult & { summary?: st
     const simPct = result.similarity !== undefined ? Math.round(result.similarity * 100) : null;
 
     // Header with match percentage
-    output += `${index + 1}. [${result.exchange.project}, ${date}]`;
+    output += `${pagination.offset + index + 1}. [${result.exchange.project}, ${date}]`;
     if (simPct !== null) {
       output += ` - ${simPct}% match`;
     }
@@ -221,29 +300,41 @@ export async function formatResults(results: Array<SearchResult & { summary?: st
     output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)\n\n`;
   }
 
+  if (pagination.hasMore) {
+    output += `---\n**More results available.** Use offset: ${pagination.nextOffset} to see next page.\n`;
+  }
+
   return output;
 }
 
 export async function searchMultipleConcepts(
   concepts: string[],
   options: Omit<SearchOptions, 'mode'> = {}
-): Promise<MultiConceptResult[]> {
-  const { limit = 10 } = options;
+): Promise<MultiConceptResultWithPagination> {
+  const { limit = 10, offset = 0 } = options;
 
   if (concepts.length === 0) {
-    return [];
+    return {
+      results: [],
+      pagination: {
+        total: 0,
+        limit,
+        offset,
+        hasMore: false
+      }
+    };
   }
 
   // Search for each concept independently
   const conceptResults = await Promise.all(
-    concepts.map(concept => searchConversations(concept, { ...options, limit: limit * 5, mode: 'vector' }))
+    concepts.map(concept => searchConversations(concept, { ...options, limit: limit * 5 + offset, mode: 'vector' }))
   );
 
   // Build map of conversation path -> array of results (one per concept)
   const conversationMap = new Map<string, Array<SearchResult & { conceptIndex: number }>>();
 
-  conceptResults.forEach((results, conceptIndex) => {
-    results.forEach(result => {
+  conceptResults.forEach((resultWithPagination, conceptIndex) => {
+    resultWithPagination.results.forEach(result => {
       const key = result.exchange.archivePath;
       if (!conversationMap.has(key)) {
         conversationMap.set(key, []);
@@ -282,19 +373,49 @@ export async function searchMultipleConcepts(
   // Sort by average similarity (highest first)
   multiConceptResults.sort((a, b) => b.averageSimilarity - a.averageSimilarity);
 
-  // Apply limit
-  return multiConceptResults.slice(0, limit);
+  // Count total before pagination
+  const total = multiConceptResults.length;
+
+  // Apply pagination
+  const paginatedResults = multiConceptResults.slice(offset, offset + limit);
+
+  // Build pagination metadata
+  const pagination: PaginationMeta = {
+    total,
+    limit,
+    offset,
+    hasMore: offset + paginatedResults.length < total,
+    nextOffset: offset + paginatedResults.length < total ? offset + limit : undefined
+  };
+
+  return {
+    results: paginatedResults,
+    pagination
+  };
 }
 
 export async function formatMultiConceptResults(
   results: MultiConceptResult[],
-  concepts: string[]
+  concepts: string[],
+  pagination: PaginationMeta,
+  format: 'json' | 'markdown' = 'markdown'
 ): Promise<string> {
-  if (results.length === 0) {
-    return `No conversations found matching all concepts: ${concepts.join(', ')}`;
+  if (format === 'json') {
+    return JSON.stringify({
+      results: results,
+      concepts: concepts,
+      pagination
+    }, null, 2);
   }
 
-  let output = `Found ${results.length} conversation${results.length > 1 ? 's' : ''} matching all concepts [${concepts.join(' + ')}]:\n\n`;
+  // Markdown format
+  if (results.length === 0) {
+    return `No conversations found matching all concepts: ${concepts.join(', ')}\n\nShowing 0 of ${pagination.total} results`;
+  }
+
+  let output = `## Multi-Concept Search Results\n\n`;
+  output += `Concepts: [${concepts.join(' + ')}]\n`;
+  output += `Showing ${pagination.offset + 1}-${pagination.offset + results.length} of ${pagination.total} results\n\n`;
 
   // Process results sequentially to get file metadata
   for (let index = 0; index < results.length; index++) {
@@ -303,7 +424,7 @@ export async function formatMultiConceptResults(
     const avgPct = Math.round(result.averageSimilarity * 100);
 
     // Header with average match percentage
-    output += `${index + 1}. [${result.exchange.project}, ${date}] - ${avgPct}% avg match\n`;
+    output += `${pagination.offset + index + 1}. [${result.exchange.project}, ${date}] - ${avgPct}% avg match\n`;
 
     // Show individual concept scores
     const scores = result.conceptSimilarities
@@ -333,6 +454,10 @@ export async function formatMultiConceptResults(
 
     // File information with metadata (clean format for smart tool selection)
     output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)\n\n`;
+  }
+
+  if (pagination.hasMore) {
+    output += `---\n**More results available.** Use offset: ${pagination.nextOffset} to see next page.\n`;
   }
 
   return output;

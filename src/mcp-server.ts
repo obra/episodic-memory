@@ -51,6 +51,12 @@ const SearchInputSchema = z
       .max(50)
       .default(10)
       .describe('Maximum number of results to return (default: 10)'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Number of results to skip for pagination (default: 0)'),
     after: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
@@ -122,7 +128,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'search',
-        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths. Supports pagination via limit (default 10) and offset (default 0) parameters.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -134,6 +140,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             mode: { type: 'string', enum: ['vector', 'text', 'both'], default: 'both' },
             limit: { type: 'number', minimum: 1, maximum: 50, default: 10 },
+            offset: { type: 'number', minimum: 0, default: 0 },
             after: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             before: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             response_format: { type: 'string', enum: ['markdown', 'json'], default: 'markdown' },
@@ -189,52 +196,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Multi-concept search
         const options = {
           limit: params.limit,
+          offset: params.offset,
           after: params.after,
           before: params.before,
         };
 
-        const results = await searchMultipleConcepts(params.query, options);
+        const resultWithPagination = await searchMultipleConcepts(params.query, options);
 
         if (params.response_format === 'json') {
-          resultText = JSON.stringify(
-            {
-              results: results,
-              count: results.length,
-              concepts: params.query,
-            },
-            null,
-            2
+          resultText = await formatMultiConceptResults(
+            resultWithPagination.results,
+            params.query,
+            resultWithPagination.pagination,
+            'json'
           );
         } else {
-          resultText = await formatMultiConceptResults(results, params.query);
+          resultText = await formatMultiConceptResults(
+            resultWithPagination.results,
+            params.query,
+            resultWithPagination.pagination,
+            'markdown'
+          );
         }
       } else {
         // Single-concept search
         const options: SearchOptions = {
           mode: params.mode,
           limit: params.limit,
+          offset: params.offset,
           after: params.after,
           before: params.before,
         };
 
-        const results = await searchConversations(params.query, options);
+        const resultWithPagination = await searchConversations(params.query, options);
 
         if (params.response_format === 'json') {
-          resultText = JSON.stringify(
-            {
-              results: results.map((r) => ({
-                exchange: r.exchange,
-                similarity: r.similarity,
-                snippet: r.snippet,
-              })),
-              count: results.length,
-              mode: params.mode,
-            },
-            null,
-            2
+          resultText = await formatResults(
+            resultWithPagination.results,
+            resultWithPagination.pagination,
+            'json'
           );
         } else {
-          resultText = await formatResults(results);
+          resultText = await formatResults(
+            resultWithPagination.results,
+            resultWithPagination.pagination,
+            'markdown'
+          );
         }
       }
 
