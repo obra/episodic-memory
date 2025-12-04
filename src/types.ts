@@ -49,3 +49,37 @@ export interface MultiConceptResult {
   conceptSimilarities: number[];
   averageSimilarity: number;
 }
+
+/**
+ * Pagination metadata for conversation reading
+ */
+export interface ReadPaginationMetadata {
+  /** Total number of lines in the file */
+  totalLines: number;
+
+  /** File size in KB */
+  totalSizeKB: number;
+
+  /** First line being shown (1-indexed) */
+  startLine: number;
+
+  /** Last line being shown (1-indexed) */
+  endLine: number;
+
+  /** Whether there are more lines after endLine */
+  hasMore: boolean;
+
+  /** Suggested next range if hasMore is true */
+  suggestedNextRange?: { start: number; end: number };
+}
+
+/**
+ * Result of formatting a conversation with pagination
+ */
+export interface PaginatedConversation {
+  /** Formatted conversation content */
+  content: string;
+
+  /** Pagination metadata */
+  metadata: ReadPaginationMetadata;
+}
