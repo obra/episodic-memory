@@ -1,9 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { suppressConsole } from './test-utils.js';
 import { ConversationExchange, ToolCall } from '../src/types.js';
 
 // Suppress console output for clean test runs
 const restoreConsole = suppressConsole();
+
+// Restore console after all tests
+afterAll(() => {
+  restoreConsole();
+});
 
 // Import the types and functions we're going to create
 // These will fail until we implement them

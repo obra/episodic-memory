@@ -40,11 +40,19 @@ export async function searchConversations(
   let results: any[] = [];
   let total = 0;
 
-  // Build time filter clause
-  const timeFilter = [];
-  if (after) timeFilter.push(`e.timestamp >= '${after}'`);
-  if (before) timeFilter.push(`e.timestamp <= '${before}'`);
-  const timeClause = timeFilter.length > 0 ? `AND ${timeFilter.join(' AND ')}` : '';
+  // Build time filter clause using parameterized queries to prevent SQL injection
+  // Even though dates are validated, parameterized queries are safer
+  const timeConditions: string[] = [];
+  const timeParams: string[] = [];
+  if (after) {
+    timeConditions.push(`e.timestamp >= ?`);
+    timeParams.push(after);
+  }
+  if (before) {
+    timeConditions.push(`e.timestamp <= ?`);
+    timeParams.push(before);
+  }
+  const timeClause = timeConditions.length > 0 ? `AND ${timeConditions.join(' AND ')}` : '';
 
   if (mode === 'vector' || mode === 'both') {
     // Vector similarity search
@@ -74,7 +82,7 @@ export async function searchConversations(
     `);
 
     // Get limit + offset results to properly paginate
-    const allVectorResults = vectorStmt.all(embeddingBuffer, limit + offset);
+    const allVectorResults = vectorStmt.all(embeddingBuffer, limit + offset, ...timeParams);
 
     if (mode === 'vector') {
       // For vector-only mode, count is straightforward
@@ -96,7 +104,7 @@ export async function searchConversations(
         WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
           ${timeClause}
       `);
-      const countResult = countStmt.get(`%${query}%`, `%${query}%`) as { count: number };
+      const countResult = countStmt.get(`%${query}%`, `%${query}%`, ...timeParams) as { count: number };
       total = countResult.count;
 
       // Get paginated text results
@@ -118,7 +126,7 @@ export async function searchConversations(
         LIMIT ? OFFSET ?
       `);
 
-      results = textStmt.all(`%${query}%`, `%${query}%`, limit, offset);
+      results = textStmt.all(`%${query}%`, `%${query}%`, ...timeParams, limit, offset);
     } else {
       // mode === 'both': Merge and deduplicate
       const textStmt = db.prepare(`
@@ -139,7 +147,7 @@ export async function searchConversations(
         LIMIT ?
       `);
 
-      const textResults = textStmt.all(`%${query}%`, `%${query}%`, limit + offset);
+      const textResults = textStmt.all(`%${query}%`, `%${query}%`, ...timeParams, limit + offset);
 
       // Merge and deduplicate by ID
       const seenIds = new Set(results.map(r => r.id));

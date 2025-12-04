@@ -16,4 +16,7 @@
         },
         "features": []
       },
-      "index_path": 
+      "index_path": "data/features/index.yaml"
+    }
+  }
+}

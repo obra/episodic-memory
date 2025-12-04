@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { suppressConsole, createTestDb } from './test-utils.js';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { suppressConsole } from './test-utils.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -7,6 +7,11 @@ import Database from 'better-sqlite3';
 
 // Suppress console output for clean test runs
 const restoreConsole = suppressConsole();
+
+// Restore console after all tests
+afterAll(() => {
+  restoreConsole();
+});
 
 // Import the functions and types we're going to create
 // These will fail until we implement them
