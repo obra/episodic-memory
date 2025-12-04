@@ -1,7 +1,7 @@
 id: feat-em-002
 title: Implement pagination for episodic memory search results
 tracking:
-  status: proposed
+  status: completed
   release: null
   priority: high
   category: enhancement

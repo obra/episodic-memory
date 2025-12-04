@@ -3,13 +3,13 @@ last_updated: '2025-12-03'
 metrics:
   total_features: 2
   by_status:
-    proposed: 2
+    completed: 2
 features:
 - id: feat-em-002
   title: Implement pagination for episodic memory search results
-  status: proposed
+  status: completed
   priority: high
 - id: feat-em-003
   title: CLI pagination and large file handling for conversation reading
-  status: proposed
+  status: completed
   priority: high

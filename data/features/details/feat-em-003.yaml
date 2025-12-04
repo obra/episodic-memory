@@ -1,7 +1,7 @@
 id: feat-em-003
 title: CLI pagination and large file handling for conversation reading
 tracking:
-  status: proposed
+  status: completed
   release: null
   priority: high
   category: enhancement
