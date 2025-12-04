@@ -265,6 +265,14 @@ export function insertSessionSummary(
   summary: SessionSummary,
   embedding: number[]
 ): void {
+  // Delete any existing summary for this session (and its vector entry) to prevent orphans
+  // When INSERT OR REPLACE triggers, SQLite deletes the old row (with old id) and inserts new row (with new id)
+  // We must delete the old vector entry by looking up the existing id first
+  const existing = db.prepare(`SELECT id FROM session_summaries WHERE session_id = ?`).get(summary.sessionId) as { id: string } | undefined;
+  if (existing) {
+    db.prepare(`DELETE FROM vec_summaries WHERE id = ?`).run(existing.id);
+  }
+
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO session_summaries
     (id, session_id, project, timestamp, duration_minutes, one_liner, detailed,
@@ -289,10 +297,7 @@ export function insertSessionSummary(
     JSON.stringify(summary.tags)
   );
 
-  // Insert into vector table (delete first since virtual tables don't support REPLACE)
-  const delStmt = db.prepare(`DELETE FROM vec_summaries WHERE id = ?`);
-  delStmt.run(summary.id);
-
+  // Insert into vector table
   const vecStmt = db.prepare(`
     INSERT INTO vec_summaries (id, embedding)
     VALUES (?, ?)

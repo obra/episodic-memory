@@ -121,6 +121,7 @@ export async function generateSessionSummary(
         if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
           const result = (message as any).result;
           // Extract JSON from response (handle potential markdown wrapping)
+          // Note: Using greedy quantifier to capture full nested JSON structure
           const jsonMatch = result.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             try {
