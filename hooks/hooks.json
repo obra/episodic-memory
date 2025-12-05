@@ -6,8 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory sync --background",
-            "async": true
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd session-start-sync.sh"
           }
         ]
       }
