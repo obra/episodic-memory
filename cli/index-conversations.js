@@ -11,7 +11,8 @@ const __dirname = dirname(realpathSync(__filename));
 function runTsxCommand(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn('npx', ['tsx', join(__dirname, '../src/index-cli.ts'), command, ...args], {
-      stdio: 'inherit'
+      stdio: 'inherit',
+      shell: process.platform === 'win32'
     });
 
     child.on('exit', (code) => {
