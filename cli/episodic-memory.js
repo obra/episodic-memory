@@ -24,7 +24,8 @@ function checkCommandAvailable(cmd) {
 function runCommand(cmd, cmdArgs) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, cmdArgs, {
-      stdio: 'inherit'
+      stdio: 'inherit',
+      shell: process.platform === 'win32'
     });
 
     child.on('exit', (code) => {
