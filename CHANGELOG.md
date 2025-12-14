@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - On Windows, npx is a .cmd file requiring `shell: true` for spawn() to work
   - Applied fix to `cli/episodic-memory.js` and `cli/index-conversations.js`
   - Resolves plugin initialization failures and silent SessionStart hook failures on Windows
+- **Agent conversations polluting search index**: Add exclusion marker to summarizer prompts (#15, thanks @one1zero1one!)
+  - Summarizer agent conversations are now properly excluded from indexing
+  - Extracted marker to shared constant (`SUMMARIZER_CONTEXT_MARKER`) for maintainability
 
 ### Changed
 - **CLI architecture cleanup**: Replace bash scripts with Node.js wrappers
