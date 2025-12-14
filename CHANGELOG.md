@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Windows spawn ENOENT error**: Add `shell` option for npx commands on Windows (#36, thanks @andrewcchoi!)
+  - On Windows, npx is a .cmd file requiring `shell: true` for spawn() to work
+  - Applied fix to `cli/episodic-memory.js` and `cli/index-conversations.js`
+  - Resolves plugin initialization failures and silent SessionStart hook failures on Windows
+
+### Changed
+- **CLI architecture cleanup**: Replace bash scripts with Node.js wrappers
+  - All CLI entry points (`episodic-memory`, `index-conversations`, `search-conversations`, `mcp-server`) are now Node.js scripts
+  - Eliminates bash dependency entirely for full cross-platform support (Windows, NixOS, etc.)
+  - SessionStart hook now calls `node cli/episodic-memory.js` directly
+  - Added `search-conversations.js` to complete Node.js CLI coverage
+  - Obsoletes PRs #29 (pnpm workspace), #11 (env bash), and #17 (shebang fix)
+
 ## [1.0.13] - 2025-11-22
 
 ### Fixed

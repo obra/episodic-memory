@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory sync --background",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/cli/episodic-memory.js sync --background",
             "async": true
           }
         ]
