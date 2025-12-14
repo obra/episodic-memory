@@ -1,31 +1,19 @@
 #!/usr/bin/env node
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { spawn, execSync } from 'child_process';
-import { existsSync, realpathSync } from 'fs';
+import { spawn } from 'child_process';
+import { realpathSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(realpathSync(__filename));
 
-// Main CLI entry point with subcommands
 const command = process.argv[2];
 const args = process.argv.slice(3);
 
-function checkCommandAvailable(cmd) {
-  try {
-    const which = process.platform === 'win32' ? 'where' : 'which';
-    execSync(`${which} ${cmd}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function runCommand(cmd, cmdArgs) {
+function runScript(scriptPath, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, cmdArgs, {
-      stdio: 'inherit',
-      shell: process.platform === 'win32'
+    const child = spawn(process.execPath, [scriptPath, ...args], {
+      stdio: 'inherit'
     });
 
     child.on('exit', (code) => {
@@ -40,18 +28,6 @@ function runCommand(cmd, cmdArgs) {
       reject(new Error(`Failed to run command: ${err.message}`));
     });
   });
-}
-
-async function runTsxCommand(scriptPath, args) {
-  if (!checkCommandAvailable('npx')) {
-    throw new Error('npx is not available. Please ensure Node.js and npm are installed and in your PATH.');
-  }
-
-  if (!existsSync(scriptPath)) {
-    throw new Error(`Script not found: ${scriptPath}`);
-  }
-
-  await runCommand('npx', ['tsx', scriptPath, ...args]);
 }
 
 function showHelp() {
@@ -85,31 +61,27 @@ EXAMPLES:
 
 async function main() {
   try {
+    const distDir = join(__dirname, '../dist');
+
     switch (command) {
       case 'index':
-        // Route to Node.js index-conversations script
-        const indexScript = join(__dirname, 'index-conversations.js');
-        await runCommand('node', [indexScript, ...args]);
+        await runScript(join(__dirname, 'index-conversations.js'), args);
         break;
 
       case 'search':
-        // Route to search implementation
-        await runTsxCommand(join(__dirname, '../src/search-cli.ts'), args);
+        await runScript(join(distDir, 'search-cli.js'), args);
         break;
 
       case 'show':
-        // Route to show implementation
-        await runTsxCommand(join(__dirname, '../src/show-cli.ts'), args);
+        await runScript(join(distDir, 'show-cli.js'), args);
         break;
 
       case 'stats':
-        // Route to stats implementation
-        await runTsxCommand(join(__dirname, '../src/stats-cli.ts'), args);
+        await runScript(join(distDir, 'stats-cli.js'), args);
         break;
 
       case 'sync':
-        // Route to sync implementation
-        await runTsxCommand(join(__dirname, '../src/sync-cli.ts'), args);
+        await runScript(join(distDir, 'sync-cli.js'), args);
         break;
 
       case '--help':

@@ -8,11 +8,10 @@ import { createInterface } from 'readline';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(realpathSync(__filename));
 
-function runTsxCommand(command, args) {
+function runScript(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn('npx', ['tsx', join(__dirname, '../src/index-cli.ts'), command, ...args], {
-      stdio: 'inherit',
-      shell: process.platform === 'win32'
+    const child = spawn(process.execPath, [join(__dirname, '../dist/index-cli.js'), command, ...args], {
+      stdio: 'inherit'
     });
 
     child.on('exit', (code) => {
@@ -101,44 +100,42 @@ async function main() {
     switch (command) {
       case '--help':
       case '-h':
+        showHelp();
+        process.exit(0);
+        break;
+
       case undefined:
-        if (command === '--help' || command === '-h') {
-          showHelp();
-          process.exit(0);
-        }
-        // If no command, fall through to default (index-all)
-        await runTsxCommand('index-all', args);
+        await runScript('index-all', args);
         break;
 
       case '--session':
-        await runTsxCommand('index-session', args);
+        await runScript('index-session', args);
         break;
 
       case '--cleanup':
-        await runTsxCommand('index-cleanup', args);
+        await runScript('index-cleanup', args);
         break;
 
       case '--verify':
-        await runTsxCommand('verify', args);
+        await runScript('verify', args);
         break;
 
       case '--repair':
-        await runTsxCommand('repair', args);
+        await runScript('repair', args);
         break;
 
       case '--rebuild':
         console.log('⚠️  This will DELETE the entire database and re-index everything.');
         const confirmed = await askConfirmation('Are you sure? [yes/NO]: ');
         if (confirmed) {
-          await runTsxCommand('rebuild', args);
+          await runScript('rebuild', args);
         } else {
           console.log('Cancelled');
         }
         break;
 
       default:
-        // Any other argument, treat as index-all with that argument
-        await runTsxCommand('index-all', [command, ...args]);
+        await runScript('index-all', [command, ...args]);
         break;
     }
   } catch (error) {

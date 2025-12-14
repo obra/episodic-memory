@@ -15,8 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Agent conversations polluting search index**: Add exclusion marker to summarizer prompts (#15, thanks @one1zero1one!)
   - Summarizer agent conversations are now properly excluded from indexing
   - Extracted marker to shared constant (`SUMMARIZER_CONTEXT_MARKER`) for maintainability
+- **Background sync silently failing**: CLI now uses compiled JS instead of tsx at runtime (#25 root cause, thanks @stromseth for identifying!)
+  - `--background` flag on sync command now works correctly
+  - Fixes SessionStart hook auto-sync that was silently failing
 
 ### Changed
+- **CLI uses compiled JavaScript**: Remove tsx from runtime path
+  - All CLI commands now route through `dist/*.js` instead of `npx tsx src/*.ts`
+  - Faster startup, lighter runtime dependencies
+  - tsx is now dev-only (for tests and development)
+  - Obsoletes PR #25 (background sync fix) by fixing root cause
 - **CLI architecture cleanup**: Replace bash scripts with Node.js wrappers
   - All CLI entry points (`episodic-memory`, `index-conversations`, `search-conversations`, `mcp-server`) are now Node.js scripts
   - Eliminates bash dependency entirely for full cross-platform support (Windows, NixOS, etc.)

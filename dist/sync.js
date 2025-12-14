@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 const EXCLUSION_MARKERS = [
     '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
     'Only use NO_INSIGHTS_FOUND',
-    'Context: This summary will be shown in a list to help users and Claude choose which conversations are relevant',
+    SUMMARIZER_CONTEXT_MARKER,
 ];
 function shouldSkipConversation(filePath) {
     try {

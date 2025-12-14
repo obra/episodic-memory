@@ -1,4 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 export function formatConversationText(exchanges) {
     return exchanges.map(ex => {
         return `User: ${ex.userMessage}\n\nAgent: ${ex.assistantMessage}`;
@@ -66,7 +67,9 @@ export async function summarizeConversation(exchanges, sessionId) {
         const conversationText = sessionId
             ? '' // When resuming, no need to include conversation text - it's already in context
             : formatConversationText(exchanges);
-        const prompt = `Please write a concise, factual summary of this conversation. Output ONLY the summary - no preamble. Claude will see this summary when searching previous conversations for useful memories and information.
+        const prompt = `${SUMMARIZER_CONTEXT_MARKER}.
+
+Please write a concise, factual summary of this conversation. Output ONLY the summary - no preamble. Claude will see this summary when searching previous conversations for useful memories and information.
 
 Summarize what happened in 2-4 sentences. Be factual and specific. Output in <summary></summary> tags.
 
@@ -101,7 +104,9 @@ ${conversationText}`;
     const chunkSummaries = [];
     for (let i = 0; i < chunks.length; i++) {
         const chunkText = formatConversationText(chunks[i]);
-        const prompt = `Please write a concise summary of this part of a conversation in 2-3 sentences. What happened, what was built/discussed. Use <summary></summary> tags.
+        const prompt = `${SUMMARIZER_CONTEXT_MARKER}.
+
+Please write a concise summary of this part of a conversation in 2-3 sentences. What happened, what was built/discussed. Use <summary></summary> tags.
 
 ${chunkText}
 
@@ -120,7 +125,9 @@ Example: <summary>Implemented HID keyboard functionality for ESP32. Hit Bluetoot
         return 'Error: Unable to summarize conversation.';
     }
     // Synthesize chunks into final summary
-    const synthesisPrompt = `Please write a concise, factual summary that synthesizes these part-summaries into one cohesive paragraph. Focus on what was accomplished and any notable technical decisions or challenges. Output in <summary></summary> tags. Claude will see this summary when searching previous conversations for useful memories and information.
+    const synthesisPrompt = `${SUMMARIZER_CONTEXT_MARKER}.
+
+Please write a concise, factual summary that synthesizes these part-summaries into one cohesive paragraph. Focus on what was accomplished and any notable technical decisions or challenges. Output in <summary></summary> tags. Claude will see this summary when searching previous conversations for useful memories and information.
 
 Part summaries:
 ${chunkSummaries.map((s, i) => `${i + 1}. ${s}`).join('\n')}
