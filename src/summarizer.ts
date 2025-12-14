@@ -78,7 +78,9 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
       ? '' // When resuming, no need to include conversation text - it's already in context
       : formatConversationText(exchanges);
 
-    const prompt = `Please write a concise, factual summary of this conversation. Output ONLY the summary - no preamble. Claude will see this summary when searching previous conversations for useful memories and information.
+    const prompt = `Context: This summary will be shown in a list to help users and Claude choose which conversations are relevant.
+
+Please write a concise, factual summary of this conversation. Output ONLY the summary - no preamble. Claude will see this summary when searching previous conversations for useful memories and information.
 
 Summarize what happened in 2-4 sentences. Be factual and specific. Output in <summary></summary> tags.
 
@@ -118,7 +120,9 @@ ${conversationText}`;
   const chunkSummaries: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
     const chunkText = formatConversationText(chunks[i]);
-    const prompt = `Please write a concise summary of this part of a conversation in 2-3 sentences. What happened, what was built/discussed. Use <summary></summary> tags.
+    const prompt = `Context: This summary will be shown in a list to help users and Claude choose which conversations are relevant.
+
+Please write a concise summary of this part of a conversation in 2-3 sentences. What happened, what was built/discussed. Use <summary></summary> tags.
 
 ${chunkText}
 
@@ -139,7 +143,9 @@ Example: <summary>Implemented HID keyboard functionality for ESP32. Hit Bluetoot
   }
 
   // Synthesize chunks into final summary
-  const synthesisPrompt = `Please write a concise, factual summary that synthesizes these part-summaries into one cohesive paragraph. Focus on what was accomplished and any notable technical decisions or challenges. Output in <summary></summary> tags. Claude will see this summary when searching previous conversations for useful memories and information.
+  const synthesisPrompt = `Context: This summary will be shown in a list to help users and Claude choose which conversations are relevant.
+
+Please write a concise, factual summary that synthesizes these part-summaries into one cohesive paragraph. Focus on what was accomplished and any notable technical decisions or challenges. Output in <summary></summary> tags. Claude will see this summary when searching previous conversations for useful memories and information.
 
 Part summaries:
 ${chunkSummaries.map((s, i) => `${i + 1}. ${s}`).join('\n')}
