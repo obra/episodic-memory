@@ -1,5 +1,15 @@
 import os from 'os';
 import path from 'path';
+import fs from 'fs';
+/**
+ * Ensure a directory exists, creating it if necessary
+ */
+function ensureDir(dir) {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+}
 /**
  * Get the personal superpowers directory
  *
@@ -10,17 +20,23 @@ import path from 'path';
  * 4. ~/.config/superpowers (default)
  */
 export function getSuperpowersDir() {
+    let dir;
     if (process.env.EPISODIC_MEMORY_CONFIG_DIR) {
-        return process.env.EPISODIC_MEMORY_CONFIG_DIR;
+        dir = process.env.EPISODIC_MEMORY_CONFIG_DIR;
     }
-    if (process.env.PERSONAL_SUPERPOWERS_DIR) {
-        return process.env.PERSONAL_SUPERPOWERS_DIR;
+    else if (process.env.PERSONAL_SUPERPOWERS_DIR) {
+        dir = process.env.PERSONAL_SUPERPOWERS_DIR;
     }
-    const xdgConfigHome = process.env.XDG_CONFIG_HOME;
-    if (xdgConfigHome) {
-        return path.join(xdgConfigHome, 'superpowers');
+    else {
+        const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+        if (xdgConfigHome) {
+            dir = path.join(xdgConfigHome, 'superpowers');
+        }
+        else {
+            dir = path.join(os.homedir(), '.config', 'superpowers');
+        }
     }
-    return path.join(os.homedir(), '.config', 'superpowers');
+    return ensureDir(dir);
 }
 /**
  * Get conversation archive directory
@@ -28,15 +44,15 @@ export function getSuperpowersDir() {
 export function getArchiveDir() {
     // Allow test override
     if (process.env.TEST_ARCHIVE_DIR) {
-        return process.env.TEST_ARCHIVE_DIR;
+        return ensureDir(process.env.TEST_ARCHIVE_DIR);
     }
-    return path.join(getSuperpowersDir(), 'conversation-archive');
+    return ensureDir(path.join(getSuperpowersDir(), 'conversation-archive'));
 }
 /**
  * Get conversation index directory
  */
 export function getIndexDir() {
-    return path.join(getSuperpowersDir(), 'conversation-index');
+    return ensureDir(path.join(getSuperpowersDir(), 'conversation-index'));
 }
 /**
  * Get database path

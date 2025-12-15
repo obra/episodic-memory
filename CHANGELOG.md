@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Background sync silently failing**: CLI now uses compiled JS instead of tsx at runtime (#25 root cause, thanks @stromseth for identifying!)
   - `--background` flag on sync command now works correctly
   - Fixes SessionStart hook auto-sync that was silently failing
+- **Directory auto-creation**: Config directories are now created automatically (inspired by #18, thanks @gingerbeardman!)
+  - `getSuperpowersDir()`, `getArchiveDir()`, `getIndexDir()` now ensure directories exist
+  - Prevents errors on fresh installs where directories don't exist yet
 
 ### Changed
 - **CLI uses compiled JavaScript**: Remove tsx from runtime path
