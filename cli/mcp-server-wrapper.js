@@ -5,7 +5,7 @@
  */
 
 import { spawn } from 'child_process';
-import { existsSync, unlinkSync } from 'fs';
+import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -23,18 +23,6 @@ function runNpmInstall() {
 
     console.error('Installing episodic-memory dependencies (first run only)...');
     console.error('This may take 30-60 seconds...');
-
-    // Remove package-lock.json if it exists to ensure platform-specific optional deps are installed
-    // See: https://github.com/npm/cli/issues/4828
-    const lockFile = join(PLUGIN_ROOT, 'package-lock.json');
-    if (existsSync(lockFile)) {
-      try {
-        unlinkSync(lockFile);
-      } catch (err) {
-        // Non-fatal if we can't delete it
-        console.error(`Warning: Could not remove package-lock.json: ${err.message}`);
-      }
-    }
 
     // Install dependencies - npm will auto-install optionalDependencies for current platform
     const child = spawn(npmCommand, ['install', '--prefer-offline', '--no-audit', '--no-fund'], {
