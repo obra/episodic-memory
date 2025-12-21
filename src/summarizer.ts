@@ -4,6 +4,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 
 /**
  * Get API environment overrides for summarization calls.
+ * Returns full env merged with process.env so subprocess inherits PATH, HOME, etc.
  *
  * Env vars (all optional):
  * - EPISODIC_MEMORY_API_MODEL: Model to use (default: haiku, fallback: sonnet)
@@ -11,7 +12,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
  * - EPISODIC_MEMORY_API_TOKEN: Auth token for custom endpoint
  * - EPISODIC_MEMORY_API_TIMEOUT_MS: Timeout for API calls (default: SDK default)
  */
-function getApiEnv(): Record<string, string> | undefined {
+function getApiEnv(): Record<string, string | undefined> | undefined {
   const baseUrl = process.env.EPISODIC_MEMORY_API_BASE_URL;
   const token = process.env.EPISODIC_MEMORY_API_TOKEN;
   const timeoutMs = process.env.EPISODIC_MEMORY_API_TIMEOUT_MS;
@@ -20,11 +21,13 @@ function getApiEnv(): Record<string, string> | undefined {
     return undefined;
   }
 
-  const env: Record<string, string> = {};
-  if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl;
-  if (token) env.ANTHROPIC_AUTH_TOKEN = token;
-  if (timeoutMs) env.API_TIMEOUT_MS = timeoutMs;
-  return env;
+  // Merge with process.env so subprocess inherits PATH, HOME, etc.
+  return {
+    ...process.env,
+    ...(baseUrl && { ANTHROPIC_BASE_URL: baseUrl }),
+    ...(token && { ANTHROPIC_AUTH_TOKEN: token }),
+    ...(timeoutMs && { API_TIMEOUT_MS: timeoutMs }),
+  };
 }
 
 export function formatConversationText(exchanges: ConversationExchange[]): string {

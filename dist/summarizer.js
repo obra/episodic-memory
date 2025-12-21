@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 /**
  * Get API environment overrides for summarization calls.
+ * Returns full env merged with process.env so subprocess inherits PATH, HOME, etc.
  *
  * Env vars (all optional):
  * - EPISODIC_MEMORY_API_MODEL: Model to use (default: haiku, fallback: sonnet)
@@ -16,14 +17,13 @@ function getApiEnv() {
     if (!baseUrl && !token && !timeoutMs) {
         return undefined;
     }
-    const env = {};
-    if (baseUrl)
-        env.ANTHROPIC_BASE_URL = baseUrl;
-    if (token)
-        env.ANTHROPIC_AUTH_TOKEN = token;
-    if (timeoutMs)
-        env.API_TIMEOUT_MS = timeoutMs;
-    return env;
+    // Merge with process.env so subprocess inherits PATH, HOME, etc.
+    return {
+        ...process.env,
+        ...(baseUrl && { ANTHROPIC_BASE_URL: baseUrl }),
+        ...(token && { ANTHROPIC_AUTH_TOKEN: token }),
+        ...(timeoutMs && { API_TIMEOUT_MS: timeoutMs }),
+    };
 }
 export function formatConversationText(exchanges) {
     return exchanges.map(ex => {
