@@ -5,7 +5,7 @@ import { initDatabase, insertExchange } from './db.js';
 import { parseConversation } from './parser.js';
 import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
-import { getArchiveDir, getExcludeConfigPath } from './paths.js';
+import { getArchiveDir, getExcludedProjects } from './paths.js';
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
 // Increase max listeners for concurrent API calls
@@ -14,21 +14,6 @@ EventEmitter.defaultMaxListeners = 20;
 // Allow overriding paths for testing
 function getProjectsDir() {
     return process.env.TEST_PROJECTS_DIR || path.join(os.homedir(), '.claude', 'projects');
-}
-// Projects to exclude from indexing (configurable via env or config file)
-function getExcludedProjects() {
-    // Check env variable first
-    if (process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS) {
-        return process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS.split(',').map(p => p.trim());
-    }
-    // Check for config file
-    const configPath = getExcludeConfigPath();
-    if (fs.existsSync(configPath)) {
-        const content = fs.readFileSync(configPath, 'utf-8');
-        return content.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
-    }
-    // Default: no exclusions
-    return [];
 }
 // Process items in batches with limited concurrency
 async function processBatch(items, processor, concurrency) {

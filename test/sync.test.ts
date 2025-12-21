@@ -110,6 +110,21 @@ describe('sync command', () => {
     expect(result.copied).toBe(1);
   });
 
+  it('should skip excluded projects', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+    mkdirSync(join(sourceDir, 'project-b'), { recursive: true });
+    writeFileSync(join(sourceDir, 'project-a', 'test1.jsonl'), 'content', 'utf-8');
+    writeFileSync(join(sourceDir, 'project-b', 'test2.jsonl'), 'content', 'utf-8');
+
+    process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS = 'project-a';
+    const result = await syncConversations(sourceDir, destDir, { skipIndex: true });
+    delete process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS;
+
+    expect(result.copied).toBe(1);
+    expect(existsSync(join(destDir, 'project-a'))).toBe(false);
+    expect(existsSync(join(destDir, 'project-b', 'test2.jsonl'))).toBe(true);
+  });
+
   it('should skip indexing conversations with DO NOT INDEX marker', async () => {
     mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
 

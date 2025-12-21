@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseConversation } from './parser.js';
 import { initDatabase, getAllExchanges, getFileLastIndexed } from './db.js';
-import { getArchiveDir } from './paths.js';
+import { getArchiveDir, getExcludedProjects } from './paths.js';
 export async function verifyIndex() {
     const result = {
         missing: [],
@@ -20,8 +20,13 @@ export async function verifyIndex() {
     // Initialize database once for all checks
     const db = initDatabase();
     const projects = fs.readdirSync(archiveDir);
+    const excludedProjects = getExcludedProjects();
     let totalChecked = 0;
     for (const project of projects) {
+        if (excludedProjects.includes(project)) {
+            console.log("\nSkipping excluded project: " + project);
+            continue;
+        }
         const projectPath = path.join(archiveDir, project);
         const stat = fs.statSync(projectPath);
         if (!stat.isDirectory())
