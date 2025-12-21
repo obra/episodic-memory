@@ -2,6 +2,31 @@ import { ConversationExchange } from './types.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 
+/**
+ * Get API environment overrides for summarization calls.
+ *
+ * Env vars (all optional):
+ * - EPISODIC_MEMORY_API_MODEL: Model to use (default: haiku, fallback: sonnet)
+ * - EPISODIC_MEMORY_API_BASE_URL: Custom API endpoint
+ * - EPISODIC_MEMORY_API_TOKEN: Auth token for custom endpoint
+ * - EPISODIC_MEMORY_API_TIMEOUT_MS: Timeout for API calls (default: SDK default)
+ */
+function getApiEnv(): Record<string, string> | undefined {
+  const baseUrl = process.env.EPISODIC_MEMORY_API_BASE_URL;
+  const token = process.env.EPISODIC_MEMORY_API_TOKEN;
+  const timeoutMs = process.env.EPISODIC_MEMORY_API_TIMEOUT_MS;
+
+  if (!baseUrl && !token && !timeoutMs) {
+    return undefined;
+  }
+
+  const env: Record<string, string> = {};
+  if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl;
+  if (token) env.ANTHROPIC_AUTH_TOKEN = token;
+  if (timeoutMs) env.API_TIMEOUT_MS = timeoutMs;
+  return env;
+}
+
 export function formatConversationText(exchanges: ConversationExchange[]): string {
   return exchanges.map(ex => {
     return `User: ${ex.userMessage}\n\nAgent: ${ex.assistantMessage}`;
@@ -18,13 +43,16 @@ function extractSummary(text: string): string {
 }
 
 async function callClaude(prompt: string, sessionId?: string, useSonnet = false): Promise<string> {
-  const model = useSonnet ? 'sonnet' : 'haiku';
+  const configuredModel = process.env.EPISODIC_MEMORY_API_MODEL;
+  const defaultModel = useSonnet ? 'sonnet' : 'haiku';
+  const model = configuredModel || defaultModel;
 
   for await (const message of query({
     prompt,
     options: {
       model,
       max_tokens: 4096,
+      env: getApiEnv(),
       resume: sessionId,
       // Don't override systemPrompt when resuming - it uses the original session's prompt
       // Instead, the prompt itself should provide clear instructions

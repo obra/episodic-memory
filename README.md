@@ -125,6 +125,35 @@ The plugin automatically indexes conversations at session end. Use the search co
 
 Or reference past work in natural conversation - Claude will search when appropriate.
 
+## API Configuration
+
+By default, episodic-memory uses your Claude Code authentication for summarization.
+
+To route summarization through a custom Anthropic-compatible endpoint or override the model:
+
+```bash
+# Override model (default: haiku with sonnet fallback)
+export EPISODIC_MEMORY_API_MODEL=haiku
+
+# Route through custom endpoint
+export EPISODIC_MEMORY_API_BASE_URL=https://your-endpoint.com/api/anthropic
+export EPISODIC_MEMORY_API_TOKEN=your-token
+
+# Increase timeout for slow endpoints (milliseconds)
+export EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
+```
+
+These settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
+
+### What's Affected
+
+| Component | Uses custom config? |
+|-----------|---------------------|
+| Summarization | Yes (up to 10 calls/sync) |
+| Embeddings | No (local Transformers.js) |
+| Search | No (local SQLite) |
+| MCP tools | No |
+
 ## Commands
 
 ### `episodic-memory sync`
