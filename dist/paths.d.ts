@@ -24,3 +24,8 @@ export declare function getDbPath(): string;
  * Get exclude config path
  */
 export declare function getExcludeConfigPath(): string;
+/**
+ * Get list of projects to exclude from indexing
+ * Configurable via env var or config file
+ */
+export declare function getExcludedProjects(): string[];

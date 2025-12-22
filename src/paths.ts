@@ -77,3 +77,24 @@ export function getDbPath(): string {
 export function getExcludeConfigPath(): string {
   return path.join(getIndexDir(), 'exclude.txt');
 }
+
+/**
+ * Get list of projects to exclude from indexing
+ * Configurable via env var or config file
+ */
+export function getExcludedProjects(): string[] {
+  // Check env variable first
+  if (process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS) {
+    return process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS.split(',').map(p => p.trim());
+  }
+
+  // Check for config file
+  const configPath = getExcludeConfigPath();
+  if (fs.existsSync(configPath)) {
+    const content = fs.readFileSync(configPath, 'utf-8');
+    return content.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
+  }
+
+  // Default: no exclusions
+  return [];
+}

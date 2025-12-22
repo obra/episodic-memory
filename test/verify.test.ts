@@ -36,6 +36,31 @@ describe('verifyIndex', () => {
     delete process.env.TEST_DB_PATH;
   });
 
+  it('should skip excluded projects', async () => {
+    // Create two projects in archive
+    const projectA = path.join(archiveDir, 'project-a');
+    const projectB = path.join(archiveDir, 'project-b');
+    fs.mkdirSync(projectA, { recursive: true });
+    fs.mkdirSync(projectB, { recursive: true });
+
+    // Create conversations (missing summaries to trigger detection)
+    const messages = [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' })
+    ];
+    fs.writeFileSync(path.join(projectA, 'conv1.jsonl'), messages.join('\n'));
+    fs.writeFileSync(path.join(projectB, 'conv2.jsonl'), messages.join('\n'));
+
+    // Exclude project-a
+    process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS = 'project-a';
+    const result = await verifyIndex();
+    delete process.env.CONVERSATION_SEARCH_EXCLUDE_PROJECTS;
+
+    // Only project-b should be checked (missing summary)
+    expect(result.missing.length).toBe(1);
+    expect(result.missing[0].path).toContain('project-b');
+  });
+
   it('detects missing summaries', async () => {
     // Create a test conversation file without a summary
     const projectArchive = path.join(archiveDir, 'test-project');
