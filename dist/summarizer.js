@@ -5,7 +5,8 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
  * Returns full env merged with process.env so subprocess inherits PATH, HOME, etc.
  *
  * Env vars (all optional):
- * - EPISODIC_MEMORY_API_MODEL: Model to use (default: haiku, fallback: sonnet)
+ * - EPISODIC_MEMORY_API_MODEL: Model to use (default: haiku)
+ * - EPISODIC_MEMORY_API_MODEL_FALLBACK: Fallback model on error (default: sonnet)
  * - EPISODIC_MEMORY_API_BASE_URL: Custom API endpoint
  * - EPISODIC_MEMORY_API_TOKEN: Auth token for custom endpoint
  * - EPISODIC_MEMORY_API_TIMEOUT_MS: Timeout for API calls (default: SDK default)
@@ -38,10 +39,10 @@ function extractSummary(text) {
     // Fallback if no tags found
     return text.trim();
 }
-async function callClaude(prompt, sessionId, useSonnet = false) {
-    const configuredModel = process.env.EPISODIC_MEMORY_API_MODEL;
-    const defaultModel = useSonnet ? 'sonnet' : 'haiku';
-    const model = configuredModel || defaultModel;
+async function callClaude(prompt, sessionId, useFallback = false) {
+    const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
+    const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
+    const model = useFallback ? fallbackModel : primaryModel;
     for await (const message of query({
         prompt,
         options: {
@@ -60,11 +61,11 @@ async function callClaude(prompt, sessionId, useSonnet = false) {
             const result = message.result;
             // Check if result is an API error (SDK returns errors as result strings)
             if (typeof result === 'string' && result.includes('API Error') && result.includes('thinking.budget_tokens')) {
-                if (!useSonnet) {
-                    console.log(`    Haiku hit thinking budget error, retrying with Sonnet`);
+                if (!useFallback) {
+                    console.log(`    ${primaryModel} hit thinking budget error, retrying with ${fallbackModel}`);
                     return await callClaude(prompt, sessionId, true);
                 }
-                // If Sonnet also fails, return error message
+                // If fallback also fails, return error message
                 return result;
             }
             return result;
