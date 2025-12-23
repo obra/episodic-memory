@@ -12,6 +12,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
  * - EPISODIC_MEMORY_API_BASE_URL: Custom API endpoint
  * - EPISODIC_MEMORY_API_TOKEN: Auth token for custom endpoint
  * - EPISODIC_MEMORY_API_TIMEOUT_MS: Timeout for API calls (default: SDK default)
+ * - EPISODIC_MEMORY_SAVE_SDK_LOGS: Save SDK session files for debugging (default: false)
  */
 function getApiEnv(): Record<string, string | undefined> | undefined {
   const baseUrl = process.env.EPISODIC_MEMORY_API_BASE_URL;
@@ -56,6 +57,7 @@ async function callClaude(prompt: string, sessionId?: string, useFallback = fals
     options: {
       model,
       max_tokens: 4096,
+      persistSession: process.env.EPISODIC_MEMORY_SAVE_SDK_LOGS === 'true',
       env: getApiEnv(),
       resume: sessionId,
       // Don't override systemPrompt when resuming - it uses the original session's prompt
