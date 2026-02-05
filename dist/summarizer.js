@@ -10,6 +10,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
  * - EPISODIC_MEMORY_API_BASE_URL: Custom API endpoint
  * - EPISODIC_MEMORY_API_TOKEN: Auth token for custom endpoint
  * - EPISODIC_MEMORY_API_TIMEOUT_MS: Timeout for API calls (default: SDK default)
+ * - EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES: Comma-separated list of Claude Code setting sources to load (default: none)
  */
 function getApiEnv() {
     const baseUrl = process.env.EPISODIC_MEMORY_API_BASE_URL;
@@ -26,6 +27,18 @@ function getApiEnv() {
         ...(timeoutMs && { API_TIMEOUT_MS: timeoutMs }),
     };
 }
+/**
+ * Get setting sources for SDK configuration.
+ * Parses EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES as comma-separated list.
+ * Default: empty (no settings loaded). Set to 'user' to load user settings (e.g., awsCredentialExport for Bedrock)
+ */
+function getSettingSources() {
+    const sources = process.env.EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES;
+    if (!sources) {
+        return undefined;
+    }
+    return sources.split(',').map(s => s.trim()).filter(Boolean);
+}
 export function formatConversationText(exchanges) {
     return exchanges.map(ex => {
         return `User: ${ex.userMessage}\n\nAgent: ${ex.assistantMessage}`;
@@ -39,6 +52,10 @@ function extractSummary(text) {
     // Fallback if no tags found
     return text.trim();
 }
+/**
+ * Call Claude API to generate a summary.
+ * Uses the configured model and settings, with automatic fallback on errors.
+ */
 async function callClaude(prompt, sessionId, useFallback = false) {
     const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
     const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
@@ -50,6 +67,8 @@ async function callClaude(prompt, sessionId, useFallback = false) {
             max_tokens: 4096,
             env: getApiEnv(),
             resume: sessionId,
+            // Load settings to pick up API config (e.g., awsCredentialExport for Bedrock)
+            settingSources: getSettingSources(),
             // Don't override systemPrompt when resuming - it uses the original session's prompt
             // Instead, the prompt itself should provide clear instructions
             ...(sessionId ? {} : {
