@@ -144,9 +144,28 @@ export EPISODIC_MEMORY_API_TOKEN=your-token
 
 # Increase timeout for slow endpoints (milliseconds)
 export EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
+
+# Load Claude Code settings (comma-separated: user, project, local)
+export EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES=user
 ```
 
-These settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
+The `EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES` variable controls which Claude Code settings files are loaded during summarization. By default, no settings are loaded (SDK isolation mode). Accepts a comma-separated list of:
+
+| Value | Settings file | Description |
+|-------|---------------|-------------|
+| `user` | `~/.claude/settings.json` | Global user settings (e.g. `awsCredentialExport` for Bedrock) |
+| `project` | `.claude/settings.json` | Shared project settings (version-controlled) |
+| `local` | `.claude/settings.local.json` | Local project overrides (typically gitignored) |
+
+```bash
+# Load only user settings (most common)
+export EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES=user
+
+# Load user and project settings
+export EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES=user,project
+```
+
+All other settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
 
 ### What's Affected
 
