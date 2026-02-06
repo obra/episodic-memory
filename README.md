@@ -149,7 +149,7 @@ export EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
 export EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES=user
 ```
 
-The `EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES` variable controls which Claude Code settings files are loaded during summarization. By default, no settings are loaded (SDK isolation mode). Accepts a comma-separated list of:
+The `EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES` variable controls which [Claude Code settings](https://docs.anthropic.com/en/docs/claude-code/settings) are loaded during summarization. By default, no settings are loaded (SDK isolation mode). Accepts a comma-separated list of:
 
 | Value | Settings file | Description |
 |-------|---------------|-------------|
@@ -157,15 +157,9 @@ The `EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES` variable controls which Claude
 | `project` | `.claude/settings.json` | Shared project settings (version-controlled) |
 | `local` | `.claude/settings.local.json` | Local project overrides (typically gitignored) |
 
-```bash
-# Load only user settings (most common)
-export EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES=user
+**Recommended:** Leave empty or use `user` only. The `project` and `local` sources also load CLAUDE.md files and MCP servers into the summarization context, which can interfere with summary quality.
 
-# Load user and project settings
-export EPISODIC_MEMORY_CLAUDE_CODE_SETTING_SOURCES=user,project
-```
-
-All other settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
+These settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
 
 ### What's Affected
 
