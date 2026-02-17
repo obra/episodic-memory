@@ -298,6 +298,9 @@ async function main() {
   await server.connect(transport);
 }
 
+// Detect parent death if wrapper fails to forward signal
+process.stdin.on('end', () => process.exit(0));
+
 // Run the Server
 
 main().catch((error) => {

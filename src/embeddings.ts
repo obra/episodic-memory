@@ -26,7 +26,15 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     normalize: true
   });
 
-  return Array.from(output.data);
+  const embedding = Array.from(output.data);
+
+  // Free the ONNX tensor to prevent unbounded memory growth during batch operations.
+  // dispose() exists at runtime but is missing from @xenova/transformers v2 type definitions.
+  if (typeof (output as any).dispose === 'function') {
+    (output as any).dispose();
+  }
+
+  return embedding;
 }
 
 export async function generateExchangeEmbedding(

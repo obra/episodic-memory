@@ -17,7 +17,13 @@ export async function generateEmbedding(text) {
         pooling: 'mean',
         normalize: true
     });
-    return Array.from(output.data);
+    const embedding = Array.from(output.data);
+    // Free the ONNX tensor to prevent unbounded memory growth during batch operations.
+    // dispose() exists at runtime but is missing from @xenova/transformers v2 type definitions.
+    if (typeof output.dispose === 'function') {
+        output.dispose();
+    }
+    return embedding;
 }
 export async function generateExchangeEmbedding(userMessage, assistantMessage, toolNames) {
     // Combine user question, assistant answer, and tools used for better searchability
