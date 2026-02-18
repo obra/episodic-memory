@@ -1,16 +1,22 @@
-import { pipeline, Pipeline, FeatureExtractionPipeline } from '@xenova/transformers';
+// No top-level import of @xenova/transformers — loaded lazily to avoid
+// multi-GB ONNX runtime loading in MCP server processes that never search.
 
-let embeddingPipeline: FeatureExtractionPipeline | null = null;
+let embeddingPipeline: any = null;
 
 export async function initEmbeddings(): Promise<void> {
   if (!embeddingPipeline) {
     console.log('Loading embedding model (first run may take time)...');
+    const { pipeline } = await import('@xenova/transformers');
     embeddingPipeline = await pipeline(
       'feature-extraction',
       'Xenova/all-MiniLM-L6-v2'
     );
     console.log('Embedding model loaded');
   }
+}
+
+export function resetEmbeddings(): void {
+  embeddingPipeline = null;
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
@@ -30,8 +36,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
   // Free the ONNX tensor to prevent unbounded memory growth during batch operations.
   // dispose() exists at runtime but is missing from @xenova/transformers v2 type definitions.
-  if (typeof (output as any).dispose === 'function') {
-    (output as any).dispose();
+  if (typeof output.dispose === 'function') {
+    output.dispose();
   }
 
   return embedding;

@@ -1,8 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-describe('embeddings tensor disposal', () => {
+describe('embeddings', () => {
   beforeEach(() => {
     vi.resetModules();
+  });
+
+  it('should not import @xenova/transformers at module load time', async () => {
+    let transformersImported = false;
+
+    vi.doMock('@xenova/transformers', () => {
+      transformersImported = true;
+      const mockPipeline = vi.fn().mockResolvedValue({
+        data: new Float32Array(384).fill(0.1),
+        dispose: vi.fn()
+      });
+      return { pipeline: vi.fn().mockResolvedValue(mockPipeline) };
+    });
+
+    // Importing the module should NOT trigger @xenova/transformers import
+    await import('../src/embeddings.js');
+    expect(transformersImported).toBe(false);
+
+    // Only when we actually generate an embedding should it load
+    const { generateEmbedding } = await import('../src/embeddings.js');
+    await generateEmbedding('test');
+    expect(transformersImported).toBe(true);
   });
 
   it('should dispose tensor after extracting embedding data', async () => {
