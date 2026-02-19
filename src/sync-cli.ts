@@ -3,6 +3,7 @@ import { getArchiveDir } from './paths.js';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
+import { acquireSyncLock, releaseSyncLock } from './sync-lock.js';
 
 const args = process.argv.slice(2);
 
@@ -57,6 +58,12 @@ if (isBackground) {
   console.log('Sync started in background...');
   process.exit(0);
 }
+
+// Acquire sync lock — only one sync process at a time
+if (!acquireSyncLock()) {
+  process.exit(0);
+}
+process.on('exit', releaseSyncLock);
 
 const sourceDir = path.join(os.homedir(), '.claude', 'projects');
 const destDir = getArchiveDir();

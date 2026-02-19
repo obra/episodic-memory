@@ -98,3 +98,10 @@ export function getExcludedProjects(): string[] {
   // Default: no exclusions
   return [];
 }
+
+/**
+ * Get sync lock file path
+ */
+export function getLockFilePath(): string {
+  return path.join(getSuperpowersDir(), 'sync.lock');
+}
