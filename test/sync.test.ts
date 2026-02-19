@@ -208,4 +208,59 @@ describe('sync command', () => {
 
     expect(count.count).toBe(1); // Only normal conversation indexed
   });
+
+  it('should index files in batches and complete all of them', async () => {
+    // Create 25 files (more than BATCH_SIZE of 20)
+    const projectDir = join(sourceDir, 'batch-test');
+    mkdirSync(projectDir, { recursive: true });
+
+    for (let i = 0; i < 25; i++) {
+      const conversation = JSON.stringify({
+        type: 'user',
+        uuid: `uuid-user-${i}`,
+        parentUuid: null,
+        timestamp: `2025-10-01T12:${String(i).padStart(2, '0')}:00Z`,
+        isSidechain: false,
+        message: { role: 'user', content: `Question ${i}` }
+      }) + '\n' + JSON.stringify({
+        type: 'assistant',
+        uuid: `uuid-assistant-${i}`,
+        parentUuid: `uuid-user-${i}`,
+        timestamp: `2025-10-01T12:${String(i).padStart(2, '0')}:01Z`,
+        isSidechain: false,
+        message: { role: 'assistant', content: `Answer ${i}` }
+      });
+      writeFileSync(join(projectDir, `conv-${i}.jsonl`), conversation, 'utf-8');
+    }
+
+    // Initialize test database
+    const db = new Database(dbPath);
+    sqliteVec.load(db);
+    db.exec(`
+      CREATE TABLE exchanges (
+        id TEXT PRIMARY KEY,
+        project TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        user_message TEXT NOT NULL,
+        assistant_message TEXT NOT NULL,
+        archive_path TEXT NOT NULL,
+        line_start INTEGER NOT NULL,
+        line_end INTEGER NOT NULL,
+        last_indexed INTEGER
+      )
+    `);
+    db.exec(`
+      CREATE VIRTUAL TABLE vec_exchanges USING vec0(
+        id TEXT PRIMARY KEY,
+        embedding FLOAT[384]
+      )
+    `);
+    db.close();
+
+    const result = await syncConversations(sourceDir, destDir);
+
+    expect(result.copied).toBe(25);
+    expect(result.indexed).toBe(25);
+    expect(result.errors).toHaveLength(0);
+  });
 });
