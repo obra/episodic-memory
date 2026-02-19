@@ -3,6 +3,7 @@ import { getArchiveDir } from './paths.js';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
+import { acquireSyncLock, releaseSyncLock } from './sync-lock.js';
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
     console.log(`
@@ -41,6 +42,8 @@ if (isBackground) {
     const filteredArgs = args.filter(arg => arg !== '--background');
     // Spawn a detached process
     const child = spawn(process.execPath, [
+        '--max-old-space-size=512',
+        '--expose-gc',
         process.argv[1], // This script
         ...filteredArgs
     ], {
@@ -51,6 +54,11 @@ if (isBackground) {
     console.log('Sync started in background...');
     process.exit(0);
 }
+// Acquire sync lock — only one sync process at a time
+if (!acquireSyncLock()) {
+    process.exit(0);
+}
+process.on('exit', releaseSyncLock);
 const sourceDir = path.join(os.homedir(), '.claude', 'projects');
 const destDir = getArchiveDir();
 console.log('Syncing conversations...');

@@ -108,33 +108,47 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
     // Index copied files (unless skipIndex is set)
     if (!options.skipIndex && filesToIndex.length > 0) {
         const { initDatabase, insertExchange } = await import('./db.js');
-        const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
+        const { initEmbeddings, generateExchangeEmbedding, resetEmbeddings } = await import('./embeddings.js');
         const { parseConversation } = await import('./parser.js');
-        const db = initDatabase();
-        await initEmbeddings();
-        for (const file of filesToIndex) {
-            try {
-                // Check for DO NOT INDEX marker
-                if (shouldSkipConversation(file)) {
-                    continue; // Skip indexing but file is already copied
+        const BATCH_SIZE = 20;
+        for (let batchStart = 0; batchStart < filesToIndex.length; batchStart += BATCH_SIZE) {
+            const batch = filesToIndex.slice(batchStart, batchStart + BATCH_SIZE);
+            const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+            const totalBatches = Math.ceil(filesToIndex.length / BATCH_SIZE);
+            console.log(`\nIndexing batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
+            const db = initDatabase();
+            await initEmbeddings();
+            for (const file of batch) {
+                try {
+                    if (shouldSkipConversation(file)) {
+                        continue;
+                    }
+                    const project = path.basename(path.dirname(file));
+                    const exchanges = await parseConversation(file, project, file);
+                    for (const exchange of exchanges) {
+                        const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
+                        const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
+                        insertExchange(db, exchange, embedding, toolNames);
+                    }
+                    result.indexed++;
                 }
-                const project = path.basename(path.dirname(file));
-                const exchanges = await parseConversation(file, project, file);
-                for (const exchange of exchanges) {
-                    const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-                    const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
-                    insertExchange(db, exchange, embedding, toolNames);
+                catch (error) {
+                    result.errors.push({
+                        file,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
                 }
-                result.indexed++;
             }
-            catch (error) {
-                result.errors.push({
-                    file,
-                    error: error instanceof Error ? error.message : String(error)
-                });
+            db.close();
+            // Reset embedding pipeline to release ONNX native memory
+            resetEmbeddings();
+            // Force garbage collection if available (requires --expose-gc)
+            if (typeof globalThis.gc === 'function') {
+                globalThis.gc();
             }
+            const mem = process.memoryUsage();
+            console.log(`  Batch ${batchNum} complete. Memory: RSS=${Math.round(mem.rss / 1024 / 1024)}MB, Heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB`);
         }
-        db.close();
     }
     // Generate summaries for files that need them
     if (!options.skipSummaries && filesToSummarize.length > 0) {

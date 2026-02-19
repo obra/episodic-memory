@@ -1,11 +1,16 @@
-import { pipeline } from '@xenova/transformers';
+// No top-level import of @xenova/transformers — loaded lazily to avoid
+// multi-GB ONNX runtime loading in MCP server processes that never search.
 let embeddingPipeline = null;
 export async function initEmbeddings() {
     if (!embeddingPipeline) {
         console.log('Loading embedding model (first run may take time)...');
+        const { pipeline } = await import('@xenova/transformers');
         embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
         console.log('Embedding model loaded');
     }
+}
+export function resetEmbeddings() {
+    embeddingPipeline = null;
 }
 export async function generateEmbedding(text) {
     if (!embeddingPipeline) {

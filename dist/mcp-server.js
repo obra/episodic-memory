@@ -17913,11 +17913,11 @@ function initDatabase() {
 }
 
 // src/embeddings.ts
-import { pipeline } from "@xenova/transformers";
 var embeddingPipeline = null;
 async function initEmbeddings() {
   if (!embeddingPipeline) {
     console.log("Loading embedding model (first run may take time)...");
+    const { pipeline } = await import("@xenova/transformers");
     embeddingPipeline = await pipeline(
       "feature-extraction",
       "Xenova/all-MiniLM-L6-v2"

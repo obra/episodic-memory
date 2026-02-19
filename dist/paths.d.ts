@@ -29,3 +29,7 @@ export declare function getExcludeConfigPath(): string;
  * Configurable via env var or config file
  */
 export declare function getExcludedProjects(): string[];
+/**
+ * Get sync lock file path
+ */
+export declare function getLockFilePath(): string;
