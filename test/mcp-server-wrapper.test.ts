@@ -28,6 +28,10 @@ describe('mcp-server-wrapper signal handling', () => {
   it('should handle stdin errors (broken pipe)', () => {
     expect(wrapperCode).toContain("process.stdin.on('error'");
   });
+
+  it('should pass --max-old-space-size to MCP server child', () => {
+    expect(wrapperCode).toContain('--max-old-space-size=');
+  });
 });
 
 describe('mcp-server stdin fallback', () => {

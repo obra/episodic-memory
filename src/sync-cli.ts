@@ -47,6 +47,8 @@ if (isBackground) {
 
   // Spawn a detached process
   const child = spawn(process.execPath, [
+    '--max-old-space-size=512',
+    '--expose-gc',
     process.argv[1], // This script
     ...filteredArgs
   ], {

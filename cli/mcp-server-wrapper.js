@@ -76,7 +76,7 @@ async function main() {
     }
 
     // Use spawn with shell: false for better cross-platform compatibility
-    const child = spawn(process.execPath, [mcpServerPath], {
+    const child = spawn(process.execPath, ['--max-old-space-size=512', mcpServerPath], {
       stdio: 'inherit',
       shell: false
     });
