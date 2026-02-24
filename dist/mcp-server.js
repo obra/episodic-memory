@@ -4725,6 +4725,7 @@ var require_pattern = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
+    var util_1 = require_util();
     var codegen_1 = require_codegen();
     var error2 = {
       message: ({ schemaCode }) => (0, codegen_1.str)`must match pattern "${schemaCode}"`,
@@ -4737,10 +4738,18 @@ var require_pattern = __commonJS({
       $data: true,
       error: error2,
       code(cxt) {
-        const { data, $data, schema, schemaCode, it } = cxt;
+        const { gen, data, $data, schema, schemaCode, it } = cxt;
         const u = it.opts.unicodeRegExp ? "u" : "";
-        const regExp = $data ? (0, codegen_1._)`(new RegExp(${schemaCode}, ${u}))` : (0, code_1.usePattern)(cxt, schema);
-        cxt.fail$data((0, codegen_1._)`!${regExp}.test(${data})`);
+        if ($data) {
+          const { regExp } = it.opts.code;
+          const regExpCode = regExp.code === "new RegExp" ? (0, codegen_1._)`new RegExp` : (0, util_1.useFunc)(gen, regExp);
+          const valid = gen.let("valid");
+          gen.try(() => gen.assign(valid, (0, codegen_1._)`${regExpCode}(${schemaCode}, ${u}).test(${data})`), () => gen.assign(valid, false));
+          cxt.fail$data((0, codegen_1._)`!${valid}`);
+        } else {
+          const regExp = (0, code_1.usePattern)(cxt, schema);
+          cxt.fail$data((0, codegen_1._)`!${regExp}.test(${data})`);
+        }
       }
     };
     exports.default = def;
@@ -16340,6 +16349,9 @@ var Protocol = class {
    * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
    */
   async connect(transport) {
+    if (this._transport) {
+      throw new Error("Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.");
+    }
     this._transport = transport;
     const _onclose = this.transport?.onclose;
     this._transport.onclose = () => {
@@ -16372,6 +16384,10 @@ var Protocol = class {
     this._progressHandlers.clear();
     this._taskProgressTokens.clear();
     this._pendingDebouncedNotifications.clear();
+    for (const controller of this._requestHandlerAbortControllers.values()) {
+      controller.abort();
+    }
+    this._requestHandlerAbortControllers.clear();
     const error2 = McpError.fromError(ErrorCode.ConnectionClosed, "Connection closed");
     this._transport = void 0;
     this.onclose?.();
@@ -16422,6 +16438,8 @@ var Protocol = class {
       sessionId: capturedTransport?.sessionId,
       _meta: request.params?._meta,
       sendNotification: async (notification) => {
+        if (abortController.signal.aborted)
+          return;
         const notificationOptions = { relatedRequestId: request.id };
         if (relatedTaskId) {
           notificationOptions.relatedTask = { taskId: relatedTaskId };
@@ -16429,6 +16447,9 @@ var Protocol = class {
         await this.notification(notification, notificationOptions);
       },
       sendRequest: async (r, resultSchema, options) => {
+        if (abortController.signal.aborted) {
+          throw new McpError(ErrorCode.ConnectionClosed, "Request was cancelled");
+        }
         const requestOptions = { ...options, relatedRequestId: request.id };
         if (relatedTaskId && !requestOptions.relatedTask) {
           requestOptions.relatedTask = { taskId: relatedTaskId };
@@ -17190,6 +17211,147 @@ var ExperimentalServerTasks = class {
     return this._server.requestStream(request, resultSchema, options);
   }
   /**
+   * Sends a sampling request and returns an AsyncGenerator that yields response messages.
+   * The generator is guaranteed to end with either a 'result' or 'error' message.
+   *
+   * For task-augmented requests, yields 'taskCreated' and 'taskStatus' messages
+   * before the final result.
+   *
+   * @example
+   * ```typescript
+   * const stream = server.experimental.tasks.createMessageStream({
+   *     messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+   *     maxTokens: 100
+   * }, {
+   *     onprogress: (progress) => {
+   *         // Handle streaming tokens via progress notifications
+   *         console.log('Progress:', progress.message);
+   *     }
+   * });
+   *
+   * for await (const message of stream) {
+   *     switch (message.type) {
+   *         case 'taskCreated':
+   *             console.log('Task created:', message.task.taskId);
+   *             break;
+   *         case 'taskStatus':
+   *             console.log('Task status:', message.task.status);
+   *             break;
+   *         case 'result':
+   *             console.log('Final result:', message.result);
+   *             break;
+   *         case 'error':
+   *             console.error('Error:', message.error);
+   *             break;
+   *     }
+   * }
+   * ```
+   *
+   * @param params - The sampling request parameters
+   * @param options - Optional request options (timeout, signal, task creation params, onprogress, etc.)
+   * @returns AsyncGenerator that yields ResponseMessage objects
+   *
+   * @experimental
+   */
+  createMessageStream(params, options) {
+    const clientCapabilities = this._server.getClientCapabilities();
+    if ((params.tools || params.toolChoice) && !clientCapabilities?.sampling?.tools) {
+      throw new Error("Client does not support sampling tools capability.");
+    }
+    if (params.messages.length > 0) {
+      const lastMessage = params.messages[params.messages.length - 1];
+      const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
+      const hasToolResults = lastContent.some((c) => c.type === "tool_result");
+      const previousMessage = params.messages.length > 1 ? params.messages[params.messages.length - 2] : void 0;
+      const previousContent = previousMessage ? Array.isArray(previousMessage.content) ? previousMessage.content : [previousMessage.content] : [];
+      const hasPreviousToolUse = previousContent.some((c) => c.type === "tool_use");
+      if (hasToolResults) {
+        if (lastContent.some((c) => c.type !== "tool_result")) {
+          throw new Error("The last message must contain only tool_result content if any is present");
+        }
+        if (!hasPreviousToolUse) {
+          throw new Error("tool_result blocks are not matching any tool_use from the previous message");
+        }
+      }
+      if (hasPreviousToolUse) {
+        const toolUseIds = new Set(previousContent.filter((c) => c.type === "tool_use").map((c) => c.id));
+        const toolResultIds = new Set(lastContent.filter((c) => c.type === "tool_result").map((c) => c.toolUseId));
+        if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every((id) => toolResultIds.has(id))) {
+          throw new Error("ids of tool_result blocks and tool_use blocks from previous message do not match");
+        }
+      }
+    }
+    return this.requestStream({
+      method: "sampling/createMessage",
+      params
+    }, CreateMessageResultSchema, options);
+  }
+  /**
+   * Sends an elicitation request and returns an AsyncGenerator that yields response messages.
+   * The generator is guaranteed to end with either a 'result' or 'error' message.
+   *
+   * For task-augmented requests (especially URL-based elicitation), yields 'taskCreated'
+   * and 'taskStatus' messages before the final result.
+   *
+   * @example
+   * ```typescript
+   * const stream = server.experimental.tasks.elicitInputStream({
+   *     mode: 'url',
+   *     message: 'Please authenticate',
+   *     elicitationId: 'auth-123',
+   *     url: 'https://example.com/auth'
+   * }, {
+   *     task: { ttl: 300000 } // Task-augmented for long-running auth flow
+   * });
+   *
+   * for await (const message of stream) {
+   *     switch (message.type) {
+   *         case 'taskCreated':
+   *             console.log('Task created:', message.task.taskId);
+   *             break;
+   *         case 'taskStatus':
+   *             console.log('Task status:', message.task.status);
+   *             break;
+   *         case 'result':
+   *             console.log('User action:', message.result.action);
+   *             break;
+   *         case 'error':
+   *             console.error('Error:', message.error);
+   *             break;
+   *     }
+   * }
+   * ```
+   *
+   * @param params - The elicitation request parameters
+   * @param options - Optional request options (timeout, signal, task creation params, etc.)
+   * @returns AsyncGenerator that yields ResponseMessage objects
+   *
+   * @experimental
+   */
+  elicitInputStream(params, options) {
+    const clientCapabilities = this._server.getClientCapabilities();
+    const mode = params.mode ?? "form";
+    switch (mode) {
+      case "url": {
+        if (!clientCapabilities?.elicitation?.url) {
+          throw new Error("Client does not support url elicitation.");
+        }
+        break;
+      }
+      case "form": {
+        if (!clientCapabilities?.elicitation?.form) {
+          throw new Error("Client does not support form elicitation.");
+        }
+        break;
+      }
+    }
+    const normalizedParams = mode === "form" && params.mode === void 0 ? { ...params, mode: "form" } : params;
+    return this.requestStream({
+      method: "elicitation/create",
+      params: normalizedParams
+    }, ElicitResultSchema, options);
+  }
+  /**
    * Gets the current status of a task.
    *
    * @param taskId - The task identifier
@@ -17929,16 +18091,33 @@ function validateISODate(dateStr, paramName) {
     throw new Error(`Invalid ${paramName} date: "${dateStr}". Not a valid calendar date.`);
   }
 }
+var SAFE_STRING_REGEX = /^[a-zA-Z0-9._\-\/\s@:~]+$/;
+function validateMetadataFilter(value, paramName) {
+  if (value.length > 500) {
+    throw new Error(`${paramName} filter too long (max 500 characters)`);
+  }
+  if (!SAFE_STRING_REGEX.test(value)) {
+    throw new Error(`Invalid ${paramName} filter: "${value}". Contains unsupported characters.`);
+  }
+}
 async function searchConversations(query, options = {}) {
-  const { limit = 10, mode = "both", after, before } = options;
+  const { limit = 10, mode = "both", after, before, project, session_id, git_branch } = options;
   if (after) validateISODate(after, "--after");
   if (before) validateISODate(before, "--before");
+  if (project) validateMetadataFilter(project, "project");
+  if (session_id) validateMetadataFilter(session_id, "session_id");
+  if (git_branch) validateMetadataFilter(git_branch, "git_branch");
   const db = initDatabase();
   let results = [];
-  const timeFilter = [];
-  if (after) timeFilter.push(`e.timestamp >= '${after}'`);
-  if (before) timeFilter.push(`e.timestamp <= '${before}'`);
-  const timeClause = timeFilter.length > 0 ? `AND ${timeFilter.join(" AND ")}` : "";
+  const filters = [];
+  if (after) filters.push(`e.timestamp >= '${after}'`);
+  if (before) filters.push(`e.timestamp <= '${before}'`);
+  if (project) filters.push(`e.project = '${project}'`);
+  if (session_id) filters.push(`e.session_id = '${session_id}'`);
+  if (git_branch) filters.push(`e.git_branch = '${git_branch}'`);
+  const filterClause = filters.length > 0 ? `AND ${filters.join(" AND ")}` : "";
+  const hasMetadataFilter = project || session_id || git_branch;
+  const effectiveK = hasMetadataFilter ? limit * 3 : limit;
   if (mode === "vector" || mode === "both") {
     await initEmbeddings();
     const queryEmbedding = await generateEmbedding(query);
@@ -17952,18 +18131,23 @@ async function searchConversations(query, options = {}) {
         e.archive_path,
         e.line_start,
         e.line_end,
+        e.session_id,
+        e.git_branch,
         vec.distance
       FROM vec_exchanges AS vec
       JOIN exchanges AS e ON vec.id = e.id
       WHERE vec.embedding MATCH ?
         AND k = ?
-        ${timeClause}
+        ${filterClause}
       ORDER BY vec.distance ASC
     `);
     results = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
-      limit
+      effectiveK
     );
+    if (hasMetadataFilter && results.length > limit) {
+      results = results.slice(0, limit);
+    }
   }
   if (mode === "text" || mode === "both") {
     const textStmt = db.prepare(`
@@ -17976,10 +18160,12 @@ async function searchConversations(query, options = {}) {
         e.archive_path,
         e.line_start,
         e.line_end,
+        e.session_id,
+        e.git_branch,
         0 as distance
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
-        ${timeClause}
+        ${filterClause}
       ORDER BY e.timestamp DESC
       LIMIT ?
     `);
@@ -18005,7 +18191,9 @@ async function searchConversations(query, options = {}) {
       assistantMessage: row.assistant_message,
       archivePath: row.archive_path,
       lineStart: row.line_start,
-      lineEnd: row.line_end
+      lineEnd: row.line_end,
+      sessionId: row.session_id || void 0,
+      gitBranch: row.git_branch || void 0
     };
     const summaryPath = row.archive_path.replace(".jsonl", "-summary.txt");
     let summary;
@@ -19539,6 +19727,9 @@ var SearchInputSchema = external_exports.object({
   limit: external_exports.number().int().min(1).max(50).default(10).describe("Maximum number of results to return (default: 10)"),
   after: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional().describe("Only return conversations after this date (YYYY-MM-DD format)"),
   before: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional().describe("Only return conversations before this date (YYYY-MM-DD format)"),
+  project: external_exports.string().min(1).optional().describe("Filter by project name (exact match)"),
+  session_id: external_exports.string().min(1).optional().describe("Filter by session ID (exact match)"),
+  git_branch: external_exports.string().min(1).optional().describe("Filter by git branch (exact match)"),
   response_format: ResponseFormatEnum.default("markdown").describe(
     'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
   )
@@ -19584,6 +19775,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             limit: { type: "number", minimum: 1, maximum: 50, default: 10 },
             after: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
             before: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+            project: { type: "string", minLength: 1, description: "Filter by project name" },
+            session_id: { type: "string", minLength: 1, description: "Filter by session ID" },
+            git_branch: { type: "string", minLength: 1, description: "Filter by git branch" },
             response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" }
           },
           required: ["query"],
@@ -19631,7 +19825,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const options = {
           limit: params.limit,
           after: params.after,
-          before: params.before
+          before: params.before,
+          project: params.project,
+          session_id: params.session_id,
+          git_branch: params.git_branch
         };
         const results = await searchMultipleConcepts(params.query, options);
         if (params.response_format === "json") {
@@ -19652,7 +19849,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           mode: params.mode,
           limit: params.limit,
           after: params.after,
-          before: params.before
+          before: params.before,
+          project: params.project,
+          session_id: params.session_id,
+          git_branch: params.git_branch
         };
         const results = await searchConversations(params.query, options);
         if (params.response_format === "json") {

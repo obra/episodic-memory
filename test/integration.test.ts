@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initDatabase } from '../src/db.js';
-import { searchConversations } from '../src/search.js';
+import { searchConversations, SearchOptions } from '../src/search.js';
 import { parseConversationFile } from '../src/parser.js';
 import { createTestDb, getFixturePath } from './test-utils.js';
 import { indexTestFiles } from './test-indexer.js';
@@ -245,6 +245,127 @@ describe('Integration Tests', () => {
         expect(date >= new Date('2025-10-01')).toBe(true);
         expect(date <= new Date('2025-10-31')).toBe(true);
       });
+    });
+  });
+
+  describe('Metadata Filtering', () => {
+    beforeEach(async () => {
+      // Index test conversations
+      await indexTestFiles([getFixturePath('short-conversation.jsonl')]);
+
+      // Set metadata on indexed exchanges for filtering tests
+      const db = initDatabase();
+
+      // Get all exchange IDs
+      const rows = db.prepare('SELECT id FROM exchanges').all() as Array<{ id: string }>;
+      expect(rows.length).toBeGreaterThan(0);
+
+      // Set metadata on the first exchange
+      db.prepare(`
+        UPDATE exchanges SET project = ?, session_id = ?, git_branch = ? WHERE id = ?
+      `).run('test-project-alpha', 'session-abc-123', 'feat/login', rows[0].id);
+
+      // Set different metadata on remaining exchanges (if any)
+      for (let i = 1; i < rows.length; i++) {
+        db.prepare(`
+          UPDATE exchanges SET project = ?, session_id = ?, git_branch = ? WHERE id = ?
+        `).run('test-project-beta', 'session-def-456', 'main', rows[i].id);
+      }
+
+      db.close();
+    });
+
+    it('should filter by project', async () => {
+      const results = await searchConversations('class', {
+        mode: 'text',
+        project: 'test-project-alpha',
+      });
+
+      results.forEach(r => {
+        expect(r.exchange.project).toBe('test-project-alpha');
+      });
+    });
+
+    it('should return empty results for non-matching project', async () => {
+      const results = await searchConversations('class', {
+        mode: 'text',
+        project: 'nonexistent-project',
+      });
+
+      expect(results.length).toBe(0);
+    });
+
+    it('should filter by git_branch', async () => {
+      const results = await searchConversations('class', {
+        mode: 'text',
+        git_branch: 'main',
+      });
+
+      results.forEach(r => {
+        expect(r.exchange.gitBranch).toBe('main');
+      });
+    });
+
+    it('should filter by session_id', async () => {
+      const results = await searchConversations('class', {
+        mode: 'text',
+        session_id: 'session-abc-123',
+      });
+
+      results.forEach(r => {
+        expect(r.exchange.sessionId).toBe('session-abc-123');
+      });
+    });
+
+    it('should combine metadata and time filters', async () => {
+      const results = await searchConversations('class', {
+        mode: 'text',
+        project: 'test-project-alpha',
+        after: '2025-01-01',
+      });
+
+      results.forEach(r => {
+        expect(r.exchange.project).toBe('test-project-alpha');
+        const date = new Date(r.exchange.timestamp);
+        expect(date >= new Date('2025-01-01')).toBe(true);
+      });
+    });
+
+    it('should reject invalid metadata filter characters', async () => {
+      await expect(
+        searchConversations('test', { project: "'; DROP TABLE exchanges; --" })
+      ).rejects.toThrow('Contains unsupported characters');
+    });
+
+    it('should reject overly long metadata filter', async () => {
+      const longString = 'a'.repeat(501);
+      await expect(
+        searchConversations('test', { project: longString })
+      ).rejects.toThrow('filter too long');
+    });
+
+    it('should work with vector search mode', async () => {
+      const results = await searchConversations('class design', {
+        mode: 'vector',
+        project: 'test-project-alpha',
+      });
+
+      results.forEach(r => {
+        expect(r.exchange.project).toBe('test-project-alpha');
+      });
+    });
+
+    it('should return all results when no metadata filter is applied', async () => {
+      const filteredResults = await searchConversations('class', {
+        mode: 'text',
+        project: 'test-project-alpha',
+      });
+      const allResults = await searchConversations('class', {
+        mode: 'text',
+      });
+
+      // Without filter should return >= filtered count
+      expect(allResults.length).toBeGreaterThanOrEqual(filteredResults.length);
     });
   });
 });
