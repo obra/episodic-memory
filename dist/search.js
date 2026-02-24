@@ -13,22 +13,46 @@ function validateISODate(dateStr, paramName) {
         throw new Error(`Invalid ${paramName} date: "${dateStr}". Not a valid calendar date.`);
     }
 }
+const SAFE_STRING_REGEX = /^[a-zA-Z0-9._\-\/\s@:~]+$/;
+function validateMetadataFilter(value, paramName) {
+    if (value.length > 500) {
+        throw new Error(`${paramName} filter too long (max 500 characters)`);
+    }
+    if (!SAFE_STRING_REGEX.test(value)) {
+        throw new Error(`Invalid ${paramName} filter: "${value}". Contains unsupported characters.`);
+    }
+}
 export async function searchConversations(query, options = {}) {
-    const { limit = 10, mode = 'both', after, before } = options;
-    // Validate date parameters
+    const { limit = 10, mode = 'both', after, before, project, session_id, git_branch } = options;
+    // Validate parameters
     if (after)
         validateISODate(after, '--after');
     if (before)
         validateISODate(before, '--before');
+    if (project)
+        validateMetadataFilter(project, 'project');
+    if (session_id)
+        validateMetadataFilter(session_id, 'session_id');
+    if (git_branch)
+        validateMetadataFilter(git_branch, 'git_branch');
     const db = initDatabase();
     let results = [];
-    // Build time filter clause
-    const timeFilter = [];
+    // Build filter clause (time + metadata)
+    const filters = [];
     if (after)
-        timeFilter.push(`e.timestamp >= '${after}'`);
+        filters.push(`e.timestamp >= '${after}'`);
     if (before)
-        timeFilter.push(`e.timestamp <= '${before}'`);
-    const timeClause = timeFilter.length > 0 ? `AND ${timeFilter.join(' AND ')}` : '';
+        filters.push(`e.timestamp <= '${before}'`);
+    if (project)
+        filters.push(`e.project = '${project}'`);
+    if (session_id)
+        filters.push(`e.session_id = '${session_id}'`);
+    if (git_branch)
+        filters.push(`e.git_branch = '${git_branch}'`);
+    const filterClause = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
+    // vec0 applies KNN before WHERE post-filter, so over-fetch when metadata filters are active
+    const hasMetadataFilter = project || session_id || git_branch;
+    const effectiveK = hasMetadataFilter ? limit * 3 : limit;
     if (mode === 'vector' || mode === 'both') {
         // Vector similarity search
         await initEmbeddings();
@@ -43,15 +67,21 @@ export async function searchConversations(query, options = {}) {
         e.archive_path,
         e.line_start,
         e.line_end,
+        e.session_id,
+        e.git_branch,
         vec.distance
       FROM vec_exchanges AS vec
       JOIN exchanges AS e ON vec.id = e.id
       WHERE vec.embedding MATCH ?
         AND k = ?
-        ${timeClause}
+        ${filterClause}
       ORDER BY vec.distance ASC
     `);
-        results = stmt.all(Buffer.from(new Float32Array(queryEmbedding).buffer), limit);
+        results = stmt.all(Buffer.from(new Float32Array(queryEmbedding).buffer), effectiveK);
+        // Trim to requested limit after post-filtering
+        if (hasMetadataFilter && results.length > limit) {
+            results = results.slice(0, limit);
+        }
     }
     if (mode === 'text' || mode === 'both') {
         // Text search
@@ -65,10 +95,12 @@ export async function searchConversations(query, options = {}) {
         e.archive_path,
         e.line_start,
         e.line_end,
+        e.session_id,
+        e.git_branch,
         0 as distance
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
-        ${timeClause}
+        ${filterClause}
       ORDER BY e.timestamp DESC
       LIMIT ?
     `);
@@ -96,7 +128,9 @@ export async function searchConversations(query, options = {}) {
             assistantMessage: row.assistant_message,
             archivePath: row.archive_path,
             lineStart: row.line_start,
-            lineEnd: row.line_end
+            lineEnd: row.line_end,
+            sessionId: row.session_id || undefined,
+            gitBranch: row.git_branch || undefined,
         };
         // Try to load summary if available
         const summaryPath = row.archive_path.replace('.jsonl', '-summary.txt');
