@@ -1,6 +1,6 @@
 ---
 name: remembering-conversations
-description: Use when user asks 'how should I...' or 'what's the best approach...' after exploring code, OR when you've tried to solve something and are stuck, OR for unfamiliar workflows, OR when user references past work. Searches conversation history.
+description: Retrieves and synthesizes relevant context from past conversations to surface prior decisions, patterns, and gotchas — returning actionable insights without consuming large amounts of context. Use when user asks 'how should I approach this codebase decision...' or 'what's the best architecture/pattern for...', when stuck on a complex problem with no obvious solution in current code, when following an unfamiliar workflow, or when user references past work with phrases like 'last time', 'we discussed', 'you implemented', or 'do you remember'.
 ---
 
 # Remembering Conversations
@@ -22,26 +22,20 @@ Task tool:
   subagent_type: "search-conversations"
 ```
 
-The agent will:
-1. Search with the `search` tool
-2. Read top 2-5 results with the `show` tool
-3. Synthesize findings (200-1000 words)
-4. Return actionable insights + sources
-
-**Saves 50-100x context vs. loading raw conversations.**
+The agent searches with the `search` tool, reads top 2-5 results with the `show` tool, and returns a 200–1000 word synthesis of actionable insights and sources — **saving 50–100× context vs. loading raw conversations.**
 
 ## When to Use
 
-You often get value out of consulting your episodic memory once you understand what you're being asked. Search memory in these situations:
+Search memory once you understand what you're being asked:
 
 **After understanding the task:**
-- User asks "how should I..." or "what's the best approach..."
-- You've explored current codebase and need to make architectural decisions
-- User asks for implementation approach after describing what they want
+- User asks "how should I..." or "what's the best approach..." for an architectural or implementation decision
+- You've explored the current codebase and need to make design choices
+- User asks for an implementation approach after describing what they want
 
 **When you're stuck:**
 - You've investigated a problem and can't find the solution
-- Facing a complex problem without obvious solution in current code
+- Facing a complex problem without an obvious solution in current code
 - Need to follow an unfamiliar workflow or process
 
 **When historical signals are present:**
@@ -51,15 +45,17 @@ You often get value out of consulting your episodic memory once you understand w
 
 **Don't search first:**
 - For current codebase structure (use Grep/Read to explore first)
-- For info in current conversation
+- For info already in the current conversation
 - Before understanding what you're being asked to do
+
+## Handling Insufficient Results
+
+If the search returns nothing useful or too little context:
+- **Try broader terms:** swap specific identifiers for general concepts (e.g., "authentication" instead of "JWT refresh token handler")
+- **Try alternative phrasings:** rephrase the query around the problem domain rather than the solution
+- **Try a second search:** dispatch the agent again with the refined query before giving up
+- **If still empty:** inform the user that no prior context exists on this topic and proceed without it
 
 ## Direct Tool Access (Discouraged)
 
-You CAN use MCP tools directly, but DON'T:
-- `mcp__plugin_episodic-memory_episodic-memory__search`
-- `mcp__plugin_episodic-memory_episodic-memory__show`
-
-Using these directly wastes your context window. Always dispatch the agent instead.
-
-See MCP-TOOLS.md for complete API reference if needed for advanced usage.
+You CAN use MCP tools directly — `mcp__plugin_episodic-memory_episodic-memory__search` and `mcp__plugin_episodic-memory_episodic-memory__show` — but doing so wastes your context window. Always dispatch the agent instead. See MCP-TOOLS.md for the complete API reference.
