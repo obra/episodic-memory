@@ -21,6 +21,9 @@ import {
   SearchOptions,
 } from './search.js';
 import { formatConversationAsMarkdown } from './show.js';
+import { initDatabase } from './db.js';
+import { searchSimilarFacts, getRevisions, getTopFacts } from './fact-db.js';
+import { generateEmbedding, initEmbeddings } from './embeddings.js';
 import fs from 'fs';
 
 // Zod Schemas for Input Validation
@@ -91,6 +94,16 @@ const ShowConversationInputSchema = z
   .strict();
 
 type ShowConversationInput = z.infer<typeof ShowConversationInputSchema>;
+
+const SearchFactsInputSchema = z
+  .object({
+    query: z.string().min(2, 'Query must be at least 2 characters'),
+    project: z.string().optional(),
+    category: z.enum(['decision', 'preference', 'pattern', 'knowledge', 'constraint']).optional(),
+    include_revisions: z.boolean().default(false),
+    limit: z.number().int().min(1).max(50).default(10),
+  })
+  .strict();
 
 // Error Handling Utility
 
@@ -164,6 +177,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
         annotations: {
           title: 'Show Full Conversation',
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      {
+        name: 'search_facts',
+        description: 'Search extracted facts from past conversations. Returns project-scoped and global facts. Facts are long-term knowledge automatically extracted and consolidated from conversations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', minLength: 2, description: 'Search query for facts' },
+            project: { type: 'string', description: 'Project path to scope the search (defaults to cwd)' },
+            category: {
+              type: 'string',
+              enum: ['decision', 'preference', 'pattern', 'knowledge', 'constraint'],
+              description: 'Filter by fact category',
+            },
+            include_revisions: { type: 'boolean', description: 'Include revision history', default: false },
+            limit: { type: 'number', minimum: 1, maximum: 50, default: 10, description: 'Max results' },
+          },
+          required: ['query'],
+          additionalProperties: false,
+        },
+        annotations: {
+          title: 'Search Facts',
           readOnlyHint: true,
           destructiveHint: false,
           idempotentHint: true,
@@ -272,6 +312,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           },
         ],
       };
+    }
+
+    if (name === 'search_facts') {
+      const params = SearchFactsInputSchema.parse(args);
+      const currentProject = params.project || process.cwd();
+
+      try {
+        await initEmbeddings();
+        const db = initDatabase();
+        const queryEmbedding = await generateEmbedding(params.query);
+        const results = searchSimilarFacts(db, queryEmbedding, currentProject, params.limit);
+
+        // Apply category filter if specified
+        const filtered = params.category
+          ? results.filter(r => r.fact.category === params.category)
+          : results;
+
+        let output = `# Facts Search Results\n\nQuery: "${params.query}"\nProject: ${currentProject}\nResults: ${filtered.length}\n\n`;
+
+        if (filtered.length === 0) {
+          output += '_No matching facts found._\n';
+        }
+
+        for (const { fact, distance } of filtered) {
+          const similarity = (1 - distance * distance / 2).toFixed(3);
+          output += `## [${fact.category}] ${fact.fact}\n`;
+          output += `- Scope: ${fact.scope_type}${fact.scope_project ? ` (${fact.scope_project})` : ''}\n`;
+          output += `- Confirmed: ${fact.consolidated_count}x | Similarity: ${similarity}\n`;
+          output += `- Created: ${fact.created_at}\n`;
+
+          if (params.include_revisions) {
+            const revisions = getRevisions(db, fact.id);
+            if (revisions.length > 0) {
+              output += '- Revisions:\n';
+              for (const rev of revisions) {
+                output += `  - ${rev.created_at}: "${rev.previous_fact}" → "${rev.new_fact}" (${rev.reason})\n`;
+              }
+            }
+          }
+          output += '\n';
+        }
+
+        db.close();
+
+        return {
+          content: [{ type: 'text', text: output }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: handleError(error) }],
+          isError: true,
+        };
+      }
     }
 
     throw new Error(`Unknown tool: ${name}`);

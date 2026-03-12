@@ -19729,6 +19729,49 @@ ${JSON.stringify(value, null, 2)}
   return output;
 }
 
+// src/fact-db.ts
+function getRevisions(db, factId) {
+  return db.prepare(
+    "SELECT * FROM fact_revisions WHERE fact_id = ? ORDER BY created_at DESC"
+  ).all(factId);
+}
+function searchSimilarFacts(db, embedding, project, limit = 5, threshold = 0.85) {
+  const vecResults = db.prepare(`
+    SELECT id, distance
+    FROM vec_facts
+    WHERE embedding MATCH ?
+    ORDER BY distance
+    LIMIT ?
+  `).all(Buffer.from(new Float32Array(embedding).buffer), limit * 2);
+  const results = [];
+  for (const vr of vecResults) {
+    const similarity = 1 - vr.distance * vr.distance / 2;
+    if (similarity < threshold) continue;
+    const row = db.prepare("SELECT * FROM facts WHERE id = ? AND is_active = 1").get(vr.id);
+    if (!row) continue;
+    const fact = rowToFact(row);
+    if (project && fact.scope_type === "project" && fact.scope_project !== project) continue;
+    results.push({ fact, distance: vr.distance });
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+function rowToFact(row) {
+  return {
+    id: row.id,
+    fact: row.fact,
+    category: row.category,
+    scope_type: row.scope_type,
+    scope_project: row.scope_project,
+    source_exchange_ids: row.source_exchange_ids ? JSON.parse(row.source_exchange_ids) : [],
+    embedding: row.embedding ? new Float32Array(row.embedding.buffer ?? row.embedding) : null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    consolidated_count: row.consolidated_count,
+    is_active: Boolean(row.is_active)
+  };
+}
+
 // src/mcp-server.ts
 import fs4 from "fs";
 var SearchModeEnum = external_exports.enum(["vector", "text", "both"]);
@@ -19754,6 +19797,13 @@ var ShowConversationInputSchema = external_exports.object({
   path: external_exports.string().min(1, "Path is required").describe("Absolute path to the JSONL conversation file to display"),
   startLine: external_exports.number().int().min(1).optional().describe("Starting line number (1-indexed, inclusive). Omit to start from beginning."),
   endLine: external_exports.number().int().min(1).optional().describe("Ending line number (1-indexed, inclusive). Omit to read to end.")
+}).strict();
+var SearchFactsInputSchema = external_exports.object({
+  query: external_exports.string().min(2, "Query must be at least 2 characters"),
+  project: external_exports.string().optional(),
+  category: external_exports.enum(["decision", "preference", "pattern", "knowledge", "constraint"]).optional(),
+  include_revisions: external_exports.boolean().default(false),
+  limit: external_exports.number().int().min(1).max(50).default(10)
 }).strict();
 function handleError(error2) {
   if (error2 instanceof Error) {
@@ -19819,6 +19869,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
         annotations: {
           title: "Show Full Conversation",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "search_facts",
+        description: "Search extracted facts from past conversations. Returns project-scoped and global facts. Facts are long-term knowledge automatically extracted and consolidated from conversations.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string", minLength: 2, description: "Search query for facts" },
+            project: { type: "string", description: "Project path to scope the search (defaults to cwd)" },
+            category: {
+              type: "string",
+              enum: ["decision", "preference", "pattern", "knowledge", "constraint"],
+              description: "Filter by fact category"
+            },
+            include_revisions: { type: "boolean", description: "Include revision history", default: false },
+            limit: { type: "number", minimum: 1, maximum: 50, default: 10, description: "Max results" }
+          },
+          required: ["query"],
+          additionalProperties: false
+        },
+        annotations: {
+          title: "Search Facts",
           readOnlyHint: true,
           destructiveHint: false,
           idempotentHint: true,
@@ -19908,6 +19985,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         ]
       };
+    }
+    if (name === "search_facts") {
+      const params = SearchFactsInputSchema.parse(args);
+      const currentProject = params.project || process.cwd();
+      try {
+        await initEmbeddings();
+        const db = initDatabase();
+        const queryEmbedding = await generateEmbedding(params.query);
+        const results = searchSimilarFacts(db, queryEmbedding, currentProject, params.limit);
+        const filtered = params.category ? results.filter((r) => r.fact.category === params.category) : results;
+        let output = `# Facts Search Results
+
+Query: "${params.query}"
+Project: ${currentProject}
+Results: ${filtered.length}
+
+`;
+        if (filtered.length === 0) {
+          output += "_No matching facts found._\n";
+        }
+        for (const { fact, distance } of filtered) {
+          const similarity = (1 - distance * distance / 2).toFixed(3);
+          output += `## [${fact.category}] ${fact.fact}
+`;
+          output += `- Scope: ${fact.scope_type}${fact.scope_project ? ` (${fact.scope_project})` : ""}
+`;
+          output += `- Confirmed: ${fact.consolidated_count}x | Similarity: ${similarity}
+`;
+          output += `- Created: ${fact.created_at}
+`;
+          if (params.include_revisions) {
+            const revisions = getRevisions(db, fact.id);
+            if (revisions.length > 0) {
+              output += "- Revisions:\n";
+              for (const rev of revisions) {
+                output += `  - ${rev.created_at}: "${rev.previous_fact}" \u2192 "${rev.new_fact}" (${rev.reason})
+`;
+              }
+            }
+          }
+          output += "\n";
+        }
+        db.close();
+        return {
+          content: [{ type: "text", text: output }]
+        };
+      } catch (error2) {
+        return {
+          content: [{ type: "text", text: handleError(error2) }],
+          isError: true
+        };
+      }
     }
     throw new Error(`Unknown tool: ${name}`);
   } catch (error2) {
