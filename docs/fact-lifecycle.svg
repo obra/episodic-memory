@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300" width="600" height="300">
+  <defs>
+    <linearGradient id="flBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1f6feb;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#58a6ff;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="flGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#238636;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#3fb950;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="flPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#d2a8ff;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="flOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d18616;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#f0883e;stop-opacity:1"/>
+    </linearGradient>
+    <filter id="flShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+    <marker id="arr" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="600" height="300" rx="12" fill="#0d1117"/>
+
+  <!-- Title -->
+  <text x="300" y="28" text-anchor="middle" fill="#e6edf3" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="bold">Fact Lifecycle</text>
+
+  <!-- Step 1: Extract -->
+  <rect x="20" y="50" width="90" height="50" rx="6" fill="url(#flBlue)" filter="url(#flShadow)"/>
+  <text x="65" y="72" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="11" font-weight="600">Extract</text>
+  <text x="65" y="86" text-anchor="middle" fill="rgba(255,255,255,0.75)" font-family="system-ui, sans-serif" font-size="9">Haiku LLM</text>
+
+  <!-- Arrow 1 -->
+  <line x1="110" y1="75" x2="135" y2="75" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Step 2: Store -->
+  <rect x="138" y="50" width="90" height="50" rx="6" fill="url(#flGreen)" filter="url(#flShadow)"/>
+  <text x="183" y="72" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="11" font-weight="600">Store</text>
+  <text x="183" y="86" text-anchor="middle" fill="rgba(255,255,255,0.75)" font-family="system-ui, sans-serif" font-size="9">SQLite + vec</text>
+
+  <!-- Arrow 2 -->
+  <line x1="228" y1="75" x2="253" y2="75" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Step 3: Search -->
+  <rect x="256" y="50" width="90" height="50" rx="6" fill="url(#flPurple)" filter="url(#flShadow)"/>
+  <text x="301" y="72" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="11" font-weight="600">Search</text>
+  <text x="301" y="86" text-anchor="middle" fill="rgba(255,255,255,0.75)" font-family="system-ui, sans-serif" font-size="9">Vector sim</text>
+
+  <!-- Arrow 3 -->
+  <line x1="346" y1="75" x2="371" y2="75" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Step 4: Compare -->
+  <rect x="374" y="50" width="90" height="50" rx="6" fill="url(#flOrange)" filter="url(#flShadow)"/>
+  <text x="419" y="72" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="11" font-weight="600">Compare</text>
+  <text x="419" y="86" text-anchor="middle" fill="rgba(255,255,255,0.75)" font-family="system-ui, sans-serif" font-size="9">Haiku LLM</text>
+
+  <!-- Arrow 4: Compare -> Decision -->
+  <line x1="464" y1="75" x2="489" y2="75" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Decision diamond (simplified as rect with dashed border) -->
+  <rect x="492" y="50" width="88" height="50" rx="6" fill="#161b22" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <text x="536" y="72" text-anchor="middle" fill="#f0883e" font-family="system-ui, sans-serif" font-size="11" font-weight="600">Classify</text>
+  <text x="536" y="86" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">Relation?</text>
+
+  <!-- Four outcome branches -->
+  <!-- Vertical line from decision -->
+  <line x1="536" y1="100" x2="536" y2="125" stroke="#8b949e" stroke-width="1"/>
+
+  <!-- Horizontal line spanning all 4 outcomes -->
+  <line x1="95" y1="125" x2="536" y2="125" stroke="#8b949e" stroke-width="1"/>
+
+  <!-- Vertical ticks down -->
+  <line x1="95" y1="125" x2="95" y2="145" stroke="#8b949e" stroke-width="1"/>
+  <line x1="242" y1="125" x2="242" y2="145" stroke="#8b949e" stroke-width="1"/>
+  <line x1="389" y1="125" x2="389" y2="145" stroke="#8b949e" stroke-width="1"/>
+  <line x1="536" y1="125" x2="536" y2="145" stroke="#8b949e" stroke-width="1"/>
+
+  <!-- Outcome 1: DUPLICATE -->
+  <rect x="35" y="148" width="120" height="55" rx="6" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="95" y="168" text-anchor="middle" fill="#58a6ff" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">DUPLICATE</text>
+  <text x="95" y="183" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">Merge facts</text>
+  <text x="95" y="195" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">count++</text>
+
+  <!-- Outcome 2: CONTRADICTION -->
+  <rect x="182" y="148" width="120" height="55" rx="6" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
+  <text x="242" y="168" text-anchor="middle" fill="#f85149" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">CONTRADICTION</text>
+  <text x="242" y="183" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">Replace old fact</text>
+  <text x="242" y="195" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">+ revision history</text>
+
+  <!-- Outcome 3: EVOLUTION -->
+  <rect x="329" y="148" width="120" height="55" rx="6" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+  <text x="389" y="168" text-anchor="middle" fill="#f0883e" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">EVOLUTION</text>
+  <text x="389" y="183" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">Update fact</text>
+  <text x="389" y="195" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">+ revision history</text>
+
+  <!-- Outcome 4: INDEPENDENT -->
+  <rect x="476" y="148" width="120" height="55" rx="6" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="536" y="168" text-anchor="middle" fill="#3fb950" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">INDEPENDENT</text>
+  <text x="536" y="183" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">Keep both</text>
+  <text x="536" y="195" text-anchor="middle" fill="#8b949e" font-family="system-ui, sans-serif" font-size="9">no change</text>
+
+  <!-- All outcomes converge to Consolidated Facts -->
+  <line x1="95" y1="203" x2="95" y2="225" stroke="#8b949e" stroke-width="1"/>
+  <line x1="242" y1="203" x2="242" y2="225" stroke="#8b949e" stroke-width="1"/>
+  <line x1="389" y1="203" x2="389" y2="225" stroke="#8b949e" stroke-width="1"/>
+  <line x1="536" y1="203" x2="536" y2="225" stroke="#8b949e" stroke-width="1"/>
+  <line x1="95" y1="225" x2="536" y2="225" stroke="#8b949e" stroke-width="1"/>
+  <line x1="300" y1="225" x2="300" y2="245" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Consolidated Facts -->
+  <rect x="180" y="248" width="240" height="40" rx="8" fill="url(#flGreen)" filter="url(#flShadow)"/>
+  <text x="300" y="265" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Consolidated Facts</text>
+  <text x="300" y="279" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-family="system-ui, sans-serif" font-size="9">Injected as context at session start</text>
+</svg>
