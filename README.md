@@ -307,6 +307,81 @@ The MCP server can also be used outside of Claude Code with any MCP-compatible c
 episodic-memory-mcp-server
 ```
 
+## Fact Extraction & Consolidation
+
+Episodic memory now automatically extracts long-term facts from your conversations and consolidates them across sessions. This gives Claude persistent knowledge about your decisions, preferences, patterns, and constraints -- without you having to repeat yourself.
+
+### How It Works
+
+1. **SessionEnd** - At the end of each session, the fact extractor analyzes your conversation using Haiku LLM and pulls out key facts (decisions, preferences, patterns, knowledge, constraints).
+2. **SessionStart** - At the start of each session, the consolidator checks for duplicate or contradictory facts using vector similarity (384-dim embeddings) + Haiku LLM confirmation, then injects the top 10 most relevant facts as context.
+
+### Key Features
+
+- **Automatic fact extraction** using Haiku LLM (up to 20 facts per session, confidence threshold 0.7+)
+- **5 fact categories**: `decision`, `preference`, `pattern`, `knowledge`, `constraint`
+- **Project/global scope isolation** - Project-specific facts never leak between projects. Global facts (e.g., coding style preferences) are shared.
+- **Duplicate detection** via vector similarity (384-dim) + LLM confirmation (similarity threshold 0.85)
+- **Contradiction handling** with revision history - When a new fact contradicts an old one, the old fact is replaced and the change is recorded with a reason.
+- **Evolution tracking** - Facts that evolve over time are updated with revision history.
+- **Context injection** - Top 10 facts by confirmation count are injected at session start.
+
+### Configuration
+
+```bash
+# Override the LLM model for fact extraction/consolidation (default: claude-haiku-4-5-20251001)
+export EPISODIC_MEMORY_FACT_MODEL=claude-haiku-4-5-20251001
+
+# API key (falls back to EPISODIC_MEMORY_API_TOKEN)
+export ANTHROPIC_API_KEY=your-api-key
+
+# Optional: route through custom endpoint
+export EPISODIC_MEMORY_API_BASE_URL=https://your-endpoint.com/api/anthropic
+```
+
+### Hook Setup
+
+Add the hooks to your Claude Code configuration:
+
+**SessionEnd** (extract facts from completed session):
+```bash
+# .claude/hooks/session-end
+#!/bin/bash
+node /path/to/episodic-memory/scripts/fact-extract-hook.js
+```
+
+**SessionStart** (consolidate facts and inject context):
+```bash
+# .claude/hooks/session-start
+#!/bin/bash
+node /path/to/episodic-memory/scripts/fact-consolidate-hook.js
+```
+
+Environment variables available to hooks:
+- `SESSION_ID` - Current session ID (SessionEnd)
+- `CWD` / `PROJECT_DIR` - Current project path
+- `LAST_CONSOLIDATED_AT` - Last consolidation time (SessionStart, default: 24h ago)
+
+### MCP Tool: `search_facts`
+
+Search extracted facts from past conversations. Returns project-scoped and global facts.
+
+```json
+{
+  "query": "state management",
+  "category": "decision",
+  "include_revisions": true,
+  "limit": 10
+}
+```
+
+**Parameters:**
+- `query` (string, required): Search query for facts (min 2 characters)
+- `project` (string, optional): Project path to scope the search (defaults to cwd)
+- `category` (string, optional): Filter by category - `decision`, `preference`, `pattern`, `knowledge`, or `constraint`
+- `include_revisions` (boolean, optional): Include revision history (default: false)
+- `limit` (number, optional): Max results, 1-50 (default: 10)
+
 ## Development
 
 ```bash
