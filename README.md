@@ -4,6 +4,8 @@
 
 ![Architecture](docs/architecture.svg)
 
+https://github.com/user-attachments/assets/fact-consolidation-demo.mp4
+
 ## Features
 
 - **Conversation Search** -- Semantic vector search across all past conversations

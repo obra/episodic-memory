@@ -4,6 +4,8 @@
 
 ![아키텍처](docs/architecture.svg)
 
+https://github.com/user-attachments/assets/fact-consolidation-demo.mp4
+
 ## 주요 기능
 
 - **대화 검색** -- 모든 과거 대화에서 시맨틱 벡터 검색

@@ -1,0 +1,19 @@
+{
+  "name": "episodic-memory-video",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npx remotion studio",
+    "build": "npx remotion render src/index.ts FactConsolidation out/fact-consolidation.mp4",
+    "render": "npx remotion render src/index.ts FactConsolidation out/fact-consolidation.mp4 --codec h264"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.434",
+    "@remotion/cli": "4.0.434",
+    "@remotion/transitions": "^4.0.434",
+    "@types/react": "19.2.14",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.434",
+    "typescript": "5.9.3"
+  }
+}
