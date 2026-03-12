@@ -49,3 +49,51 @@ export interface MultiConceptResult {
   conceptSimilarities: number[];
   averageSimilarity: number;
 }
+
+// === Fact Types ===
+
+export type FactCategory = 'decision' | 'preference' | 'pattern' | 'knowledge' | 'constraint';
+export type FactScopeType = 'global' | 'project';
+export type FactRelation = 'DUPLICATE' | 'CONTRADICTION' | 'EVOLUTION' | 'INDEPENDENT';
+
+export interface Fact {
+  id: string;
+  fact: string;
+  category: FactCategory;
+  scope_type: FactScopeType;
+  scope_project: string | null;
+  source_exchange_ids: string[];
+  embedding: Float32Array | null;
+  created_at: string;
+  updated_at: string;
+  consolidated_count: number;
+  is_active: boolean;
+}
+
+export interface FactRevision {
+  id: string;
+  fact_id: string;
+  previous_fact: string;
+  new_fact: string;
+  reason: string | null;
+  source_exchange_id: string | null;
+  created_at: string;
+}
+
+export interface FactSearchResult {
+  fact: Fact;
+  similarity: number;
+}
+
+export interface ExtractedFact {
+  fact: string;
+  category: FactCategory;
+  scope_type: FactScopeType;
+  confidence: number;
+}
+
+export interface ConsolidationResult {
+  relation: FactRelation;
+  merged_fact: string;
+  reason: string;
+}

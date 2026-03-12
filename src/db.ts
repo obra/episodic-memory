@@ -126,6 +126,58 @@ export function initDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_tool_exchange ON tool_calls(exchange_id)
   `);
 
+  // === Facts Schema ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS facts (
+      id TEXT PRIMARY KEY,
+      fact TEXT NOT NULL,
+      category TEXT,
+      scope_type TEXT NOT NULL DEFAULT 'project',
+      scope_project TEXT,
+      source_exchange_ids TEXT,
+      embedding BLOB,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      consolidated_count INTEGER DEFAULT 1,
+      is_active INTEGER DEFAULT 1
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_facts_scope ON facts(scope_type, scope_project)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_facts_category ON facts(category)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_facts_active ON facts(is_active)
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fact_revisions (
+      id TEXT PRIMARY KEY,
+      fact_id TEXT NOT NULL,
+      previous_fact TEXT NOT NULL,
+      new_fact TEXT NOT NULL,
+      reason TEXT,
+      source_exchange_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (fact_id) REFERENCES facts(id)
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_revisions_fact ON fact_revisions(fact_id)
+  `);
+
+  // vec_facts virtual table (sqlite-vec)
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_facts USING vec0(
+      id TEXT PRIMARY KEY,
+      embedding FLOAT[384]
+    )
+  `);
+
   return db;
 }
 
