@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
-import { getExcludedProjects } from './paths.js';
+import { getExcludedProjects, findJsonlFiles } from './paths.js';
 
 const EXCLUSION_MARKERS = [
   '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
@@ -103,7 +103,7 @@ export async function syncConversations(
 
     if (!stat.isDirectory()) continue;
 
-    const files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+    const files = findJsonlFiles(projectPath);
 
     for (const file of files) {
       const srcFile = path.join(projectPath, file);

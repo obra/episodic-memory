@@ -64,6 +64,7 @@ export async function searchConversations(
       JOIN exchanges AS e ON vec.id = e.id
       WHERE vec.embedding MATCH ?
         AND k = ?
+        AND e.is_sidechain = 0
         ${timeClause}
       ORDER BY vec.distance ASC
     `);
@@ -89,6 +90,7 @@ export async function searchConversations(
         0 as distance
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+        AND e.is_sidechain = 0
         ${timeClause}
       ORDER BY e.timestamp DESC
       LIMIT ?

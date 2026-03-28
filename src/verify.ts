@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseConversation } from './parser.js';
 import { initDatabase, getAllExchanges, getFileLastIndexed } from './db.js';
-import { getArchiveDir, getExcludedProjects } from './paths.js';
+import { getArchiveDir, getExcludedProjects, findJsonlFiles } from './paths.js';
 
 export interface VerificationResult {
   missing: Array<{ path: string; reason: string }>;
@@ -47,7 +47,7 @@ export async function verifyIndex(): Promise<VerificationResult> {
 
     if (!stat.isDirectory()) continue;
 
-    const files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+    const files = findJsonlFiles(projectPath);
 
     for (const file of files) {
       totalChecked++;

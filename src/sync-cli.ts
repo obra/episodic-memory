@@ -1,7 +1,5 @@
 import { syncConversations } from './sync.js';
-import { getArchiveDir } from './paths.js';
-import path from 'path';
-import os from 'os';
+import { getArchiveDir, getConversationSourceDirs } from './paths.js';
 import { spawn } from 'child_process';
 
 const args = process.argv.slice(2);
@@ -58,27 +56,54 @@ if (isBackground) {
   process.exit(0);
 }
 
-const sourceDir = path.join(os.homedir(), '.claude', 'projects');
+const sourceDirs = getConversationSourceDirs();
 const destDir = getArchiveDir();
 
+if (sourceDirs.length === 0) {
+  console.log('⚠️  No conversation source directories found.');
+  console.log('  Checked: ~/.claude/projects and ~/.claude/transcripts');
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    console.log(`  CLAUDE_CONFIG_DIR is set to: ${process.env.CLAUDE_CONFIG_DIR}`);
+  }
+  process.exit(0);
+}
+
 console.log('Syncing conversations...');
-console.log(`Source: ${sourceDir}`);
+console.log(`Sources: ${sourceDirs.join(', ')}`);
 console.log(`Destination: ${destDir}\n`);
 
-syncConversations(sourceDir, destDir)
-  .then(result => {
-    console.log(`\n✅ Sync complete!`);
-    console.log(`  Copied: ${result.copied}`);
-    console.log(`  Skipped: ${result.skipped}`);
-    console.log(`  Indexed: ${result.indexed}`);
-    console.log(`  Summarized: ${result.summarized}`);
+async function syncAll() {
+  const totals = { copied: 0, skipped: 0, indexed: 0, summarized: 0, errors: [] as Array<{file: string; error: string}>, sourcesWithSummaryWork: 0, totalNeedingSummaries: 0 };
 
-    if (result.errors.length > 0) {
-      console.log(`\n⚠️  Errors: ${result.errors.length}`);
-      result.errors.forEach(err => console.log(`  ${err.file}: ${err.error}`));
+  for (const sourceDir of sourceDirs) {
+    const result = await syncConversations(sourceDir, destDir);
+    totals.copied += result.copied;
+    totals.skipped += result.skipped;
+    totals.indexed += result.indexed;
+    totals.summarized += result.summarized;
+    totals.errors.push(...result.errors);
+  }
+
+  console.log(`\n✅ Sync complete!`);
+  console.log(`  Copied: ${totals.copied}`);
+  console.log(`  Skipped: ${totals.skipped}`);
+  console.log(`  Indexed: ${totals.indexed}`);
+  console.log(`  Summarized: ${totals.summarized}`);
+
+  if (totals.errors.length > 0) {
+    console.log(`\n⚠️  Errors: ${totals.errors.length}`);
+    totals.errors.forEach(err => console.log(`  ${err.file}: ${err.error}`));
+
+    // Help diagnose silent summarization failures (#70)
+    const summaryErrors = totals.errors.filter(e => e.error.startsWith('Summary generation failed'));
+    if (summaryErrors.length > 0 && totals.summarized === 0) {
+      console.log(`\n💡 All ${summaryErrors.length} summarization attempts failed.`);
+      console.log(`  Check your API configuration (EPISODIC_MEMORY_API_BASE_URL / ANTHROPIC_API_KEY).`);
     }
-  })
-  .catch(error => {
-    console.error('Error syncing:', error);
-    process.exit(1);
-  });
+  }
+}
+
+syncAll().catch(error => {
+  console.error('Error syncing:', error);
+  process.exit(1);
+});

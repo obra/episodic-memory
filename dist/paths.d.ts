@@ -1,4 +1,21 @@
 /**
+ * Get the Claude Code configuration directory.
+ * Supports CLAUDE_CONFIG_DIR for multiple profiles.
+ * Falls back to ~/.claude when not set.
+ */
+export declare function getClaudeDir(): string;
+/**
+ * Get all directories where Claude Code stores conversation files.
+ * Checks both legacy (projects/) and current (transcripts/) locations.
+ * Returns only directories that exist.
+ */
+export declare function getConversationSourceDirs(): string[];
+/**
+ * Recursively find all .jsonl files under a directory.
+ * Returns paths relative to the given directory.
+ */
+export declare function findJsonlFiles(dir: string): string[];
+/**
  * Get the personal superpowers directory
  *
  * Precedence:
