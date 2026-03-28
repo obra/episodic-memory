@@ -60,7 +60,7 @@ The plugin automatically:
 ### As an npm package
 
 ```bash
-npm install episodic-memory
+npm install -g github:obra/episodic-memory
 ```
 
 ## Usage
