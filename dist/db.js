@@ -158,6 +158,8 @@ export function getFileLastIndexed(db, archivePath) {
 export function deleteExchange(db, id) {
     // Delete from vector table
     db.prepare(`DELETE FROM vec_exchanges WHERE id = ?`).run(id);
+    // Delete from tool_calls table (must come before exchanges due to FK constraint)
+    db.prepare(`DELETE FROM tool_calls WHERE exchange_id = ?`).run(id);
     // Delete from main table
     db.prepare(`DELETE FROM exchanges WHERE id = ?`).run(id);
 }
