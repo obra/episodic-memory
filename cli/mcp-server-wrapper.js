@@ -84,6 +84,14 @@ async function main() {
     // Forward signals to the child process
     process.on('SIGTERM', () => child.kill('SIGTERM'));
     process.on('SIGINT', () => child.kill('SIGINT'));
+    process.on('SIGHUP', () => child.kill('SIGHUP'));
+
+    // Detect parent process death via stdin close
+    // When Claude exits (normally or abnormally), stdin will close
+    process.stdin.on('end', () => {
+      child.kill();
+      process.exit(0);
+    });
 
     child.on('exit', (code, signal) => {
       if (signal) {
