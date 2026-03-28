@@ -12077,16 +12077,21 @@ function initDatabase() {
 }
 
 // src/embeddings.ts
-import { pipeline } from "@xenova/transformers";
+import { pipeline, env } from "@xenova/transformers";
+env.allowLocalModels = true;
+env.useBrowserCache = false;
 var embeddingPipeline = null;
 async function initEmbeddings() {
   if (!embeddingPipeline) {
-    console.log("Loading embedding model (first run may take time)...");
+    console.error("Loading embedding model (first run may take time)...");
     embeddingPipeline = await pipeline(
       "feature-extraction",
-      "Xenova/all-MiniLM-L6-v2"
+      "Xenova/all-MiniLM-L6-v2",
+      { progress_callback: (() => {
+      }) }
+      // Disable progress output to stdout
     );
-    console.log("Embedding model loaded");
+    console.error("Embedding model loaded");
   }
 }
 async function generateEmbedding(text) {
