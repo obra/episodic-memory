@@ -144,6 +144,11 @@ export EPISODIC_MEMORY_API_TOKEN=your-token
 
 # Increase timeout for slow endpoints (milliseconds)
 export EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
+
+# Save SDK session logs for debugging (default: false)
+# When enabled, creates .jsonl files in ~/.claude/projects/<cwd-path>/
+# where <cwd-path> is based on where the CLI/agent runs from
+export EPISODIC_MEMORY_SAVE_SDK_LOGS=true
 ```
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
@@ -153,6 +158,7 @@ These settings only affect episodic-memory's summarization calls, not your inter
 | Component | Uses custom config? |
 |-----------|---------------------|
 | Summarization | Yes (up to 10 calls/sync) |
+| SDK session logs | Yes (SAVE_SDK_LOGS only) |
 | Embeddings | No (local Transformers.js) |
 | Search | No (local SQLite) |
 | MCP tools | No |
