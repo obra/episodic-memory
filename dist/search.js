@@ -2,6 +2,10 @@ import { initDatabase } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
 import fs from 'fs';
 import readline from 'readline';
+export function normalizedL2DistanceToSimilarity(distance) {
+    const similarity = 1 - ((distance * distance) / 2);
+    return Math.max(-1, Math.min(1, similarity));
+}
 function validateISODate(dateStr, paramName) {
     const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!isoDateRegex.test(dateStr)) {
@@ -111,7 +115,7 @@ export async function searchConversations(query, options = {}) {
         const snippet = snippetText + (exchange.userMessage.length > 200 ? '...' : '');
         return {
             exchange,
-            similarity: mode === 'text' ? undefined : 1 - row.distance,
+            similarity: mode === 'text' ? undefined : normalizedL2DistanceToSimilarity(row.distance),
             snippet,
             summary
         };

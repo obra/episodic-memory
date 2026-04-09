@@ -113,10 +113,11 @@ describe('Integration Tests', () => {
 
       if (results.length > 0) {
         expect(results[0].similarity).toBeDefined();
-        // Similarity is 1 - distance, where distance can be > 1 for dissimilar items
-        // So similarity can be negative (valid for poor matches)
+        // sqlite-vec returns normalized L2 distance, which we convert back into
+        // cosine similarity. That keeps scores in the standard [-1, 1] range.
         expect(typeof results[0].similarity).toBe('number');
         expect(results[0].similarity).toBeLessThanOrEqual(1);
+        expect(results[0].similarity).toBeGreaterThanOrEqual(-1);
       }
     });
 
