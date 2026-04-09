@@ -12,6 +12,11 @@ export interface SearchOptions {
   before?: string; // ISO date string
 }
 
+export function normalizedL2DistanceToSimilarity(distance: number): number {
+  const similarity = 1 - ((distance * distance) / 2);
+  return Math.max(-1, Math.min(1, similarity));
+}
+
 function validateISODate(dateStr: string, paramName: string): void {
   const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoDateRegex.test(dateStr)) {
@@ -138,7 +143,7 @@ export async function searchConversations(
 
     return {
       exchange,
-      similarity: mode === 'text' ? undefined : 1 - row.distance,
+      similarity: mode === 'text' ? undefined : normalizedL2DistanceToSimilarity(row.distance),
       snippet,
       summary
     } as SearchResult & { summary?: string };
@@ -339,4 +344,3 @@ export async function formatMultiConceptResults(
 
   return output;
 }
-

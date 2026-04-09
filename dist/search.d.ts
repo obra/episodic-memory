@@ -5,6 +5,7 @@ export interface SearchOptions {
     after?: string;
     before?: string;
 }
+export declare function normalizedL2DistanceToSimilarity(distance: number): number;
 export declare function searchConversations(query: string, options?: SearchOptions): Promise<SearchResult[]>;
 export declare function formatResults(results: Array<SearchResult & {
     summary?: string;
