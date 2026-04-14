@@ -6,7 +6,7 @@ import { parseConversation } from './parser.js';
 import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
 import { ConversationExchange } from './types.js';
-import { getArchiveDir, getExcludedProjects } from './paths.js';
+import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles } from './paths.js';
 
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
@@ -14,11 +14,6 @@ process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
 // Increase max listeners for concurrent API calls
 import { EventEmitter } from 'events';
 EventEmitter.defaultMaxListeners = 20;
-
-// Allow overriding paths for testing
-function getProjectsDir(): string {
-  return process.env.TEST_PROJECTS_DIR || path.join(os.homedir(), '.claude', 'projects');
-}
 
 // Process items in batches with limited concurrency
 async function processBatch<T, R>(
@@ -54,14 +49,16 @@ export async function indexConversations(
   }
 
   console.log('Scanning for conversation files...');
-  const PROJECTS_DIR = getProjectsDir();
-  const ARCHIVE_DIR = getArchiveDir(); // Now uses paths.ts
-  const projects = fs.readdirSync(PROJECTS_DIR);
+  const sourceDirs = getConversationSourceDirs();
+  const ARCHIVE_DIR = getArchiveDir();
 
   let totalExchanges = 0;
   let conversationsProcessed = 0;
 
   const excludedProjects = getExcludedProjects();
+
+  for (const sourceDir of sourceDirs) {
+  const projects = fs.readdirSync(sourceDir);
 
   for (const project of projects) {
     // Skip excluded projects
@@ -72,12 +69,12 @@ export async function indexConversations(
 
     // Skip if limiting to specific project
     if (limitToProject && project !== limitToProject) continue;
-    const projectPath = path.join(PROJECTS_DIR, project);
+    const projectPath = path.join(sourceDir, project);
     const stat = fs.statSync(projectPath);
 
     if (!stat.isDirectory()) continue;
 
-    const files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+    const files = findJsonlFiles(projectPath);
 
     if (files.length === 0) continue;
 
@@ -103,8 +100,9 @@ export async function indexConversations(
       const sourcePath = path.join(projectPath, file);
       const archivePath = path.join(projectArchive, file);
 
-      // Copy to archive
+      // Copy to archive (ensure parent dirs exist for subagent files)
       if (!fs.existsSync(archivePath)) {
+        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
         fs.copyFileSync(sourcePath, archivePath);
         console.log(`  Archived: ${file}`);
       }
@@ -175,6 +173,7 @@ export async function indexConversations(
       }
     }
   }
+  } // end sourceDir loop
 
   db.close();
   console.log(`\n✅ Indexing complete! Conversations: ${conversationsProcessed}, Exchanges: ${totalExchanges}`);
@@ -184,19 +183,21 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
   console.log(`Indexing session: ${sessionId}`);
 
   // Find the conversation file for this session
-  const PROJECTS_DIR = getProjectsDir();
-  const ARCHIVE_DIR = getArchiveDir(); // Now uses paths.ts
-  const projects = fs.readdirSync(PROJECTS_DIR);
+  const sourceDirs = getConversationSourceDirs();
+  const ARCHIVE_DIR = getArchiveDir();
   const excludedProjects = getExcludedProjects();
   let found = false;
+
+  for (const sourceDir of sourceDirs) {
+  const projects = fs.readdirSync(sourceDir);
 
   for (const project of projects) {
     if (excludedProjects.includes(project)) continue;
 
-    const projectPath = path.join(PROJECTS_DIR, project);
+    const projectPath = path.join(sourceDir, project);
     if (!fs.statSync(projectPath).isDirectory()) continue;
 
-    const files = fs.readdirSync(projectPath).filter(f => f.includes(sessionId) && f.endsWith('.jsonl'));
+    const files = findJsonlFiles(projectPath).filter(f => f.includes(sessionId));
 
     if (files.length > 0) {
       found = true;
@@ -211,8 +212,9 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
 
       const archivePath = path.join(projectArchive, file);
 
-      // Archive
+      // Archive (ensure parent dirs exist for subagent files)
       if (!fs.existsSync(archivePath)) {
+        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
         fs.copyFileSync(sourcePath, archivePath);
       }
 
@@ -223,6 +225,7 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
         // Generate summary (unless --no-summaries)
         const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
         if (!noSummaries && !fs.existsSync(summaryPath)) {
+          fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
           const summary = await summarizeConversation(exchanges);
           fs.writeFileSync(summaryPath, summary, 'utf-8');
           console.log(`Summary: ${summary.split(/\s+/).length} words`);
@@ -246,6 +249,8 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
       break;
     }
   }
+  if (found) break;
+  } // end sourceDir loop
 
   if (!found) {
     console.log(`Session ${sessionId} not found`);
@@ -260,9 +265,8 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
   const db = initDatabase();
   await initEmbeddings();
 
-  const PROJECTS_DIR = getProjectsDir();
-  const ARCHIVE_DIR = getArchiveDir(); // Now uses paths.ts
-  const projects = fs.readdirSync(PROJECTS_DIR);
+  const sourceDirs = getConversationSourceDirs();
+  const ARCHIVE_DIR = getArchiveDir();
   const excludedProjects = getExcludedProjects();
 
   type UnprocessedConv = {
@@ -276,14 +280,17 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
 
   const unprocessed: UnprocessedConv[] = [];
 
-  // Collect all unprocessed conversations
+  // Collect all unprocessed conversations from all source dirs
+  for (const sourceDir of sourceDirs) {
+  const projects = fs.readdirSync(sourceDir);
+
   for (const project of projects) {
     if (excludedProjects.includes(project)) continue;
 
-    const projectPath = path.join(PROJECTS_DIR, project);
+    const projectPath = path.join(sourceDir, project);
     if (!fs.statSync(projectPath).isDirectory()) continue;
 
-    const files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+    const files = findJsonlFiles(projectPath);
 
     for (const file of files) {
       const sourcePath = path.join(projectPath, file);
@@ -297,7 +304,8 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
 
       if (alreadyIndexed.count > 0) continue;
 
-      fs.mkdirSync(projectArchive, { recursive: true });
+      // Ensure parent dirs exist for subagent files
+      fs.mkdirSync(path.dirname(archivePath), { recursive: true });
 
       // Archive if needed
       if (!fs.existsSync(archivePath)) {
@@ -311,6 +319,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
       unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges });
     }
   }
+  } // end sourceDir loop
 
   if (unprocessed.length === 0) {
     console.log('✅ All conversations are already processed!');

@@ -13,6 +13,55 @@ function ensureDir(dir: string): string {
 }
 
 /**
+ * Get the Claude Code configuration directory.
+ * Supports CLAUDE_CONFIG_DIR for multiple profiles.
+ * Falls back to ~/.claude when not set.
+ */
+export function getClaudeDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+}
+
+/**
+ * Get all directories where Claude Code stores conversation files.
+ * Checks both legacy (projects/) and current (transcripts/) locations.
+ * Returns only directories that exist.
+ */
+export function getConversationSourceDirs(): string[] {
+  const testDir = process.env.TEST_PROJECTS_DIR;
+  if (testDir) return [testDir];
+
+  const claudeDir = getClaudeDir();
+  return [
+    path.join(claudeDir, 'projects'),
+    path.join(claudeDir, 'transcripts'),
+  ].filter(d => fs.existsSync(d));
+}
+
+/**
+ * Recursively find all .jsonl files under a directory.
+ * Returns paths relative to the given directory.
+ */
+export function findJsonlFiles(dir: string): string[] {
+  const results: string[] = [];
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        results.push(entry.name);
+      } else if (entry.isDirectory()) {
+        const subDir = path.join(dir, entry.name);
+        for (const f of findJsonlFiles(subDir)) {
+          results.push(path.join(entry.name, f));
+        }
+      }
+    }
+  } catch {
+    // Directory might not be readable
+  }
+  return results;
+}
+
+/**
  * Get the personal superpowers directory
  *
  * Precedence:
