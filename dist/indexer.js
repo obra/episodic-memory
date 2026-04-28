@@ -214,22 +214,26 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
                 const projectArchive = path.join(ARCHIVE_DIR, project);
                 const archivePath = path.join(projectArchive, file);
                 const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
-                // Check if already indexed in database
-                const alreadyIndexed = db.prepare('SELECT COUNT(*) as count FROM exchanges WHERE archive_path = ?')
-                    .get(archivePath);
-                if (alreadyIndexed.count > 0)
-                    continue;
+                // Check high-water mark: how many lines of this file are already indexed
+                const maxIndexedResult = db.prepare('SELECT COALESCE(MAX(line_end), 0) as max_line FROM exchanges WHERE archive_path = ?').get(archivePath);
+                const maxIndexedLine = maxIndexedResult.max_line;
                 // Ensure parent dirs exist for subagent files
                 fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                // Archive if needed
-                if (!fs.existsSync(archivePath)) {
+                // Archive: always update if file was partially indexed (it may have grown)
+                if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
                     fs.copyFileSync(sourcePath, archivePath);
                 }
                 // Parse and check
                 const exchanges = await parseConversation(sourcePath, project, archivePath);
                 if (exchanges.length === 0)
                     continue;
-                unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges });
+                // Only include exchanges beyond the high-water mark
+                const newExchanges = maxIndexedLine > 0
+                    ? exchanges.filter(e => e.lineStart > maxIndexedLine)
+                    : exchanges;
+                if (newExchanges.length === 0)
+                    continue;
+                unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges: newExchanges });
             }
         }
     } // end sourceDir loop
