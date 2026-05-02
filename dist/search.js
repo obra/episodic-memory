@@ -2,6 +2,20 @@ import { initDatabase } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
 import fs from 'fs';
 import readline from 'readline';
+/**
+ * Convert an L2 (Euclidean) distance between two unit-normalized vectors
+ * into a cosine similarity in [-1, 1].
+ *
+ * For unit vectors u, v:  ||u - v||^2 = 2 - 2 * cos(u, v)
+ * Therefore:               cos(u, v) = 1 - d^2 / 2
+ *
+ * Embeddings written by src/embeddings.ts are normalized at write time, so
+ * the L2 distance returned by sqlite-vec satisfies the unit-vector identity.
+ */
+export function l2DistanceToCosineSimilarity(distance) {
+    const similarity = 1 - (distance * distance) / 2;
+    return Math.max(-1, Math.min(1, similarity));
+}
 function validateISODate(dateStr, paramName) {
     const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!isoDateRegex.test(dateStr)) {
@@ -111,7 +125,7 @@ export async function searchConversations(query, options = {}) {
         const snippet = snippetText + (exchange.userMessage.length > 200 ? '...' : '');
         return {
             exchange,
-            similarity: mode === 'text' ? undefined : 1 - row.distance,
+            similarity: mode === 'text' ? undefined : l2DistanceToCosineSimilarity(row.distance),
             snippet,
             summary
         };

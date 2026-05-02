@@ -12109,6 +12109,10 @@ async function generateEmbedding(text) {
 // src/search.ts
 import fs3 from "fs";
 import readline from "readline";
+function l2DistanceToCosineSimilarity(distance) {
+  const similarity = 1 - distance * distance / 2;
+  return Math.max(-1, Math.min(1, similarity));
+}
 function validateISODate(dateStr, paramName) {
   const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoDateRegex.test(dateStr)) {
@@ -12208,7 +12212,7 @@ async function searchConversations(query, options = {}) {
     const snippet = snippetText + (exchange.userMessage.length > 200 ? "..." : "");
     return {
       exchange,
-      similarity: mode === "text" ? void 0 : 1 - row.distance,
+      similarity: mode === "text" ? void 0 : l2DistanceToCosineSimilarity(row.distance),
       snippet,
       summary
     };

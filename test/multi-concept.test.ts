@@ -16,14 +16,23 @@ describe('multi-concept search', () => {
     }
   });
 
-  it('should have low similarity for unrelated concepts', async () => {
-    const results = await searchMultipleConcepts(['xyzabc123', 'qwerty789'], { limit: 5 });
+  it('ranks concepts present in the corpus above random nonsense', async () => {
+    // The fixture corpus mentions "skills" and "research" repeatedly.
+    // Random nonsense should not produce a higher confidence than those terms.
+    const corpusRelevant = await searchMultipleConcepts(['skills', 'research'], { limit: 5 });
+    const nonsense = await searchMultipleConcepts(['xyzabc123', 'qwerty789'], { limit: 5 });
 
-    expect(Array.isArray(results)).toBe(true);
-    // Might return some results (weak matches)
-    // but average similarity should be very low
-    if (results.length > 0) {
-      expect(results[0].averageSimilarity).toBeLessThan(0.1); // < 10%
+    if (corpusRelevant.length > 0 && nonsense.length > 0) {
+      expect(corpusRelevant[0].averageSimilarity).toBeGreaterThan(nonsense[0].averageSimilarity);
+    }
+  });
+
+  it('returns averageSimilarity values within the cosine range [-1, 1]', async () => {
+    // Whatever the corpus, cosine similarity is mathematically bounded.
+    const results = await searchMultipleConcepts(['xyzabc123', 'qwerty789'], { limit: 5 });
+    for (const r of results) {
+      expect(r.averageSimilarity).toBeGreaterThanOrEqual(-1);
+      expect(r.averageSimilarity).toBeLessThanOrEqual(1);
     }
   });
 
