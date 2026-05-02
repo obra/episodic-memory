@@ -214,22 +214,24 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
                 const projectArchive = path.join(ARCHIVE_DIR, project);
                 const archivePath = path.join(projectArchive, file);
                 const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
-                // Check if already indexed in database
-                const alreadyIndexed = db.prepare('SELECT COUNT(*) as count FROM exchanges WHERE archive_path = ?')
-                    .get(archivePath);
-                if (alreadyIndexed.count > 0)
-                    continue;
+                // High-water mark: index exchanges past the last line we've already covered.
+                // Transcript JSONLs are append-only, so MAX(line_end) tells us where to resume.
+                const hw = db.prepare('SELECT COALESCE(MAX(line_end), 0) as maxLine FROM exchanges WHERE archive_path = ?').get(archivePath);
+                const maxIndexedLine = hw.maxLine;
                 // Ensure parent dirs exist for subagent files
                 fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                // Archive if needed
-                if (!fs.existsSync(archivePath)) {
+                // Refresh the archive when the source may have grown beyond what we've seen.
+                if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
                     fs.copyFileSync(sourcePath, archivePath);
                 }
-                // Parse and check
+                // Parse and filter to exchanges past the high-water mark
                 const exchanges = await parseConversation(sourcePath, project, archivePath);
-                if (exchanges.length === 0)
+                const newExchanges = maxIndexedLine > 0
+                    ? exchanges.filter(e => e.lineStart > maxIndexedLine)
+                    : exchanges;
+                if (newExchanges.length === 0)
                     continue;
-                unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges });
+                unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges: newExchanges });
             }
         }
     } // end sourceDir loop
