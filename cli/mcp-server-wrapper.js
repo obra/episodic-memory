@@ -25,7 +25,7 @@ function runNpmInstall() {
     console.error('This may take 30-60 seconds...');
 
     // Install dependencies - npm will auto-install optionalDependencies for current platform
-    const child = spawn(npmCommand, ['install', '--prefer-offline', '--no-audit', '--no-fund'], {
+    const child = spawn(npmCommand, ['install', '--no-audit', '--no-fund'], {
       cwd: PLUGIN_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: isWindows // On Windows, we need shell: true to find npm.cmd
