@@ -12000,6 +12000,48 @@ function migrateSchema(db) {
   if (migrated) {
     console.log("Migration complete.");
   }
+  migrateToolCallsCascade(db);
+}
+function migrateToolCallsCascade(db) {
+  const row = db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_calls'`
+  ).get();
+  if (!row) return;
+  if (row.sql.toUpperCase().includes("ON DELETE CASCADE")) return;
+  console.log("Migrating tool_calls to ON DELETE CASCADE schema...");
+  const orphanCount = db.prepare(
+    `SELECT COUNT(*) AS c FROM tool_calls
+     WHERE exchange_id NOT IN (SELECT id FROM exchanges)`
+  ).get().c;
+  if (orphanCount > 0) {
+    console.log(`  Removing ${orphanCount} orphaned tool_calls row(s)`);
+  }
+  db.pragma("foreign_keys = OFF");
+  const tx = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE tool_calls_new (
+        id TEXT PRIMARY KEY,
+        exchange_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        tool_input TEXT,
+        tool_result TEXT,
+        is_error BOOLEAN DEFAULT 0,
+        timestamp TEXT NOT NULL,
+        FOREIGN KEY (exchange_id) REFERENCES exchanges(id) ON DELETE CASCADE
+      )
+    `);
+    db.exec(`
+      INSERT INTO tool_calls_new
+      SELECT id, exchange_id, tool_name, tool_input, tool_result, is_error, timestamp
+      FROM tool_calls
+      WHERE exchange_id IN (SELECT id FROM exchanges)
+    `);
+    db.exec(`DROP TABLE tool_calls`);
+    db.exec(`ALTER TABLE tool_calls_new RENAME TO tool_calls`);
+  });
+  tx();
+  db.pragma("foreign_keys = ON");
+  console.log("  tool_calls migration complete.");
 }
 function initDatabase() {
   const dbPath = getDbPath();
@@ -12042,7 +12084,7 @@ function initDatabase() {
       tool_result TEXT,
       is_error BOOLEAN DEFAULT 0,
       timestamp TEXT NOT NULL,
-      FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
+      FOREIGN KEY (exchange_id) REFERENCES exchanges(id) ON DELETE CASCADE
     )
   `);
   db.exec(`
