@@ -13,7 +13,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
  * - EPISODIC_MEMORY_API_TOKEN: Auth token for custom endpoint
  * - EPISODIC_MEMORY_API_TIMEOUT_MS: Timeout for API calls (default: SDK default)
  */
-function getApiEnv(): Record<string, string | undefined> | undefined {
+export function getApiEnv(): Record<string, string | undefined> | undefined {
   const baseUrl = process.env.EPISODIC_MEMORY_API_BASE_URL;
   const token = process.env.EPISODIC_MEMORY_API_TOKEN;
   const timeoutMs = process.env.EPISODIC_MEMORY_API_TIMEOUT_MS;
@@ -46,6 +46,33 @@ function extractSummary(text: string): string {
   return text.trim();
 }
 
+/**
+ * Build the options object passed to the Claude Agent SDK's query() for a
+ * summarization call.
+ *
+ * persistSession: false keeps the SDK from writing its session transcript to
+ * ~/.claude/projects/ (#83). Without it, every summarization spawns a fake
+ * session JSONL that pollutes the IDE session sidebar. The option is honored
+ * by claude-agent-sdk >= 0.2.0.
+ */
+export function buildSummarizerQueryOptions(args: {
+  model: string;
+  sessionId?: string;
+}): Record<string, unknown> {
+  const { model, sessionId } = args;
+  return {
+    model,
+    max_tokens: 4096,
+    env: getApiEnv(),
+    resume: sessionId,
+    persistSession: false,
+    // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.
+    ...(sessionId ? {} : {
+      systemPrompt: 'Write concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
+    }),
+  };
+}
+
 async function callClaude(prompt: string, sessionId?: string, useFallback = false): Promise<string> {
   const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
   const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
@@ -53,17 +80,7 @@ async function callClaude(prompt: string, sessionId?: string, useFallback = fals
 
   for await (const message of query({
     prompt,
-    options: {
-      model,
-      max_tokens: 4096,
-      env: getApiEnv(),
-      resume: sessionId,
-      // Don't override systemPrompt when resuming - it uses the original session's prompt
-      // Instead, the prompt itself should provide clear instructions
-      ...(sessionId ? {} : {
-        systemPrompt: 'Write concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
-      })
-    } as any
+    options: buildSummarizerQueryOptions({ model, sessionId }) as any,
   })) {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
       const result = (message as any).result;
