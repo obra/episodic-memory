@@ -40,8 +40,13 @@ export function getConversationSourceDirs(): string[] {
 /**
  * Recursively find all .jsonl files under a directory.
  * Returns paths relative to the given directory.
+ *
+ * `excludedDirNames` skips any subdirectory whose name matches an entry in
+ * the set, at any depth. Top-level project skipping at the caller is the
+ * usual case; this parameter handles nested directories like `subagents/`
+ * inside session UUIDs (#80).
  */
-export function findJsonlFiles(dir: string): string[] {
+export function findJsonlFiles(dir: string, excludedDirNames?: ReadonlySet<string>): string[] {
   const results: string[] = [];
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -49,8 +54,9 @@ export function findJsonlFiles(dir: string): string[] {
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
         results.push(entry.name);
       } else if (entry.isDirectory()) {
+        if (excludedDirNames?.has(entry.name)) continue;
         const subDir = path.join(dir, entry.name);
-        for (const f of findJsonlFiles(subDir)) {
+        for (const f of findJsonlFiles(subDir, excludedDirNames)) {
           results.push(path.join(entry.name, f));
         }
       }

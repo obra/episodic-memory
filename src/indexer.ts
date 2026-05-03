@@ -56,6 +56,7 @@ export async function indexConversations(
   let conversationsProcessed = 0;
 
   const excludedProjects = getExcludedProjects();
+  const excludedDirSet = new Set(excludedProjects);
 
   for (const sourceDir of sourceDirs) {
   const projects = fs.readdirSync(sourceDir);
@@ -74,7 +75,7 @@ export async function indexConversations(
 
     if (!stat.isDirectory()) continue;
 
-    const files = findJsonlFiles(projectPath);
+    const files = findJsonlFiles(projectPath, excludedDirSet);
 
     if (files.length === 0) continue;
 
@@ -186,6 +187,7 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
   const sourceDirs = getConversationSourceDirs();
   const ARCHIVE_DIR = getArchiveDir();
   const excludedProjects = getExcludedProjects();
+  const excludedDirSet = new Set(excludedProjects);
   let found = false;
 
   for (const sourceDir of sourceDirs) {
@@ -197,7 +199,7 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
     const projectPath = path.join(sourceDir, project);
     if (!fs.statSync(projectPath).isDirectory()) continue;
 
-    const files = findJsonlFiles(projectPath).filter(f => f.includes(sessionId));
+    const files = findJsonlFiles(projectPath, excludedDirSet).filter(f => f.includes(sessionId));
 
     if (files.length > 0) {
       found = true;
@@ -268,6 +270,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
   const sourceDirs = getConversationSourceDirs();
   const ARCHIVE_DIR = getArchiveDir();
   const excludedProjects = getExcludedProjects();
+  const excludedDirSet = new Set(excludedProjects);
 
   type UnprocessedConv = {
     project: string;
@@ -290,7 +293,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
     const projectPath = path.join(sourceDir, project);
     if (!fs.statSync(projectPath).isDirectory()) continue;
 
-    const files = findJsonlFiles(projectPath);
+    const files = findJsonlFiles(projectPath, excludedDirSet);
 
     for (const file of files) {
       const sourcePath = path.join(projectPath, file);

@@ -21,6 +21,7 @@ export async function verifyIndex() {
     const db = initDatabase();
     const projects = fs.readdirSync(archiveDir);
     const excludedProjects = getExcludedProjects();
+    const excludedDirSet = new Set(excludedProjects);
     let totalChecked = 0;
     for (const project of projects) {
         if (excludedProjects.includes(project)) {
@@ -31,7 +32,7 @@ export async function verifyIndex() {
         const stat = fs.statSync(projectPath);
         if (!stat.isDirectory())
             continue;
-        const files = findJsonlFiles(projectPath);
+        const files = findJsonlFiles(projectPath, excludedDirSet);
         for (const file of files) {
             totalChecked++;
             if (totalChecked % 100 === 0) {

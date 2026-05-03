@@ -13,8 +13,13 @@ export declare function getConversationSourceDirs(): string[];
 /**
  * Recursively find all .jsonl files under a directory.
  * Returns paths relative to the given directory.
+ *
+ * `excludedDirNames` skips any subdirectory whose name matches an entry in
+ * the set, at any depth. Top-level project skipping at the caller is the
+ * usual case; this parameter handles nested directories like `subagents/`
+ * inside session UUIDs (#80).
  */
-export declare function findJsonlFiles(dir: string): string[];
+export declare function findJsonlFiles(dir: string, excludedDirNames?: ReadonlySet<string>): string[];
 /**
  * Get the personal superpowers directory
  *

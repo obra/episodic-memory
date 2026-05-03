@@ -64,6 +64,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
     // Walk source directory
     const projects = fs.readdirSync(sourceDir);
     const excludedProjects = getExcludedProjects();
+    const excludedDirSet = new Set(excludedProjects);
     for (const project of projects) {
         if (excludedProjects.includes(project)) {
             console.log("\nSkipping excluded project: " + project);
@@ -73,7 +74,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
         const stat = fs.statSync(projectPath);
         if (!stat.isDirectory())
             continue;
-        const files = findJsonlFiles(projectPath);
+        const files = findJsonlFiles(projectPath, excludedDirSet);
         for (const file of files) {
             const srcFile = path.join(projectPath, file);
             const destFile = path.join(destDir, project, file);
