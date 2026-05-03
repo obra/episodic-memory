@@ -1,6 +1,6 @@
 {
   "name": "episodic-memory",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Semantic search for Claude Code conversations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,9 +11,12 @@
     "episodic-memory-mcp-server": "./cli/mcp-server"
   },
   "scripts": {
+    "generate-version": "node scripts/generate-version.js",
+    "prebuild": "npm run generate-version",
     "build": "tsc && npm run bundle",
     "bundle": "esbuild src/mcp-server.ts --bundle --platform=node --format=esm --outfile=dist/mcp-server.js --external:fsevents --external:@anthropic-ai/claude-agent-sdk --external:sharp --external:onnxruntime-node --external:better-sqlite3 --external:@xenova/transformers --external:sqlite-vec",
     "postinstall": "npm rebuild better-sqlite3 2>/dev/null || true",
+    "pretest": "npm run generate-version",
     "test": "vitest run",
     "test:watch": "vitest"
   },

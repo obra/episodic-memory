@@ -26516,6 +26516,9 @@ ${JSON.stringify(value, null, 2)}
   return output;
 }
 
+// src/version.ts
+var VERSION = "1.1.1";
+
 // src/mcp-server.ts
 import fs4 from "fs";
 var SearchModeEnum = external_exports.enum(["vector", "text", "both"]);
@@ -26554,7 +26557,7 @@ function handleError(error51) {
 var server = new Server(
   {
     name: "episodic-memory",
-    version: "1.0.0"
+    version: VERSION
   },
   {
     capabilities: {

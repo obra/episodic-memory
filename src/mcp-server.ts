@@ -21,6 +21,7 @@ import {
   SearchOptions,
 } from './search.js';
 import { formatConversationAsMarkdown } from './show.js';
+import { VERSION } from './version.js';
 import fs from 'fs';
 
 // Zod Schemas for Input Validation
@@ -121,7 +122,7 @@ function handleError(error: unknown): string {
 const server = new Server(
   {
     name: 'episodic-memory',
-    version: '1.0.0',
+    version: VERSION,
   },
   {
     capabilities: {
