@@ -1,7 +1,19 @@
 import { syncConversations } from './sync.js';
 import { getArchiveDir, getConversationSourceDirs } from './paths.js';
+import { shouldSkipReentrantSync } from './summarizer.js';
 import { spawn } from 'child_process';
 const args = process.argv.slice(2);
+// Reentrancy guard (#87): if this sync was triggered by a SessionStart hook
+// inside a Claude subprocess that the summarizer just spawned, exit silently.
+// Without this, summarization spawns a Claude subprocess which fires
+// SessionStart which runs sync which spawns more summarization — cascading
+// fanout that pegs CPU and burns API quota.
+if (shouldSkipReentrantSync()) {
+    // stderr keeps the message out of any stdout consumers (e.g., MCP)
+    // while still being visible in hook logs.
+    console.error('episodic-memory: skipping sync inside summarizer-spawned subprocess (#87)');
+    process.exit(0);
+}
 if (args.includes('--help') || args.includes('-h')) {
     console.log(`
 Usage: episodic-memory sync [--background]

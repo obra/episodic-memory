@@ -11,6 +11,13 @@ import { ConversationExchange } from './types.js';
  * - EPISODIC_MEMORY_API_TIMEOUT_MS: Timeout for API calls (default: SDK default)
  */
 export declare function getApiEnv(): Record<string, string | undefined> | undefined;
+/**
+ * Detect whether the current process is running inside the Claude Agent SDK
+ * subprocess that the summarizer just spawned. The flag is set by getApiEnv()
+ * and inherited by the spawned subprocess. Used by sync entry points to bail
+ * out before re-entering the sync→summarizer→spawn cycle (#87).
+ */
+export declare function shouldSkipReentrantSync(): boolean;
 export declare function formatConversationText(exchanges: ConversationExchange[]): string;
 /**
  * Build the options object passed to the Claude Agent SDK's query() for a

@@ -26517,7 +26517,7 @@ ${JSON.stringify(value, null, 2)}
 }
 
 // src/version.ts
-var VERSION = "1.1.1";
+var VERSION = "1.1.2";
 
 // src/mcp-server.ts
 import fs4 from "fs";

@@ -15,16 +15,27 @@ export function getApiEnv() {
     const baseUrl = process.env.EPISODIC_MEMORY_API_BASE_URL;
     const token = process.env.EPISODIC_MEMORY_API_TOKEN;
     const timeoutMs = process.env.EPISODIC_MEMORY_API_TIMEOUT_MS;
-    if (!baseUrl && !token && !timeoutMs) {
-        return undefined;
-    }
-    // Merge with process.env so subprocess inherits PATH, HOME, etc.
+    // Always include the reentrancy guard so the SDK-spawned Claude subprocess
+    // (which inherits this env) marks itself as a reentrant context. The
+    // SessionStart hook checks the guard via shouldSkipReentrantSync() and
+    // exits before launching another sync, breaking the recursive cascade
+    // reported in #87.
     return {
         ...process.env,
+        EPISODIC_MEMORY_SUMMARIZER_GUARD: '1',
         ...(baseUrl && { ANTHROPIC_BASE_URL: baseUrl }),
         ...(token && { ANTHROPIC_AUTH_TOKEN: token }),
         ...(timeoutMs && { API_TIMEOUT_MS: timeoutMs }),
     };
+}
+/**
+ * Detect whether the current process is running inside the Claude Agent SDK
+ * subprocess that the summarizer just spawned. The flag is set by getApiEnv()
+ * and inherited by the spawned subprocess. Used by sync entry points to bail
+ * out before re-entering the sync→summarizer→spawn cycle (#87).
+ */
+export function shouldSkipReentrantSync() {
+    return process.env.EPISODIC_MEMORY_SUMMARIZER_GUARD === '1';
 }
 export function formatConversationText(exchanges) {
     return exchanges.map(ex => {
