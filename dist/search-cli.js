@@ -4,6 +4,9 @@ const args = process.argv.slice(2);
 let mode = 'both';
 let after;
 let before;
+let project;
+let sessionId;
+let gitBranch;
 let limit = 10;
 const queries = [];
 for (let i = 0; i < args.length; i++) {
@@ -20,10 +23,13 @@ MODES:
   --text         Exact string matching only (for git SHAs, error codes)
 
 OPTIONS:
-  --after DATE   Only conversations after YYYY-MM-DD
-  --before DATE  Only conversations before YYYY-MM-DD
-  --limit N      Max results (default: 10)
-  --help, -h     Show this help
+  --after DATE          Only conversations after YYYY-MM-DD
+  --before DATE         Only conversations before YYYY-MM-DD
+  --project NAME        Filter by project name (exact match)
+  --session-id ID       Filter by session ID (exact match)
+  --git-branch BRANCH   Filter by git branch name (exact match)
+  --limit N             Max results (default: 10)
+  --help, -h            Show this help
 
 EXAMPLES:
   # Semantic search
@@ -34,6 +40,12 @@ EXAMPLES:
 
   # Time filtering
   episodic-memory search --after 2025-09-01 "refactoring"
+
+  # Filter to one project
+  episodic-memory search --project my-app "auth flow"
+
+  # Filter to one git branch
+  episodic-memory search --git-branch feature/login "validation"
 
   # Combine modes
   episodic-memory search --both "React Router data loading"
@@ -55,6 +67,15 @@ EXAMPLES:
     else if (arg === '--before') {
         before = args[++i];
     }
+    else if (arg === '--project') {
+        project = args[++i];
+    }
+    else if (arg === '--session-id') {
+        sessionId = args[++i];
+    }
+    else if (arg === '--git-branch') {
+        gitBranch = args[++i];
+    }
     else if (arg === '--limit') {
         limit = parseInt(args[++i]);
     }
@@ -70,7 +91,7 @@ if (queries.length === 0) {
 }
 // Multi-concept search if multiple queries provided
 if (queries.length > 1) {
-    const options = { limit, after, before };
+    const options = { limit, after, before, project, session_id: sessionId, git_branch: gitBranch };
     searchMultipleConcepts(queries, options)
         .then(async (results) => {
         console.log(await formatMultiConceptResults(results, queries));
@@ -86,7 +107,10 @@ else {
         mode,
         limit,
         after,
-        before
+        before,
+        project,
+        session_id: sessionId,
+        git_branch: gitBranch,
     };
     searchConversations(queries[0], options)
         .then(async (results) => {

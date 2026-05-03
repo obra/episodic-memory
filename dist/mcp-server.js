@@ -24882,6 +24882,37 @@ async function generateEmbedding(text) {
 // src/search.ts
 import fs3 from "fs";
 import readline from "readline";
+function buildSearchFilters(options) {
+  const parts = [];
+  const params = [];
+  if (options.after) {
+    parts.push("e.timestamp >= ?");
+    params.push(options.after);
+  }
+  if (options.before) {
+    parts.push("e.timestamp <= ?");
+    params.push(options.before);
+  }
+  if (options.project) {
+    parts.push("e.project = ?");
+    params.push(options.project);
+  }
+  if (options.session_id) {
+    parts.push("e.session_id = ?");
+    params.push(options.session_id);
+  }
+  if (options.git_branch) {
+    parts.push("e.git_branch = ?");
+    params.push(options.git_branch);
+  }
+  return {
+    sql: parts.length ? `AND ${parts.join(" AND ")}` : "",
+    params
+  };
+}
+function hasMetadataFilters(options) {
+  return Boolean(options.project || options.session_id || options.git_branch);
+}
 function l2DistanceToCosineSimilarity(distance) {
   const similarity = 1 - distance * distance / 2;
   return Math.max(-1, Math.min(1, similarity));
@@ -24902,13 +24933,11 @@ async function searchConversations(query, options = {}) {
   if (before) validateISODate(before, "--before");
   const db = initDatabase();
   let results = [];
-  const timeFilter = [];
-  if (after) timeFilter.push(`e.timestamp >= '${after}'`);
-  if (before) timeFilter.push(`e.timestamp <= '${before}'`);
-  const timeClause = timeFilter.length > 0 ? `AND ${timeFilter.join(" AND ")}` : "";
+  const { sql: filterClause, params: filterParams } = buildSearchFilters(options);
   if (mode === "vector" || mode === "both") {
     await initEmbeddings();
     const queryEmbedding = await generateEmbedding(query);
+    const k2 = hasMetadataFilters(options) ? limit * 3 : limit;
     const stmt = db.prepare(`
       SELECT
         e.id,
@@ -24925,13 +24954,17 @@ async function searchConversations(query, options = {}) {
       WHERE vec.embedding MATCH ?
         AND k = ?
         AND e.is_sidechain = 0
-        ${timeClause}
+        ${filterClause}
       ORDER BY vec.distance ASC
     `);
     results = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
-      limit
+      k2,
+      ...filterParams
     );
+    if (results.length > limit) {
+      results = results.slice(0, limit);
+    }
   }
   if (mode === "text" || mode === "both") {
     const textStmt = db.prepare(`
@@ -24948,11 +24981,11 @@ async function searchConversations(query, options = {}) {
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
         AND e.is_sidechain = 0
-        ${timeClause}
+        ${filterClause}
       ORDER BY e.timestamp DESC
       LIMIT ?
     `);
-    const textResults = textStmt.all(`%${query}%`, `%${query}%`, limit);
+    const textResults = textStmt.all(`%${query}%`, `%${query}%`, ...filterParams, limit);
     if (mode === "both") {
       const seenIds = new Set(results.map((r) => r.id));
       for (const textResult of textResults) {
@@ -26500,6 +26533,9 @@ var SearchInputSchema = external_exports.object({
   limit: external_exports.number().int().min(1).max(50).default(10).describe("Maximum number of results to return (default: 10)"),
   after: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional().describe("Only return conversations after this date (YYYY-MM-DD format)"),
   before: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional().describe("Only return conversations before this date (YYYY-MM-DD format)"),
+  project: external_exports.string().min(1).optional().describe("Filter by project name (exact match)"),
+  session_id: external_exports.string().min(1).optional().describe("Filter by session ID (exact match)"),
+  git_branch: external_exports.string().min(1).optional().describe("Filter by git branch name (exact match)"),
   response_format: ResponseFormatEnum.default("markdown").describe(
     'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
   )
@@ -26545,6 +26581,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             limit: { type: "number", minimum: 1, maximum: 50, default: 10 },
             after: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
             before: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+            project: { type: "string", minLength: 1, description: "Filter by project name (exact match)" },
+            session_id: { type: "string", minLength: 1, description: "Filter by session ID (exact match)" },
+            git_branch: { type: "string", minLength: 1, description: "Filter by git branch name (exact match)" },
             response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" }
           },
           required: ["query"],
@@ -26592,7 +26631,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const options = {
           limit: params.limit,
           after: params.after,
-          before: params.before
+          before: params.before,
+          project: params.project,
+          session_id: params.session_id,
+          git_branch: params.git_branch
         };
         const results = await searchMultipleConcepts(params.query, options);
         if (params.response_format === "json") {
@@ -26613,7 +26655,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           mode: params.mode,
           limit: params.limit,
           after: params.after,
-          before: params.before
+          before: params.before,
+          project: params.project,
+          session_id: params.session_id,
+          git_branch: params.git_branch
         };
         const results = await searchConversations(params.query, options);
         if (params.response_format === "json") {

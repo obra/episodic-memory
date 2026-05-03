@@ -4,6 +4,9 @@ export interface SearchOptions {
     mode?: 'vector' | 'text' | 'both';
     after?: string;
     before?: string;
+    project?: string;
+    session_id?: string;
+    git_branch?: string;
 }
 /**
  * Convert an L2 (Euclidean) distance between two unit-normalized vectors

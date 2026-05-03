@@ -10,6 +10,47 @@ export interface SearchOptions {
   mode?: 'vector' | 'text' | 'both';
   after?: string;  // ISO date string
   before?: string; // ISO date string
+  project?: string;     // exact match against e.project
+  session_id?: string;  // exact match against e.session_id
+  git_branch?: string;  // exact match against e.git_branch
+}
+
+/**
+ * Build the AND-clause and bound-parameter list that constrains a search
+ * by the optional time and metadata filters. Bound parameters keep us
+ * safe from SQL injection without regex-based input scrubbing.
+ */
+function buildSearchFilters(options: SearchOptions): { sql: string; params: unknown[] } {
+  const parts: string[] = [];
+  const params: unknown[] = [];
+  if (options.after) {
+    parts.push('e.timestamp >= ?');
+    params.push(options.after);
+  }
+  if (options.before) {
+    parts.push('e.timestamp <= ?');
+    params.push(options.before);
+  }
+  if (options.project) {
+    parts.push('e.project = ?');
+    params.push(options.project);
+  }
+  if (options.session_id) {
+    parts.push('e.session_id = ?');
+    params.push(options.session_id);
+  }
+  if (options.git_branch) {
+    parts.push('e.git_branch = ?');
+    params.push(options.git_branch);
+  }
+  return {
+    sql: parts.length ? `AND ${parts.join(' AND ')}` : '',
+    params,
+  };
+}
+
+function hasMetadataFilters(options: SearchOptions): boolean {
+  return Boolean(options.project || options.session_id || options.git_branch);
 }
 
 /**
@@ -53,16 +94,15 @@ export async function searchConversations(
 
   let results: any[] = [];
 
-  // Build time filter clause
-  const timeFilter = [];
-  if (after) timeFilter.push(`e.timestamp >= '${after}'`);
-  if (before) timeFilter.push(`e.timestamp <= '${before}'`);
-  const timeClause = timeFilter.length > 0 ? `AND ${timeFilter.join(' AND ')}` : '';
+  const { sql: filterClause, params: filterParams } = buildSearchFilters(options);
 
   if (mode === 'vector' || mode === 'both') {
-    // Vector similarity search
+    // Vector similarity search.
+    // vec0 applies KNN before WHERE, so when extra metadata filters are
+    // active we ask for more candidates than `limit` and trim afterwards.
     await initEmbeddings();
     const queryEmbedding = await generateEmbedding(query);
+    const k = hasMetadataFilters(options) ? limit * 3 : limit;
 
     const stmt = db.prepare(`
       SELECT
@@ -80,14 +120,18 @@ export async function searchConversations(
       WHERE vec.embedding MATCH ?
         AND k = ?
         AND e.is_sidechain = 0
-        ${timeClause}
+        ${filterClause}
       ORDER BY vec.distance ASC
     `);
 
     results = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
-      limit
+      k,
+      ...filterParams
     );
+    if (results.length > limit) {
+      results = results.slice(0, limit);
+    }
   }
 
   if (mode === 'text' || mode === 'both') {
@@ -106,12 +150,12 @@ export async function searchConversations(
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
         AND e.is_sidechain = 0
-        ${timeClause}
+        ${filterClause}
       ORDER BY e.timestamp DESC
       LIMIT ?
     `);
 
-    const textResults = textStmt.all(`%${query}%`, `%${query}%`, limit);
+    const textResults = textStmt.all(`%${query}%`, `%${query}%`, ...filterParams, limit);
 
     if (mode === 'both') {
       // Merge and deduplicate by ID

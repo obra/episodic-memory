@@ -61,6 +61,21 @@ const SearchInputSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
       .optional()
       .describe('Only return conversations before this date (YYYY-MM-DD format)'),
+    project: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Filter by project name (exact match)'),
+    session_id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Filter by session ID (exact match)'),
+    git_branch: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Filter by git branch name (exact match)'),
     response_format: ResponseFormatEnum.default('markdown').describe(
       'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
     ),
@@ -136,6 +151,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             limit: { type: 'number', minimum: 1, maximum: 50, default: 10 },
             after: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             before: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+            project: { type: 'string', minLength: 1, description: 'Filter by project name (exact match)' },
+            session_id: { type: 'string', minLength: 1, description: 'Filter by session ID (exact match)' },
+            git_branch: { type: 'string', minLength: 1, description: 'Filter by git branch name (exact match)' },
             response_format: { type: 'string', enum: ['markdown', 'json'], default: 'markdown' },
           },
           required: ['query'],
@@ -191,6 +209,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           limit: params.limit,
           after: params.after,
           before: params.before,
+          project: params.project,
+          session_id: params.session_id,
+          git_branch: params.git_branch,
         };
 
         const results = await searchMultipleConcepts(params.query, options);
@@ -215,6 +236,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           limit: params.limit,
           after: params.after,
           before: params.before,
+          project: params.project,
+          session_id: params.session_id,
+          git_branch: params.git_branch,
         };
 
         const results = await searchConversations(params.query, options);
