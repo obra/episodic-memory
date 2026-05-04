@@ -1,6 +1,6 @@
 {
   "name": "episodic-memory",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Semantic search for Claude Code conversations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,7 +14,7 @@
     "generate-version": "node scripts/generate-version.js",
     "prebuild": "npm run generate-version",
     "build": "tsc && npm run bundle",
-    "bundle": "esbuild src/mcp-server.ts --bundle --platform=node --format=esm --outfile=dist/mcp-server.js --external:fsevents --external:@anthropic-ai/claude-agent-sdk --external:sharp --external:onnxruntime-node --external:better-sqlite3 --external:@xenova/transformers --external:sqlite-vec",
+    "bundle": "esbuild src/mcp-server.ts --bundle --platform=node --format=esm --outfile=dist/mcp-server.js --external:fsevents --external:@anthropic-ai/claude-agent-sdk --external:sharp --external:onnxruntime-node --external:better-sqlite3 --external:@huggingface/transformers --external:sqlite-vec",
     "postinstall": "npm rebuild better-sqlite3 2>/dev/null || true",
     "pretest": "npm run generate-version",
     "test": "vitest run",
@@ -35,8 +35,8 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.126",
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.20.0",
-    "@xenova/transformers": "^2.17.2",
     "better-sqlite3": "^12.4.1",
     "marked": "^16.4.0",
     "sqlite-vec": "^0.1.7-alpha.2",

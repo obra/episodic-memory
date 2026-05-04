@@ -24718,7 +24718,8 @@ function migrateSchema(db) {
     { name: "claude_version", sql: "ALTER TABLE exchanges ADD COLUMN claude_version TEXT" },
     { name: "thinking_level", sql: "ALTER TABLE exchanges ADD COLUMN thinking_level TEXT" },
     { name: "thinking_disabled", sql: "ALTER TABLE exchanges ADD COLUMN thinking_disabled BOOLEAN" },
-    { name: "thinking_triggers", sql: "ALTER TABLE exchanges ADD COLUMN thinking_triggers TEXT" }
+    { name: "thinking_triggers", sql: "ALTER TABLE exchanges ADD COLUMN thinking_triggers TEXT" },
+    { name: "embedding_version", sql: "ALTER TABLE exchanges ADD COLUMN embedding_version INTEGER NOT NULL DEFAULT 0" }
   ];
   let migrated = false;
   for (const migration of migrations) {
@@ -24803,7 +24804,8 @@ function initDatabase() {
       claude_version TEXT,
       thinking_level TEXT,
       thinking_disabled BOOLEAN,
-      thinking_triggers TEXT
+      thinking_triggers TEXT,
+      embedding_version INTEGER NOT NULL DEFAULT 0
     )
   `);
   db.exec(`
@@ -24850,19 +24852,21 @@ function initDatabase() {
 }
 
 // src/embeddings.ts
-import { pipeline, env } from "@xenova/transformers";
+import { pipeline, env } from "@huggingface/transformers";
 env.allowLocalModels = true;
 env.useBrowserCache = false;
+var MODEL_ID = "Xenova/bge-small-en-v1.5";
+var MODEL_DTYPE = "q8";
+var BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: ";
 var embeddingPipeline = null;
 async function initEmbeddings() {
   if (!embeddingPipeline) {
     console.error("Loading embedding model (first run may take time)...");
     embeddingPipeline = await pipeline(
       "feature-extraction",
-      "Xenova/all-MiniLM-L6-v2",
-      { progress_callback: (() => {
-      }) }
-      // Disable progress output to stdout
+      MODEL_ID,
+      { dtype: MODEL_DTYPE, progress_callback: () => {
+      } }
     );
     console.error("Embedding model loaded");
   }
@@ -24877,6 +24881,13 @@ async function generateEmbedding(text) {
     normalize: true
   });
   return Array.from(output.data);
+}
+function withQueryPrefix(query) {
+  if (query.startsWith(BGE_QUERY_PREFIX)) return query;
+  return BGE_QUERY_PREFIX + query;
+}
+async function generateQueryEmbedding(query) {
+  return generateEmbedding(withQueryPrefix(query));
 }
 
 // src/search.ts
@@ -24936,7 +24947,7 @@ async function searchConversations(query, options = {}) {
   const { sql: filterClause, params: filterParams } = buildSearchFilters(options);
   if (mode === "vector" || mode === "both") {
     await initEmbeddings();
-    const queryEmbedding = await generateEmbedding(query);
+    const queryEmbedding = await generateQueryEmbedding(query);
     const k2 = hasMetadataFilters(options) ? limit * 3 : limit;
     const stmt = db.prepare(`
       SELECT
@@ -26517,7 +26528,7 @@ ${JSON.stringify(value, null, 2)}
 }
 
 // src/version.ts
-var VERSION = "1.1.2";
+var VERSION = "1.2.0";
 
 // src/mcp-server.ts
 import fs4 from "fs";

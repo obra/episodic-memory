@@ -1,5 +1,5 @@
 import { initDatabase } from './db.js';
-import { initEmbeddings, generateEmbedding } from './embeddings.js';
+import { initEmbeddings, generateQueryEmbedding } from './embeddings.js';
 import fs from 'fs';
 import readline from 'readline';
 /**
@@ -78,7 +78,7 @@ export async function searchConversations(query, options = {}) {
         // vec0 applies KNN before WHERE, so when extra metadata filters are
         // active we ask for more candidates than `limit` and trim afterwards.
         await initEmbeddings();
-        const queryEmbedding = await generateEmbedding(query);
+        const queryEmbedding = await generateQueryEmbedding(query);
         const k = hasMetadataFilters(options) ? limit * 3 : limit;
         const stmt = db.prepare(`
       SELECT

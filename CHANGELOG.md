@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-03
+
+### Changed
+- **Upgraded embedding model: `all-MiniLM-L6-v2` → `bge-small-en-v1.5`** via `@huggingface/transformers` (replacing the unmaintained `@xenova/transformers`). On a 17K-corpus retrieval test against real production data, this is a **+6.34 R@1 absolute** improvement (46.8% → 53.1%) — about a 13.5% relative lift on "right answer first." Other metrics moved in lockstep: R@5 +7.1, R@10 +6.7, MRR +0.067. Same 384-dim embeddings, so `vec_exchanges` schema is unchanged.
+- **Asymmetric query/document encoding.** BGE-family models recommend a query-side prefix (`"Represent this sentence for searching relevant passages: "`); document embeddings stay unmodified. Search queries now go through `generateQueryEmbedding`, doc embeddings through the existing `generateExchangeEmbedding`. Tiny additional lift; matches the model authors' published guidance.
+- **ONNX Runtime bumped 1.14 → 1.24** as a transitive consequence of the library swap. Resolves #82's protobuf-parsing crash on Node ≤23.
+
+### Migration
+- **Existing indexes are migrated automatically in the background.** A new `embedding_version` column on `exchanges` tracks which encoder produced each row's embedding. After upgrade, `episodic-memory sync` (including the SessionStart background sync) re-embeds up to 500 stale rows per run, in a single transaction per batch. With the new encoder running ~13ms per embedding, a 30K-exchange index migrates in ~7 minutes of cumulative background work, spread across however many syncs you trigger.
+- **Lock-protected and resumable.** A `.embedding-migration.lock` file in the index directory uses PID-liveness checks to recover from stale locks (process killed mid-batch). If another sync process is already migrating, additional syncs skip the migration phase silently. Crash mid-batch leaves rows still tagged for migration; the next sync picks up where the previous left off.
+- **Search keeps working during migration.** `vec_exchanges` holds a mix of old- and new-encoder vectors during the transition window. Cosine similarity is mathematically defined across them; some boundary reordering is possible until migration completes. No downtime, no manual reindex command.
+- Override the per-batch limit with `EPISODIC_MEMORY_MIGRATION_BATCH=N`.
+
+### Tested experiments not shipped
+Investigated and explicitly rejected as part of this work:
+- **Cross-encoder reranking** (bge-small + ms-marco-MiniLM-L-6-v2 over top-50): zero measurable lift on R@1 in this content.
+- **HyDE-lite query rewriting**: actively hurt retrieval (-5.9 R@1).
+- **Long-context model (nomic-embed-text-v1.5)**: tied with bge-small at matched truncation but 2.7× slower; longer truncation actively degraded quality (mean-pooled embeddings dilute discriminative signal at scale).
+- **Assistant-only documents**: catastrophic 40-point R@1 drop. The current full-exchange format is correct.
+- **Larger encoder (`bge-base-en-v1.5`, 768-dim)**: surprisingly *worse* than bge-small on this dataset; not pursued.
+
 ## [1.1.2] - 2026-05-03
 
 ### Fixed

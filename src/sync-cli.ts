@@ -1,6 +1,9 @@
 import { syncConversations } from './sync.js';
-import { getArchiveDir, getConversationSourceDirs } from './paths.js';
+import { getArchiveDir, getConversationSourceDirs, getIndexDir } from './paths.js';
 import { shouldSkipReentrantSync } from './summarizer.js';
+import { initDatabase } from './db.js';
+import { generateExchangeEmbedding, initEmbeddings } from './embeddings.js';
+import { runMigrationBatch, countStale } from './embedding-migration.js';
 import { spawn } from 'child_process';
 
 const args = process.argv.slice(2);
@@ -113,6 +116,34 @@ async function syncAll() {
       console.log(`\n💡 All ${summaryErrors.length} summarization attempts failed.`);
       console.log(`  Check your API configuration (EPISODIC_MEMORY_API_BASE_URL / ANTHROPIC_API_KEY).`);
     }
+  }
+
+  // After regular sync, do a batch of embedding migration if any rows are
+  // still on the old encoder. Lock-protected; if another process is already
+  // migrating, this is a no-op.
+  await runEmbeddingMigrationPhase();
+}
+
+const MIGRATION_BATCH_SIZE = parseInt(process.env.EPISODIC_MEMORY_MIGRATION_BATCH || '500', 10);
+
+async function runEmbeddingMigrationPhase(): Promise<void> {
+  const db = initDatabase();
+  try {
+    const stale = countStale(db);
+    if (stale === 0) return;
+
+    console.error(`\nepisodic-memory: ${stale} exchange(s) on the old embedding model — migrating up to ${MIGRATION_BATCH_SIZE} this run`);
+    await initEmbeddings();
+    const indexDir = getIndexDir();
+    const done = await runMigrationBatch(db, indexDir, MIGRATION_BATCH_SIZE, generateExchangeEmbedding);
+    if (done > 0) {
+      const after = countStale(db);
+      console.error(`episodic-memory: re-embedded ${done} (${after} still stale; will resume on next sync)`);
+    }
+  } catch (err) {
+    console.error('episodic-memory: migration phase error:', err instanceof Error ? err.message : err);
+  } finally {
+    db.close();
   }
 }
 
