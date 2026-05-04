@@ -33,7 +33,7 @@ If two syncs run at once, only one re-embeds; the other skips its migration step
 
 ### Other notes
 
-- **First sync after upgrade** downloads a new 22 MB model file.
+- **First sync after upgrade** downloads a new 34 MB model file.
 - **Rollback to 1.1.x is safe.** Search still works against a partially-migrated index.
 - **Resolves #82** (ONNX runtime crash on Node 23 and earlier) as a side effect of the underlying library upgrade.
 
