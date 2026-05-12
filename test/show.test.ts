@@ -3,6 +3,67 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { formatConversationAsMarkdown, formatConversationAsHTML } from '../src/show.js';
 
+function codexJsonl(): string {
+  return [
+    {
+      timestamp: '2026-05-12T18:00:00.000Z',
+      type: 'session_meta',
+      payload: {
+        id: '019e4c75-d5bf-7c71-9df7-77f5fb86b711',
+        cwd: '/Users/jesse/Documents/GitHub/example-project',
+        cli_version: '0.130.0',
+        model_provider: 'openai',
+        git: { branch: 'codex-support' }
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:01.000Z',
+      type: 'turn_context',
+      payload: {
+        cwd: '/Users/jesse/Documents/GitHub/example-project',
+        model: 'gpt-5.2'
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:02.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Please inspect the config loader.' }]
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:03.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        name: 'exec_command',
+        arguments: '{"cmd":"sed -n 1,80p src/config.ts"}',
+        call_id: 'call_config'
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:04.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'call_config',
+        output: 'export function loadConfig() {}'
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:05.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'The config loader reads the default profile first.' }]
+      }
+    }
+  ].map(line => JSON.stringify(line)).join('\n');
+}
+
 describe('show command - markdown formatting', () => {
   const fixturesDir = join(import.meta.dirname, 'fixtures');
 
@@ -83,6 +144,19 @@ describe('show command - markdown formatting', () => {
     expect(markdown).toMatch(/in: \d+/);
     expect(markdown).toMatch(/out: \d+/);
   });
+
+  it('should format Codex rollout JSONL', () => {
+    const markdown = formatConversationAsMarkdown(codexJsonl());
+
+    expect(markdown).toContain('**Harness:** Codex');
+    expect(markdown).toContain('019e4c75-d5bf-7c71-9df7-77f5fb86b711');
+    expect(markdown).toContain('**Model:** gpt-5.2');
+    expect(markdown).toContain('Please inspect the config loader.');
+    expect(markdown).toContain('**Tool Use:** `exec_command`');
+    expect(markdown).toContain('**Result:**');
+    expect(markdown).toContain('export function loadConfig() {}');
+    expect(markdown).toContain('The config loader reads the default profile first.');
+  });
 });
 
 describe('show command - HTML formatting', () => {
@@ -132,5 +206,16 @@ describe('show command - HTML formatting', () => {
 
     expect(html).toContain('67a8478e-78dc-44ab-82ea-f65c8ead85f6');
     expect(html).toContain('streaming');
+  });
+
+  it('should format Codex rollout JSONL as HTML', () => {
+    const html = formatConversationAsHTML(codexJsonl());
+
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('Codex');
+    expect(html).toContain('Please inspect the config loader.');
+    expect(html).toContain('Tool Use');
+    expect(html).toContain('exec_command');
+    expect(html).toContain('The config loader reads the default profile first.');
   });
 });
