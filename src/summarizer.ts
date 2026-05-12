@@ -1,16 +1,16 @@
 import { ConversationExchange } from './types.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
+import { VERSION } from './version.js';
 import { spawn } from 'child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { createInterface } from 'readline';
 
 export interface CodexSummarizerCommand {
   command: string;
   args: string[];
-  stdin: string;
-  outputFile: string;
+  prompt: string;
+  sessionId: string;
+  model?: string;
 }
 
 /**
@@ -98,9 +98,9 @@ export function buildSummarizerQueryOptions(args: {
 export function buildCodexSummaryPrompt(): string {
   return `${SUMMARIZER_CONTEXT_MARKER}.
 
-You are running in a resumed Codex session. Use the existing resumed session context, including available reasoning summaries and thinking context, to write a concise, factual summary of the conversation.
+You are running in an ephemeral Codex fork of an existing session. Use the forked session context, including available reasoning summaries and thinking context, to write a concise, factual summary of the conversation.
 
-Do not inspect files, run commands, search the web, or modify state. Use only the conversation context already available in this resumed session.
+Do not inspect files, run commands, search the web, or modify state. Use only the conversation context already available in this forked session.
 
 Output ONLY a <summary></summary> block. Summarize what happened in 2-4 sentences.
 
@@ -124,32 +124,17 @@ Bad:
 export function buildCodexSummarizerCommand(args: {
   sessionId: string;
   prompt: string;
-  outputFile: string;
   model?: string;
   codexBin?: string;
 }): CodexSummarizerCommand {
   const command = args.codexBin || process.env.EPISODIC_MEMORY_CODEX_BIN || 'codex';
-  const cmdArgs = [
-    'exec',
-    '--ephemeral',
-    '--skip-git-repo-check',
-    '--sandbox',
-    'read-only',
-    '--output-last-message',
-    args.outputFile,
-  ];
-
-  if (args.model) {
-    cmdArgs.push('--model', args.model);
-  }
-
-  cmdArgs.push('resume', args.sessionId, '-');
 
   return {
     command,
-    args: cmdArgs,
-    stdin: args.prompt,
-    outputFile: args.outputFile,
+    args: ['app-server'],
+    prompt: args.prompt,
+    sessionId: args.sessionId,
+    model: args.model,
   };
 }
 
@@ -181,49 +166,171 @@ async function callClaude(prompt: string, sessionId?: string, useFallback = fals
   return '';
 }
 
-async function runCodexCommand(command: CodexSummarizerCommand): Promise<string> {
+interface PendingAppServerRequest {
+  method: string;
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+}
+
+function appServerTimeoutMs(): number {
+  const configured = Number(process.env.EPISODIC_MEMORY_CODEX_SUMMARY_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 120000;
+}
+
+export async function runCodexCommand(command: CodexSummarizerCommand): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command.command, command.args, {
       env: getApiEnv(),
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
-    let stdout = '';
     let stderr = '';
+    let answer = '';
+    let nextRequestId = 1;
+    let targetTurnId: string | undefined;
+    let finished = false;
+    let timeout: NodeJS.Timeout | undefined;
+    const pending = new Map<number, PendingAppServerRequest>();
+    const lines = createInterface({ input: child.stdout });
 
-    child.stdout.on('data', chunk => {
-      stdout += chunk.toString();
-    });
     child.stderr.on('data', chunk => {
       stderr += chunk.toString();
     });
-    child.on('error', reject);
-    child.on('exit', code => {
-      if (code === 0) {
-        resolve(stdout);
+
+    const cleanup = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      lines.close();
+      if (!child.killed) {
+        child.kill('SIGTERM');
+      }
+    };
+
+    const finish = (error: Error | undefined, result = '') => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      if (error) {
+        reject(error);
       } else {
-        reject(new Error(`Codex summarizer failed with exit code ${code}: ${stderr.trim()}`));
+        resolve(result);
+      }
+    };
+
+    timeout = setTimeout(() => {
+      finish(new Error(`Codex summarizer timed out after ${appServerTimeoutMs()}ms: ${stderr.trim()}`));
+    }, appServerTimeoutMs());
+
+    const send = (method: string, params?: Record<string, unknown>): Promise<any> => {
+      const id = nextRequestId++;
+      child.stdin.write(JSON.stringify({ method, id, params }) + '\n');
+      return new Promise((resolveRequest, rejectRequest) => {
+        pending.set(id, { method, resolve: resolveRequest, reject: rejectRequest });
+      });
+    };
+
+    const notify = (method: string, params?: Record<string, unknown>) => {
+      const message = params === undefined ? { method } : { method, params };
+      child.stdin.write(JSON.stringify(message) + '\n');
+    };
+
+    lines.on('line', line => {
+      if (!line.trim()) return;
+
+      let message: any;
+      try {
+        message = JSON.parse(line);
+      } catch (error) {
+        finish(new Error(`Codex app-server emitted invalid JSON: ${line}`));
+        return;
+      }
+
+      if (typeof message.id === 'number' && pending.has(message.id)) {
+        const request = pending.get(message.id)!;
+        pending.delete(message.id);
+        if (message.error) {
+          request.reject(new Error(`${request.method} failed: ${JSON.stringify(message.error)}`));
+        } else {
+          request.resolve(message.result);
+        }
+        return;
+      }
+
+      if (message.method === 'item/agentMessage/delta') {
+        answer += message.params?.delta ?? '';
+        return;
+      }
+
+      if (message.method === 'item/completed' && message.params?.item?.type === 'agentMessage') {
+        answer = message.params.item.text ?? answer;
+        return;
+      }
+
+      if (message.method === 'turn/completed' && message.params?.turn?.id === targetTurnId) {
+        if (message.params.turn.status === 'completed') {
+          finish(undefined, answer);
+        } else {
+          const detail = message.params.turn.error?.message || message.params.turn.status;
+          finish(new Error(`Codex summarizer turn did not complete: ${detail}`));
+        }
       }
     });
 
-    child.stdin.end(command.stdin);
+    child.on('error', error => {
+      finish(error);
+    });
+
+    child.on('exit', code => {
+      if (!finished) {
+        const detail = code === 0
+          ? 'Codex app-server exited before the summary turn completed'
+          : `Codex summarizer failed with exit code ${code}: ${stderr.trim()}`;
+        finish(new Error(detail));
+      }
+    });
+
+    (async () => {
+      try {
+        await send('initialize', {
+          clientInfo: {
+            name: 'episodic-memory',
+            title: 'Episodic Memory',
+            version: VERSION,
+          },
+          capabilities: {
+            experimentalApi: true,
+          },
+        });
+        notify('initialized');
+
+        const fork = await send('thread/fork', {
+          threadId: command.sessionId,
+          ephemeral: true,
+          sandbox: 'read-only',
+          approvalPolicy: 'never',
+          ...(command.model ? { model: command.model } : {}),
+        });
+
+        const turn = await send('turn/start', {
+          threadId: fork.thread.id,
+          input: [{
+            type: 'text',
+            text: command.prompt,
+            textElements: [],
+          }],
+        });
+        targetTurnId = turn.turn.id;
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
+    })();
   });
 }
 
 async function callCodex(prompt: string, sessionId: string, model?: string): Promise<string> {
-  const tempDir = mkdtempSync(join(tmpdir(), 'episodic-memory-codex-summary-'));
-  const outputFile = join(tempDir, 'summary.txt');
-  const command = buildCodexSummarizerCommand({ sessionId, prompt, outputFile, model });
-
-  try {
-    const stdout = await runCodexCommand(command);
-    if (existsSync(outputFile)) {
-      return readFileSync(outputFile, 'utf-8');
-    }
-    return stdout;
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
+  const command = buildCodexSummarizerCommand({ sessionId, prompt, model });
+  return runCodexCommand(command);
 }
 
 function chunkExchanges(exchanges: ConversationExchange[], chunkSize: number): ConversationExchange[][] {

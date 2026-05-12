@@ -2,8 +2,9 @@ import { ConversationExchange } from './types.js';
 export interface CodexSummarizerCommand {
     command: string;
     args: string[];
-    stdin: string;
-    outputFile: string;
+    prompt: string;
+    sessionId: string;
+    model?: string;
 }
 /**
  * Get API environment overrides for summarization calls.
@@ -42,8 +43,8 @@ export declare function buildCodexSummaryPrompt(): string;
 export declare function buildCodexSummarizerCommand(args: {
     sessionId: string;
     prompt: string;
-    outputFile: string;
     model?: string;
     codexBin?: string;
 }): CodexSummarizerCommand;
+export declare function runCodexCommand(command: CodexSummarizerCommand): Promise<string>;
 export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string>;
