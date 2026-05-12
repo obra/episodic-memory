@@ -221,7 +221,8 @@ export async function runCodexCommand(command) {
                 answer = message.params.item.text ?? answer;
                 return;
             }
-            if (message.method === 'turn/completed' && message.params?.turn?.id === targetTurnId) {
+            if (message.method === 'turn/completed' &&
+                (!targetTurnId || message.params?.turn?.id === targetTurnId)) {
                 if (message.params.turn.status === 'completed') {
                     finish(undefined, answer);
                 }

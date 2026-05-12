@@ -34,7 +34,14 @@ describe('Codex plugin packaging', () => {
         'episodic-memory': {
           command: 'node',
           args: ['./cli/mcp-server-wrapper.js'],
-          cwd: '.'
+          cwd: '.',
+          env_vars: [
+            'EPISODIC_MEMORY_CONFIG_DIR',
+            'PERSONAL_SUPERPOWERS_DIR',
+            'XDG_CONFIG_HOME',
+            'EPISODIC_MEMORY_DB_PATH',
+            'CONVERSATION_SEARCH_EXCLUDE_PROJECTS'
+          ]
         }
       }
     });
