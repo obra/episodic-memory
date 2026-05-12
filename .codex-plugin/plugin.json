@@ -1,0 +1,37 @@
+{
+  "name": "episodic-memory",
+  "version": "1.2.0",
+  "description": "Semantic search for Claude Code and Codex conversations. Remember past discussions, decisions, and patterns.",
+  "author": {
+    "name": "Jesse Vincent",
+    "email": "jesse@fsck.com"
+  },
+  "homepage": "https://github.com/obra/episodic-memory",
+  "repository": "https://github.com/obra/episodic-memory",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "search",
+    "conversations",
+    "semantic-search",
+    "episodic"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Episodic Memory",
+    "shortDescription": "Cross-harness conversation memory for Claude Code and Codex",
+    "longDescription": "Episodic Memory indexes coding-agent conversations and exposes semantic recall across Claude Code and Codex sessions.",
+    "developerName": "Jesse Vincent",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/obra/episodic-memory",
+    "privacyPolicyURL": "https://github.com/obra/episodic-memory",
+    "brandColor": "#4F46E5",
+    "screenshots": []
+  }
+}
