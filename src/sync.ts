@@ -56,12 +56,13 @@ function copyIfNewer(src: string, dest: string): boolean {
   return true;
 }
 
-function extractSessionIdFromPath(filePath: string): string | null {
-  // Extract session ID from filename: /path/to/abc-123-def.jsonl -> abc-123-def
+export function extractSessionIdFromPath(filePath: string): string | null {
+  // Extract session ID from Claude filename or Codex rollout filename.
   const basename = path.basename(filePath, '.jsonl');
-  // Session IDs are UUIDs, validate format
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(basename)) {
-    return basename;
+  const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ig;
+  const matches = basename.match(uuidPattern);
+  if (matches && matches.length > 0) {
+    return matches[matches.length - 1];
   }
   return null;
 }
@@ -203,7 +204,7 @@ export async function syncConversations(
         }
 
         console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
-        const summary = await summarizeConversation(exchanges);
+        const summary = await summarizeConversation(exchanges, sessionId);
 
         const summaryPath = filePath.replace('.jsonl', '-summary.txt');
         fs.writeFileSync(summaryPath, summary, 'utf-8');

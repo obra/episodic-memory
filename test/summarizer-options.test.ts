@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { buildSummarizerQueryOptions, getApiEnv, shouldSkipReentrantSync } from '../src/summarizer.js';
+import {
+  buildCodexSummaryPrompt,
+  buildCodexSummarizerCommand,
+  buildSummarizerQueryOptions,
+  getApiEnv,
+  shouldSkipReentrantSync
+} from '../src/summarizer.js';
 
 describe('buildSummarizerQueryOptions', () => {
   it('sets persistSession: false so the SDK does not write session JSONLs to ~/.claude/projects/ (#83)', () => {
@@ -22,6 +28,49 @@ describe('buildSummarizerQueryOptions', () => {
     const opts = buildSummarizerQueryOptions({ model: 'haiku', sessionId: 'abc-123' });
     expect(opts.resume).toBe('abc-123');
     expect(opts.systemPrompt).toBeUndefined();
+  });
+});
+
+describe('buildCodexSummarizerCommand', () => {
+  it('resumes the Codex session ephemerally and writes the final message to a file', () => {
+    const command = buildCodexSummarizerCommand({
+      sessionId: '019e4c75-d5bf-7c71-9df7-77f5fb86b711',
+      model: 'gpt-5.2',
+      prompt: 'Summarize this conversation.',
+      outputFile: '/tmp/summary.txt',
+      codexBin: 'codex'
+    });
+
+    expect(command).toEqual({
+      command: 'codex',
+      args: [
+        'exec',
+        '--ephemeral',
+        '--skip-git-repo-check',
+        '--sandbox',
+        'read-only',
+        '--output-last-message',
+        '/tmp/summary.txt',
+        '--model',
+        'gpt-5.2',
+        'resume',
+        '019e4c75-d5bf-7c71-9df7-77f5fb86b711',
+        '-'
+      ],
+      stdin: 'Summarize this conversation.',
+      outputFile: '/tmp/summary.txt'
+    });
+  });
+});
+
+describe('buildCodexSummaryPrompt', () => {
+  it('instructs Codex to summarize from resumed session context without inspecting files', () => {
+    const prompt = buildCodexSummaryPrompt();
+
+    expect(prompt).toContain('resumed Codex session');
+    expect(prompt).toContain('reasoning');
+    expect(prompt).toContain('Do not inspect files');
+    expect(prompt).toContain('<summary>');
   });
 });
 
