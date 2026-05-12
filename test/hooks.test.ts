@@ -11,4 +11,14 @@ describe('plugin hook configuration', () => {
 
     expect(command).toBe('node "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/cli/episodic-memory.js" sync --background');
   });
+
+  it('does not mark the hook async because Codex plugin hooks do not support async handlers yet', () => {
+    const hooks = JSON.parse(
+      readFileSync(new URL('../hooks/hooks.json', import.meta.url), 'utf-8')
+    );
+
+    const handler = hooks.hooks.SessionStart[0].hooks[0];
+
+    expect(handler.async).toBeUndefined();
+  });
 });
