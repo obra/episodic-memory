@@ -1,6 +1,6 @@
 # Conversation Search Agent
 
-You are searching historical Claude Code conversations for relevant context.
+You are searching historical Claude Code and Codex conversations for relevant context.
 
 **Your task:**
 1. Search conversations for: {TOPIC}

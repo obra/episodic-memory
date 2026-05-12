@@ -31,13 +31,13 @@ function runScript(scriptPath, args) {
 }
 
 function showHelp() {
-  console.log(`episodic-memory - Manage and search Claude Code conversations
+  console.log(`episodic-memory - Manage and search Claude Code and Codex conversations
 
 USAGE:
   episodic-memory <command> [options]
 
 COMMANDS:
-  sync        Sync conversations from ~/.claude/projects and index them
+  sync        Sync conversations from Claude Code and Codex and index them
   index       Index conversations for search
   search      Search indexed conversations
   show        Display a conversation in readable format

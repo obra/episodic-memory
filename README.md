@@ -1,6 +1,6 @@
 # Episodic Memory
 
-Semantic search for Claude Code conversations. Remember past discussions, decisions, and patterns.
+Semantic search for Claude Code and Codex conversations. Remember past discussions, decisions, and patterns.
 
 ## Testimonial
 
@@ -57,6 +57,16 @@ The plugin automatically:
 - Exposes MCP tools for searching and viewing conversations
 - Makes your conversation history searchable via natural language
 
+### As a Codex plugin
+
+This repository includes a Codex plugin manifest at `.codex-plugin/plugin.json`.
+Install it through Codex's plugin workflow using this repo or a marketplace entry.
+
+The Codex plugin:
+- Syncs conversations from `~/.codex/sessions`
+- Exposes the same MCP search/read tools
+- Installs the same memory skill, with Codex-specific direct MCP guidance
+
 ### As an npm package
 
 ```bash
@@ -68,7 +78,7 @@ npm install -g github:obra/episodic-memory
 ### Quick Start
 
 ```bash
-# Sync conversations from Claude Code and index them
+# Sync conversations from Claude Code and Codex and index them
 episodic-memory sync
 
 # Search your conversation history
@@ -115,19 +125,19 @@ episodic-memory-index
 episodic-memory-search "query"
 ```
 
-### In Claude Code
+### In Claude Code or Codex
 
-The plugin automatically indexes conversations at session end. Use the search command:
+The plugin automatically syncs and indexes conversations from the harness that starts it. In Claude Code, use the search command:
 
 ```
 /search-conversations
 ```
 
-Or reference past work in natural conversation - Claude will search when appropriate.
+Or reference past work in natural conversation. In Codex, the skill guides the agent to use the episodic-memory MCP search/read tools directly when an agent-dispatch path is not available.
 
 ## API Configuration
 
-By default, episodic-memory uses your Claude Code authentication for summarization.
+By default, episodic-memory uses your Claude Code authentication for Claude Code summarization. Codex-indexed sessions with a session ID are summarized with `codex exec --ephemeral resume` so the summary can use resumed Codex context.
 
 To route summarization through a custom Anthropic-compatible endpoint or override the model:
 
@@ -144,9 +154,12 @@ export EPISODIC_MEMORY_API_TOKEN=your-token
 
 # Increase timeout for slow endpoints (milliseconds)
 export EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
+
+# Override Codex binary path if needed (default: codex)
+export EPISODIC_MEMORY_CODEX_BIN=/path/to/codex
 ```
 
-These settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
+These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
 ### What's Affected
 
@@ -161,7 +174,7 @@ These settings only affect episodic-memory's summarization calls, not your inter
 
 ### `episodic-memory sync`
 
-**Recommended for session-end hooks.** Copies new conversations from `~/.claude/projects` to archive and indexes them.
+**Recommended for plugin hooks.** Copies new conversations from `~/.claude/projects`, `~/.claude/transcripts`, and `~/.codex/sessions` to archive and indexes them.
 
 Features:
 - Only copies new or modified files (fast on subsequent runs)
@@ -221,11 +234,12 @@ open output.html
 - **CLI tools** - Unified command-line interface for manual use
 - **MCP Server** - Model Context Protocol server exposing search and conversation tools
 - **Claude Code plugin** - Integration with Claude Code (auto-indexing, MCP tools, hooks)
+- **Codex plugin** - Integration with Codex (manifest, MCP config, hooks, skills)
 
 ## How It Works
 
-1. **Sync** - Copies conversation files from `~/.claude/projects` to archive
-2. **Parse** - Extracts user-agent exchanges from JSONL format
+1. **Sync** - Copies conversation files from Claude Code and Codex transcript directories to archive
+2. **Parse** - Extracts user-agent exchanges from Claude Code JSONL or Codex rollout JSONL
 3. **Embed** - Generates vector embeddings using Transformers.js (local, offline)
 4. **Index** - Stores in SQLite with sqlite-vec for fast similarity search
 5. **Search** - Semantic search using vector similarity or exact text matching
@@ -252,11 +266,11 @@ The marker can appear in any message (user or assistant) and excludes the entire
 
 ## MCP Server
 
-When installed as a Claude Code plugin, episodic-memory provides an MCP (Model Context Protocol) server that exposes tools for searching and viewing conversations.
+When installed as a Claude Code or Codex plugin, episodic-memory provides an MCP (Model Context Protocol) server that exposes tools for searching and viewing conversations.
 
 ### Available MCP Tools
 
-#### `episodic_memory_search`
+#### `search`
 
 Search indexed conversations using semantic similarity or exact text matching.
 
@@ -285,7 +299,7 @@ Search indexed conversations using semantic similarity or exact text matching.
 - `before` (string, optional): Only show conversations before YYYY-MM-DD
 - `response_format` ('markdown' | 'json'): Output format (default: 'markdown')
 
-#### `episodic_memory_show`
+#### `read`
 
 Display a full conversation in readable markdown format.
 

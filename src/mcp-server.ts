@@ -2,7 +2,7 @@
 /**
  * MCP Server for Episodic Memory.
  *
- * This server provides tools to search and explore indexed Claude Code conversations
+ * This server provides tools to search and explore indexed Claude Code and Codex conversations
  * using semantic search, text search, and conversation display capabilities.
  */
 
@@ -138,7 +138,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'search',
-        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past Claude Code and Codex conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -182,7 +182,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           additionalProperties: false,
         },
         annotations: {
-          title: 'Show Full Conversation',
+          title: 'Read Full Conversation',
           readOnlyHint: true,
           destructiveHint: false,
           idempotentHint: true,

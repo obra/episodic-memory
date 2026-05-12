@@ -7,13 +7,15 @@ description: Use when user asks 'how should I...' or 'what's the best approach..
 
 **Core principle:** Search before reinventing. Searching costs nothing; reinventing or repeating mistakes costs everything.
 
-## Mandatory: Use the Search Agent
+## Mandatory: Search Historical Memory
 
-**YOU MUST dispatch the search-conversations agent for any historical search.**
+**YOU MUST search historical memory for any historical search.**
 
-Announce: "Dispatching search agent to find [topic]."
+Announce: "Searching past conversations for [topic]."
 
-Then use the Task tool with `subagent_type: "search-conversations"`:
+### Claude Code
+
+Use the Task tool with `subagent_type: "search-conversations"`:
 
 ```
 Task tool:
@@ -22,9 +24,18 @@ Task tool:
   subagent_type: "search-conversations"
 ```
 
-The agent will:
+### Codex
+
+If a `search-conversations` agent is available, dispatch it with the same prompt. If not, use the MCP tools directly:
+
+1. Search with the episodic-memory `search` tool
+2. Read the top 2-5 results with the episodic-memory `read` tool
+3. Synthesize findings in your response
+4. Include source pointers so the user can inspect the original conversations
+
+The search workflow will:
 1. Search with the `search` tool
-2. Read top 2-5 results with the `show` tool
+2. Read top 2-5 results with the `read` tool
 3. Synthesize findings (200-1000 words)
 4. Return actionable insights + sources
 
@@ -54,12 +65,12 @@ You often get value out of consulting your episodic memory once you understand w
 - For info in current conversation
 - Before understanding what you're being asked to do
 
-## Direct Tool Access (Discouraged)
+## Direct MCP Tool Access
 
-You CAN use MCP tools directly, but DON'T:
+Use these directly when a search agent is unavailable or the current harness does not support agent dispatch:
 - `mcp__plugin_episodic-memory_episodic-memory__search`
-- `mcp__plugin_episodic-memory_episodic-memory__show`
+- `mcp__plugin_episodic-memory_episodic-memory__read`
 
-Using these directly wastes your context window. Always dispatch the agent instead.
+When using MCP tools directly, keep context small: search first, then read only the top 2-5 relevant conversations or line ranges.
 
 See MCP-TOOLS.md for complete API reference if needed for advanced usage.

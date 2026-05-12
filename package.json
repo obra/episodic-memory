@@ -1,7 +1,7 @@
 {
   "name": "episodic-memory",
   "version": "1.2.0",
-  "description": "Semantic search for Claude Code conversations",
+  "description": "Semantic search for Claude Code and Codex conversations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -22,6 +22,7 @@
   },
   "keywords": [
     "claude-code",
+    "codex",
     "conversations",
     "search",
     "semantic-search",
