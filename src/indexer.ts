@@ -32,6 +32,10 @@ async function processBatch<T, R>(
   return results;
 }
 
+function sessionIdForSummary(exchanges: ConversationExchange[]): string | undefined {
+  return exchanges.find(exchange => exchange.sessionId)?.sessionId;
+}
+
 export async function indexConversations(
   limitToProject?: string,
   maxConversations?: number,
@@ -134,7 +138,7 @@ export async function indexConversations(
 
         await processBatch(needsSummary, async (conv) => {
           try {
-            const summary = await summarizeConversation(conv.exchanges);
+            const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
             fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
             const wordCount = summary.split(/\s+/).length;
             console.log(`  ✓ ${conv.file}: ${wordCount} words`);
@@ -228,7 +232,7 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
         const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
         if (!noSummaries && !fs.existsSync(summaryPath)) {
           fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
-          const summary = await summarizeConversation(exchanges);
+          const summary = await summarizeConversation(exchanges, sessionIdForSummary(exchanges));
           fs.writeFileSync(summaryPath, summary, 'utf-8');
           console.log(`Summary: ${summary.split(/\s+/).length} words`);
         }
@@ -344,7 +348,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
 
       await processBatch(needsSummary, async (conv) => {
         try {
-          const summary = await summarizeConversation(conv.exchanges);
+          const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
           fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
           const wordCount = summary.split(/\s+/).length;
           console.log(`  ✓ ${conv.project}/${conv.file}: ${wordCount} words`);

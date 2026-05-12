@@ -5,6 +5,8 @@ import { initDatabase } from './db.js';
 import { generateExchangeEmbedding, initEmbeddings } from './embeddings.js';
 import { runMigrationBatch, countStale } from './embedding-migration.js';
 import { spawn } from 'child_process';
+import fs from 'fs';
+import { formatLogLine, getSyncLogPath } from './logging.js';
 const args = process.argv.slice(2);
 // Reentrancy guard (#87): if this sync was triggered by a SessionStart hook
 // inside a Claude subprocess that the summarizer just spawned, exit silently.
@@ -52,16 +54,19 @@ const isBackground = args.includes('--background');
 // If background mode, fork the process and exit immediately
 if (isBackground) {
     const filteredArgs = args.filter(arg => arg !== '--background');
+    const logPath = getSyncLogPath();
+    const logFd = fs.openSync(logPath, 'a');
+    fs.writeSync(logFd, formatLogLine('info', `Starting background sync from pid ${process.pid}`));
     // Spawn a detached process
     const child = spawn(process.execPath, [
         process.argv[1], // This script
         ...filteredArgs
     ], {
         detached: true,
-        stdio: 'ignore'
+        stdio: ['ignore', logFd, logFd]
     });
     child.unref(); // Allow parent to exit
-    console.log('Sync started in background...');
+    console.log(`Sync started in background. Log: ${logPath}`);
     process.exit(0);
 }
 const sourceDirs = getConversationSourceDirs();

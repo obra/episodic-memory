@@ -61,11 +61,23 @@ The plugin automatically:
 
 This repository includes a Codex plugin manifest at `.codex-plugin/plugin.json`.
 Install it through Codex's plugin workflow using this repo or a marketplace entry.
+Codex support requires `codex-cli 0.130.0` or newer.
 
 The Codex plugin:
 - Syncs conversations from `~/.codex/sessions`
 - Exposes the same MCP search/read tools
 - Installs the same memory skill, with Codex-specific direct MCP guidance
+- Runs a `SessionStart` hook after the user reviews and trusts it in `/hooks`
+
+Enable plugin hooks before relying on automatic sync:
+
+```bash
+codex features enable plugin_hooks
+```
+
+Then open `/hooks` in Codex, review the Episodic Memory hook, and press `t` to trust it. New or modified Codex hooks are listed but do not run until trusted.
+
+See [docs/CODEX.md](docs/CODEX.md) for the full Codex setup, trust, troubleshooting, and E2E test workflow.
 
 ### As an npm package
 
@@ -86,6 +98,9 @@ episodic-memory search "React Router authentication"
 
 # View index statistics
 episodic-memory stats
+
+# Diagnose Codex setup
+episodic-memory doctor codex
 
 # Display a conversation
 episodic-memory show path/to/conversation.jsonl
@@ -137,7 +152,7 @@ Or reference past work in natural conversation. In Codex, the skill guides the a
 
 ## API Configuration
 
-By default, episodic-memory uses your Claude Code authentication for Claude Code summarization. Codex-indexed sessions with a session ID are summarized with `codex exec --ephemeral resume` so the summary can use resumed Codex context.
+By default, episodic-memory uses your Claude Code authentication for Claude Code summarization. Codex-indexed sessions with a session ID are summarized through `codex app-server` by creating an ephemeral `thread/fork`, so the summary can use Codex session context and reasoning summaries without appending to the original rollout.
 
 To route summarization through a custom Anthropic-compatible endpoint or override the model:
 
@@ -161,6 +176,8 @@ export EPISODIC_MEMORY_CODEX_BIN=/path/to/codex
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
+Codex summarization requires `codex-cli 0.130.0` or newer. If Codex app-server summarization is unavailable, sync logs the reason and falls back to transcript-text summarization.
+
 ### What's Affected
 
 | Component | Uses custom config? |
@@ -181,6 +198,7 @@ Features:
 - Generates embeddings for semantic search
 - Atomic operations - safe to run concurrently
 - Idempotent - safe to call repeatedly
+- Background hook output is written to `~/.config/superpowers/logs/episodic-memory.log` unless `EPISODIC_MEMORY_CONFIG_DIR` changes the memory directory
 
 **Usage in Claude Code:**
 Add to `.claude/hooks/session-end`:
@@ -195,6 +213,25 @@ Display index statistics including conversation counts, date ranges, and project
 
 ```bash
 episodic-memory stats
+```
+
+### `episodic-memory doctor`
+
+Diagnose local integration issues.
+
+```bash
+episodic-memory doctor codex
+```
+
+The Codex doctor checks the Codex version, plugin hook feature state, MCP server registration, transcript directory, database path, and background sync log path.
+
+### Codex E2E Verification
+
+The repository includes an opt-in live Codex E2E test. It creates an isolated temporary `CODEX_HOME`, installs a copied plugin bundle, trusts the hook, runs Codex sessions in `tmux`, and verifies archive -> summary -> index -> MCP recall.
+
+```bash
+npm run build
+EPISODIC_MEMORY_RUN_CODEX_E2E=1 npm run test:codex-e2e
 ```
 
 ### `episodic-memory index`

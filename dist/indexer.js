@@ -20,6 +20,9 @@ async function processBatch(items, processor, concurrency) {
     }
     return results;
 }
+function sessionIdForSummary(exchanges) {
+    return exchanges.find(exchange => exchange.sessionId)?.sessionId;
+}
 export async function indexConversations(limitToProject, maxConversations, concurrency = 1, noSummaries = false) {
     console.log('Initializing database...');
     const db = initDatabase();
@@ -90,7 +93,7 @@ export async function indexConversations(limitToProject, maxConversations, concu
                     console.log(`  Generating ${needsSummary.length} summaries (concurrency: ${concurrency})...`);
                     await processBatch(needsSummary, async (conv) => {
                         try {
-                            const summary = await summarizeConversation(conv.exchanges);
+                            const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
                             fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
                             const wordCount = summary.split(/\s+/).length;
                             console.log(`  ✓ ${conv.file}: ${wordCount} words`);
@@ -166,7 +169,7 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                     const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
                     if (!noSummaries && !fs.existsSync(summaryPath)) {
                         fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
-                        const summary = await summarizeConversation(exchanges);
+                        const summary = await summarizeConversation(exchanges, sessionIdForSummary(exchanges));
                         fs.writeFileSync(summaryPath, summary, 'utf-8');
                         console.log(`Summary: ${summary.split(/\s+/).length} words`);
                     }
@@ -251,7 +254,7 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
             console.log(`Generating ${needsSummary.length} summaries (concurrency: ${concurrency})...\n`);
             await processBatch(needsSummary, async (conv) => {
                 try {
-                    const summary = await summarizeConversation(conv.exchanges);
+                    const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
                     fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
                     const wordCount = summary.split(/\s+/).length;
                     console.log(`  ✓ ${conv.project}/${conv.file}: ${wordCount} words`);

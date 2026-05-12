@@ -3,6 +3,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { VERSION } from './version.js';
 import { spawn } from 'child_process';
 import { createInterface } from 'readline';
+import { codexVersionRequirementMessage, parseCodexCliVersion, versionMeetsMinimum, } from './codex-support.js';
 /**
  * Get API environment overrides for summarization calls.
  * Returns full env merged with process.env so subprocess inherits PATH, HOME, etc.
@@ -139,7 +140,56 @@ function appServerTimeoutMs() {
     const configured = Number(process.env.EPISODIC_MEMORY_CODEX_SUMMARY_TIMEOUT_MS);
     return Number.isFinite(configured) && configured > 0 ? configured : 120000;
 }
+function readCommandOutput(command, args) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, {
+            env: getApiEnv(),
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        let output = '';
+        child.stdout.on('data', chunk => {
+            output += chunk.toString();
+        });
+        child.stderr.on('data', chunk => {
+            output += chunk.toString();
+        });
+        child.on('error', reject);
+        child.on('exit', code => {
+            if (code === 0) {
+                resolve(output);
+            }
+            else {
+                reject(new Error(`${command} ${args.join(' ')} failed with exit code ${code}: ${output.trim()}`));
+            }
+        });
+    });
+}
+async function assertSupportedCodexVersion(command) {
+    if (command.skipVersionCheck) {
+        return;
+    }
+    const output = await readCommandOutput(command.command, command.versionArgs || ['--version']);
+    const version = parseCodexCliVersion(output);
+    if (!version || !versionMeetsMinimum(version)) {
+        throw new Error(codexVersionRequirementMessage(output));
+    }
+}
+function requireThreadId(result, method) {
+    const threadId = result?.thread?.id;
+    if (typeof threadId !== 'string' || !threadId) {
+        throw new Error(`${method} returned unexpected response: ${JSON.stringify(result)}`);
+    }
+    return threadId;
+}
+function requireTurnId(result, method) {
+    const turnId = result?.turn?.id;
+    if (typeof turnId !== 'string' || !turnId) {
+        throw new Error(`${method} returned unexpected response: ${JSON.stringify(result)}`);
+    }
+    return turnId;
+}
 export async function runCodexCommand(command) {
+    await assertSupportedCodexVersion(command);
     return new Promise((resolve, reject) => {
         const child = spawn(command.command, command.args, {
             env: getApiEnv(),
@@ -263,15 +313,16 @@ export async function runCodexCommand(command) {
                     approvalPolicy: 'never',
                     ...(command.model ? { model: command.model } : {}),
                 });
+                const forkThreadId = requireThreadId(fork, 'thread/fork');
                 const turn = await send('turn/start', {
-                    threadId: fork.thread.id,
+                    threadId: forkThreadId,
                     input: [{
                             type: 'text',
                             text: command.prompt,
                             textElements: [],
                         }],
                 });
-                targetTurnId = turn.turn.id;
+                targetTurnId = requireTurnId(turn, 'turn/start');
             }
             catch (error) {
                 finish(error instanceof Error ? error : new Error(String(error)));
@@ -312,12 +363,18 @@ export async function summarizeConversation(exchanges, sessionId) {
     }
     const codexSessionId = getCodexSessionId(exchanges, sessionId);
     if (codexSessionId) {
-        const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
-        return extractSummary(result);
+        try {
+            const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
+            return extractSummary(result);
+        }
+        catch (error) {
+            console.log(`  Codex summarizer unavailable, falling back to transcript text: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
     // For short conversations (≤15 exchanges), summarize directly
     if (exchanges.length <= 15) {
-        const conversationText = sessionId
+        const claudeSessionId = codexSessionId ? undefined : sessionId;
+        const conversationText = claudeSessionId
             ? '' // When resuming, no need to include conversation text - it's already in context
             : formatConversationText(exchanges);
         const prompt = `${SUMMARIZER_CONTEXT_MARKER}.
@@ -343,7 +400,7 @@ Bad:
 <summary>I apologize. The conversation discussed authentication and various approaches were considered...</summary>
 
 ${conversationText}`;
-        const result = await callClaude(prompt, sessionId);
+        const result = await callClaude(prompt, claudeSessionId);
         return extractSummary(result);
     }
     // For long conversations, use hierarchical summarization

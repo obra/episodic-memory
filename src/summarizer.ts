@@ -4,6 +4,11 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { VERSION } from './version.js';
 import { spawn } from 'child_process';
 import { createInterface } from 'readline';
+import {
+  codexVersionRequirementMessage,
+  parseCodexCliVersion,
+  versionMeetsMinimum,
+} from './codex-support.js';
 
 export interface CodexSummarizerCommand {
   command: string;
@@ -11,6 +16,8 @@ export interface CodexSummarizerCommand {
   prompt: string;
   sessionId: string;
   model?: string;
+  versionArgs?: string[];
+  skipVersionCheck?: boolean;
 }
 
 /**
@@ -177,7 +184,62 @@ function appServerTimeoutMs(): number {
   return Number.isFinite(configured) && configured > 0 ? configured : 120000;
 }
 
+function readCommandOutput(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      env: getApiEnv(),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let output = '';
+
+    child.stdout.on('data', chunk => {
+      output += chunk.toString();
+    });
+    child.stderr.on('data', chunk => {
+      output += chunk.toString();
+    });
+    child.on('error', reject);
+    child.on('exit', code => {
+      if (code === 0) {
+        resolve(output);
+      } else {
+        reject(new Error(`${command} ${args.join(' ')} failed with exit code ${code}: ${output.trim()}`));
+      }
+    });
+  });
+}
+
+async function assertSupportedCodexVersion(command: CodexSummarizerCommand): Promise<void> {
+  if (command.skipVersionCheck) {
+    return;
+  }
+
+  const output = await readCommandOutput(command.command, command.versionArgs || ['--version']);
+  const version = parseCodexCliVersion(output);
+  if (!version || !versionMeetsMinimum(version)) {
+    throw new Error(codexVersionRequirementMessage(output));
+  }
+}
+
+function requireThreadId(result: any, method: string): string {
+  const threadId = result?.thread?.id;
+  if (typeof threadId !== 'string' || !threadId) {
+    throw new Error(`${method} returned unexpected response: ${JSON.stringify(result)}`);
+  }
+  return threadId;
+}
+
+function requireTurnId(result: any, method: string): string {
+  const turnId = result?.turn?.id;
+  if (typeof turnId !== 'string' || !turnId) {
+    throw new Error(`${method} returned unexpected response: ${JSON.stringify(result)}`);
+  }
+  return turnId;
+}
+
 export async function runCodexCommand(command: CodexSummarizerCommand): Promise<string> {
+  await assertSupportedCodexVersion(command);
+
   return new Promise((resolve, reject) => {
     const child = spawn(command.command, command.args, {
       env: getApiEnv(),
@@ -314,16 +376,17 @@ export async function runCodexCommand(command: CodexSummarizerCommand): Promise<
           approvalPolicy: 'never',
           ...(command.model ? { model: command.model } : {}),
         });
+        const forkThreadId = requireThreadId(fork, 'thread/fork');
 
         const turn = await send('turn/start', {
-          threadId: fork.thread.id,
+          threadId: forkThreadId,
           input: [{
             type: 'text',
             text: command.prompt,
             textElements: [],
           }],
         });
-        targetTurnId = turn.turn.id;
+        targetTurnId = requireTurnId(turn, 'turn/start');
       } catch (error) {
         finish(error instanceof Error ? error : new Error(String(error)));
       }
@@ -370,13 +433,18 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
 
   const codexSessionId = getCodexSessionId(exchanges, sessionId);
   if (codexSessionId) {
-    const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
-    return extractSummary(result);
+    try {
+      const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
+      return extractSummary(result);
+    } catch (error) {
+      console.log(`  Codex summarizer unavailable, falling back to transcript text: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // For short conversations (≤15 exchanges), summarize directly
   if (exchanges.length <= 15) {
-    const conversationText = sessionId
+    const claudeSessionId = codexSessionId ? undefined : sessionId;
+    const conversationText = claudeSessionId
       ? '' // When resuming, no need to include conversation text - it's already in context
       : formatConversationText(exchanges);
 
@@ -404,7 +472,7 @@ Bad:
 
 ${conversationText}`;
 
-    const result = await callClaude(prompt, sessionId);
+    const result = await callClaude(prompt, claudeSessionId);
     return extractSummary(result);
   }
 

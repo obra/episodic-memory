@@ -25028,6 +25028,53 @@ function buildSearchFilters(options) {
 function hasMetadataFilters(options) {
   return Boolean(options.project || options.session_id || options.git_branch);
 }
+var EXCHANGE_SELECT_COLUMNS = `
+        e.id,
+        e.project,
+        e.timestamp,
+        e.user_message,
+        e.assistant_message,
+        e.archive_path,
+        e.line_start,
+        e.line_end,
+        e.parent_uuid,
+        e.is_sidechain,
+        e.harness,
+        e.session_id,
+        e.cwd,
+        e.git_branch,
+        e.claude_version,
+        e.agent_version,
+        e.model,
+        e.model_provider,
+        e.thinking_level,
+        e.thinking_disabled,
+        e.thinking_triggers`;
+function exchangeFromRow(row) {
+  return {
+    id: row.id,
+    project: row.project,
+    timestamp: row.timestamp,
+    userMessage: row.user_message,
+    assistantMessage: row.assistant_message,
+    archivePath: row.archive_path,
+    lineStart: row.line_start,
+    lineEnd: row.line_end,
+    parentUuid: row.parent_uuid || void 0,
+    isSidechain: Boolean(row.is_sidechain),
+    harness: row.harness,
+    sessionId: row.session_id || void 0,
+    cwd: row.cwd || void 0,
+    gitBranch: row.git_branch || void 0,
+    claudeVersion: row.claude_version || void 0,
+    agentVersion: row.agent_version || void 0,
+    model: row.model || void 0,
+    modelProvider: row.model_provider || void 0,
+    thinkingLevel: row.thinking_level || void 0,
+    thinkingDisabled: row.thinking_disabled === null ? void 0 : Boolean(row.thinking_disabled),
+    thinkingTriggers: row.thinking_triggers || void 0
+  };
+}
 function l2DistanceToCosineSimilarity(distance) {
   const similarity = 1 - distance * distance / 2;
   return Math.max(-1, Math.min(1, similarity));
@@ -25055,14 +25102,7 @@ async function searchConversations(query, options = {}) {
     const k2 = hasMetadataFilters(options) ? limit * 3 : limit;
     const stmt = db.prepare(`
       SELECT
-        e.id,
-        e.project,
-        e.timestamp,
-        e.user_message,
-        e.assistant_message,
-        e.archive_path,
-        e.line_start,
-        e.line_end,
+        ${EXCHANGE_SELECT_COLUMNS},
         vec.distance
       FROM vec_exchanges AS vec
       JOIN exchanges AS e ON vec.id = e.id
@@ -25084,14 +25124,7 @@ async function searchConversations(query, options = {}) {
   if (mode === "text" || mode === "both") {
     const textStmt = db.prepare(`
       SELECT
-        e.id,
-        e.project,
-        e.timestamp,
-        e.user_message,
-        e.assistant_message,
-        e.archive_path,
-        e.line_start,
-        e.line_end,
+        ${EXCHANGE_SELECT_COLUMNS},
         0 as distance
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
@@ -25114,16 +25147,7 @@ async function searchConversations(query, options = {}) {
   }
   db.close();
   return results.map((row) => {
-    const exchange = {
-      id: row.id,
-      project: row.project,
-      timestamp: row.timestamp,
-      userMessage: row.user_message,
-      assistantMessage: row.assistant_message,
-      archivePath: row.archive_path,
-      lineStart: row.line_start,
-      lineEnd: row.line_end
-    };
+    const exchange = exchangeFromRow(row);
     const summaryPath = row.archive_path.replace(".jsonl", "-summary.txt");
     let summary;
     if (fs3.existsSync(summaryPath)) {

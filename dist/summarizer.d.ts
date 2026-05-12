@@ -5,6 +5,8 @@ export interface CodexSummarizerCommand {
     prompt: string;
     sessionId: string;
     model?: string;
+    versionArgs?: string[];
+    skipVersionCheck?: boolean;
 }
 /**
  * Get API environment overrides for summarization calls.

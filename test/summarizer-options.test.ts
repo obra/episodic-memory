@@ -85,9 +85,46 @@ describe('runCodexCommand', () => {
       args: ['-e', fakeAppServer],
       sessionId: 'session-123',
       prompt: 'Summarize this conversation.',
+      skipVersionCheck: true,
     });
 
     expect(result).toBe('<summary>Codex fork summary.</summary>');
+  });
+
+  it('rejects Codex versions below the production support floor before starting app-server', async () => {
+    await expect(runCodexCommand({
+      command: process.execPath,
+      versionArgs: ['-e', "console.log('codex-cli 0.129.9')"],
+      args: ['-e', 'setTimeout(() => {}, 1000)'],
+      sessionId: 'session-123',
+      prompt: 'Summarize this conversation.',
+    })).rejects.toThrow(/requires codex-cli >= 0\.130\.0; found 0\.129\.9/);
+  });
+
+  it('reports malformed app-server fork responses clearly', async () => {
+    const fakeAppServer = `
+      const readline = require('readline');
+      const rl = readline.createInterface({ input: process.stdin });
+      rl.on('line', line => {
+        const message = JSON.parse(line);
+        if (message.method === 'initialize') {
+          console.log(JSON.stringify({ id: message.id, result: {} }));
+          return;
+        }
+        if (message.method === 'initialized') return;
+        if (message.method === 'thread/fork') {
+          console.log(JSON.stringify({ id: message.id, result: {} }));
+        }
+      });
+    `;
+
+    await expect(runCodexCommand({
+      command: process.execPath,
+      args: ['-e', fakeAppServer],
+      sessionId: 'session-123',
+      prompt: 'Summarize this conversation.',
+      skipVersionCheck: true,
+    })).rejects.toThrow(/thread\/fork returned unexpected response/);
   });
 });
 
