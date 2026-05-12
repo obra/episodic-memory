@@ -74,7 +74,7 @@ npm run build
 EPISODIC_MEMORY_RUN_CODEX_E2E=1 npm run test:codex-e2e
 ```
 
-The test creates an isolated temporary `CODEX_HOME`, copies the plugin into Codex's plugin cache shape, enables and trusts the plugin hook, starts Codex sessions inside `tmux`, and verifies:
+The test creates an isolated temporary `CODEX_HOME`, copies your existing Codex auth file into it, copies the plugin into Codex's plugin cache shape, enables and trusts the plugin hook, starts Codex sessions inside `tmux`, and verifies:
 
 - sessions are archived
 - summaries are generated

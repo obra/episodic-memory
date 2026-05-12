@@ -64,6 +64,29 @@ function copyPlugin(dest) {
   });
 }
 
+function sourceCodexHome(targetCodexHome) {
+  const configured = process.env.CODEX_HOME;
+  if (configured && path.resolve(configured) !== path.resolve(targetCodexHome)) {
+    return configured;
+  }
+  return path.join(os.homedir(), '.codex');
+}
+
+function copyCodexAuth(targetCodexHome) {
+  const sourceHome = sourceCodexHome(targetCodexHome);
+  const authPath = path.join(sourceHome, 'auth.json');
+  if (!fs.existsSync(authPath)) {
+    die(`Codex auth was not found at ${authPath}. Run codex login before the live E2E test.`);
+  }
+
+  for (const filename of ['auth.json', 'installation_id', 'models_cache.json']) {
+    const source = path.join(sourceHome, filename);
+    if (fs.existsSync(source)) {
+      fs.copyFileSync(source, path.join(targetCodexHome, filename));
+    }
+  }
+}
+
 function writeBaseConfig(codexHome) {
   fs.mkdirSync(codexHome, { recursive: true });
   fs.writeFileSync(
@@ -275,6 +298,7 @@ async function main() {
   fs.mkdirSync(memoryDir, { recursive: true });
 
   copyPlugin(pluginRoot);
+  copyCodexAuth(codexHome);
   writeBaseConfig(codexHome);
 
   const env = {
