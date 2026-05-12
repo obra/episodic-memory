@@ -1,4 +1,10 @@
 import { ConversationExchange } from './types.js';
+export interface CodexSummarizerCommand {
+    command: string;
+    args: string[];
+    stdin: string;
+    outputFile: string;
+}
 /**
  * Get API environment overrides for summarization calls.
  * Returns full env merged with process.env so subprocess inherits PATH, HOME, etc.
@@ -32,4 +38,12 @@ export declare function buildSummarizerQueryOptions(args: {
     model: string;
     sessionId?: string;
 }): Record<string, unknown>;
+export declare function buildCodexSummaryPrompt(): string;
+export declare function buildCodexSummarizerCommand(args: {
+    sessionId: string;
+    prompt: string;
+    outputFile: string;
+    model?: string;
+    codexBin?: string;
+}): CodexSummarizerCommand;
 export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string>;

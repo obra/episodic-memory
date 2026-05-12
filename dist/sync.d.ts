@@ -13,4 +13,5 @@ export interface SyncOptions {
     skipSummaries?: boolean;
     summaryLimit?: number;
 }
+export declare function extractSessionIdFromPath(filePath: string): string | null;
 export declare function syncConversations(sourceDir: string, destDir: string, options?: SyncOptions): Promise<SyncResult>;

@@ -1,5 +1,9 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
+import { spawn } from 'child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 /**
  * Get API environment overrides for summarization calls.
  * Returns full env merged with process.env so subprocess inherits PATH, HOME, etc.
@@ -73,6 +77,53 @@ export function buildSummarizerQueryOptions(args) {
         }),
     };
 }
+export function buildCodexSummaryPrompt() {
+    return `${SUMMARIZER_CONTEXT_MARKER}.
+
+You are running in a resumed Codex session. Use the existing resumed session context, including available reasoning summaries and thinking context, to write a concise, factual summary of the conversation.
+
+Do not inspect files, run commands, search the web, or modify state. Use only the conversation context already available in this resumed session.
+
+Output ONLY a <summary></summary> block. Summarize what happened in 2-4 sentences.
+
+Include:
+- What was built/changed/discussed (be specific)
+- Key technical decisions or approaches
+- Problems solved or current state
+
+Exclude:
+- Apologies, meta-commentary, or your questions
+- Raw logs or debug output
+- Generic descriptions - focus on what makes THIS conversation unique
+
+Good:
+<summary>Built JWT authentication for React app with refresh tokens and protected routes. Fixed token expiration bug by implementing refresh-during-request logic.</summary>
+
+Bad:
+<summary>I apologize. The conversation discussed authentication and various approaches were considered...</summary>`;
+}
+export function buildCodexSummarizerCommand(args) {
+    const command = args.codexBin || process.env.EPISODIC_MEMORY_CODEX_BIN || 'codex';
+    const cmdArgs = [
+        'exec',
+        '--ephemeral',
+        '--skip-git-repo-check',
+        '--sandbox',
+        'read-only',
+        '--output-last-message',
+        args.outputFile,
+    ];
+    if (args.model) {
+        cmdArgs.push('--model', args.model);
+    }
+    cmdArgs.push('resume', args.sessionId, '-');
+    return {
+        command,
+        args: cmdArgs,
+        stdin: args.prompt,
+        outputFile: args.outputFile,
+    };
+}
 async function callClaude(prompt, sessionId, useFallback = false) {
     const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
     const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
@@ -97,12 +148,62 @@ async function callClaude(prompt, sessionId, useFallback = false) {
     }
     return '';
 }
+async function runCodexCommand(command) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command.command, command.args, {
+            env: getApiEnv(),
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', chunk => {
+            stdout += chunk.toString();
+        });
+        child.stderr.on('data', chunk => {
+            stderr += chunk.toString();
+        });
+        child.on('error', reject);
+        child.on('exit', code => {
+            if (code === 0) {
+                resolve(stdout);
+            }
+            else {
+                reject(new Error(`Codex summarizer failed with exit code ${code}: ${stderr.trim()}`));
+            }
+        });
+        child.stdin.end(command.stdin);
+    });
+}
+async function callCodex(prompt, sessionId, model) {
+    const tempDir = mkdtempSync(join(tmpdir(), 'episodic-memory-codex-summary-'));
+    const outputFile = join(tempDir, 'summary.txt');
+    const command = buildCodexSummarizerCommand({ sessionId, prompt, outputFile, model });
+    try {
+        const stdout = await runCodexCommand(command);
+        if (existsSync(outputFile)) {
+            return readFileSync(outputFile, 'utf-8');
+        }
+        return stdout;
+    }
+    finally {
+        rmSync(tempDir, { recursive: true, force: true });
+    }
+}
 function chunkExchanges(exchanges, chunkSize) {
     const chunks = [];
     for (let i = 0; i < exchanges.length; i += chunkSize) {
         chunks.push(exchanges.slice(i, i + chunkSize));
     }
     return chunks;
+}
+function getCodexSessionId(exchanges, sessionId) {
+    if (!exchanges.some(exchange => exchange.harness === 'codex')) {
+        return undefined;
+    }
+    return sessionId || exchanges.find(exchange => exchange.sessionId)?.sessionId;
+}
+function getCodexModel(exchanges) {
+    return exchanges.find(exchange => exchange.harness === 'codex' && exchange.model)?.model;
 }
 export async function summarizeConversation(exchanges, sessionId) {
     // Handle trivial conversations
@@ -114,6 +215,11 @@ export async function summarizeConversation(exchanges, sessionId) {
         if (text.length < 100 || exchanges[0].userMessage.trim() === '/exit') {
             return 'Trivial conversation with no substantive content.';
         }
+    }
+    const codexSessionId = getCodexSessionId(exchanges, sessionId);
+    if (codexSessionId) {
+        const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
+        return extractSummary(result);
     }
     // For short conversations (≤15 exchanges), summarize directly
     if (exchanges.length <= 15) {

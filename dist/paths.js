@@ -19,8 +19,17 @@ export function getClaudeDir() {
     return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
 /**
- * Get all directories where Claude Code stores conversation files.
- * Checks both legacy (projects/) and current (transcripts/) locations.
+ * Get the Codex configuration directory.
+ * Supports CODEX_HOME for alternate profiles.
+ * Falls back to ~/.codex when not set.
+ */
+export function getCodexDir() {
+    return process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+}
+/**
+ * Get all directories where supported harnesses store conversation files.
+ * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
+ * plus Codex sessions.
  * Returns only directories that exist.
  */
 export function getConversationSourceDirs() {
@@ -28,9 +37,11 @@ export function getConversationSourceDirs() {
     if (testDir)
         return [testDir];
     const claudeDir = getClaudeDir();
+    const codexDir = getCodexDir();
     return [
         path.join(claudeDir, 'projects'),
         path.join(claudeDir, 'transcripts'),
+        path.join(codexDir, 'sessions'),
     ].filter(d => fs.existsSync(d));
 }
 /**

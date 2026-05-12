@@ -504,10 +504,13 @@ async function parseCodexConversation(
 
         if (payload.role === 'user') {
           startExchange(text, timestamp);
-        } else if (payload.role === 'assistant' && currentExchange) {
-          currentExchange.assistantMessages.push(text);
-          currentExchange.lastAssistantLine = lineNumber;
-          currentExchange.timestamp = timestamp;
+        } else if (payload.role === 'assistant') {
+          const exchange = currentExchange as ExchangeBuilder | null;
+          if (exchange) {
+            exchange.assistantMessages.push(text);
+            exchange.lastAssistantLine = lineNumber;
+            exchange.timestamp = timestamp;
+          }
         }
       } else if (payload.type === 'function_call' || payload.type === 'custom_tool_call' || payload.type === 'tool_search_call' || payload.type === 'local_shell_call') {
         appendToolCall(payload, timestamp);

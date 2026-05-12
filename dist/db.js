@@ -11,10 +11,14 @@ export function migrateSchema(db) {
         { name: 'last_indexed', sql: 'ALTER TABLE exchanges ADD COLUMN last_indexed INTEGER' },
         { name: 'parent_uuid', sql: 'ALTER TABLE exchanges ADD COLUMN parent_uuid TEXT' },
         { name: 'is_sidechain', sql: 'ALTER TABLE exchanges ADD COLUMN is_sidechain BOOLEAN DEFAULT 0' },
+        { name: 'harness', sql: "ALTER TABLE exchanges ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude'" },
         { name: 'session_id', sql: 'ALTER TABLE exchanges ADD COLUMN session_id TEXT' },
         { name: 'cwd', sql: 'ALTER TABLE exchanges ADD COLUMN cwd TEXT' },
         { name: 'git_branch', sql: 'ALTER TABLE exchanges ADD COLUMN git_branch TEXT' },
         { name: 'claude_version', sql: 'ALTER TABLE exchanges ADD COLUMN claude_version TEXT' },
+        { name: 'agent_version', sql: 'ALTER TABLE exchanges ADD COLUMN agent_version TEXT' },
+        { name: 'model', sql: 'ALTER TABLE exchanges ADD COLUMN model TEXT' },
+        { name: 'model_provider', sql: 'ALTER TABLE exchanges ADD COLUMN model_provider TEXT' },
         { name: 'thinking_level', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_level TEXT' },
         { name: 'thinking_disabled', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_disabled BOOLEAN' },
         { name: 'thinking_triggers', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_triggers TEXT' },
@@ -113,10 +117,14 @@ export function initDatabase() {
       last_indexed INTEGER,
       parent_uuid TEXT,
       is_sidechain BOOLEAN DEFAULT 0,
+      harness TEXT NOT NULL DEFAULT 'claude',
       session_id TEXT,
       cwd TEXT,
       git_branch TEXT,
       claude_version TEXT,
+      agent_version TEXT,
+      model TEXT,
+      model_provider TEXT,
       thinking_level TEXT,
       thinking_disabled BOOLEAN,
       thinking_triggers TEXT,
@@ -159,6 +167,9 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_project ON exchanges(project)
   `);
     db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_harness ON exchanges(harness)
+  `);
+    db.exec(`
     CREATE INDEX IF NOT EXISTS idx_sidechain ON exchanges(is_sidechain)
   `);
     db.exec(`
@@ -177,11 +188,11 @@ export function insertExchange(db, exchange, embedding, toolNames) {
     const stmt = db.prepare(`
     INSERT OR REPLACE INTO exchanges
     (id, project, timestamp, user_message, assistant_message, archive_path, line_start, line_end, last_indexed,
-     parent_uuid, is_sidechain, session_id, cwd, git_branch, claude_version,
+     parent_uuid, is_sidechain, harness, session_id, cwd, git_branch, claude_version, agent_version, model, model_provider,
      thinking_level, thinking_disabled, thinking_triggers, embedding_version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-    stmt.run(exchange.id, exchange.project, exchange.timestamp, exchange.userMessage, exchange.assistantMessage, exchange.archivePath, exchange.lineStart, exchange.lineEnd, now, exchange.parentUuid || null, exchange.isSidechain ? 1 : 0, exchange.sessionId || null, exchange.cwd || null, exchange.gitBranch || null, exchange.claudeVersion || null, exchange.thinkingLevel || null, exchange.thinkingDisabled ? 1 : 0, exchange.thinkingTriggers || null, EMBEDDING_VERSION);
+    stmt.run(exchange.id, exchange.project, exchange.timestamp, exchange.userMessage, exchange.assistantMessage, exchange.archivePath, exchange.lineStart, exchange.lineEnd, now, exchange.parentUuid || null, exchange.isSidechain ? 1 : 0, exchange.harness || 'claude', exchange.sessionId || null, exchange.cwd || null, exchange.gitBranch || null, exchange.claudeVersion || null, exchange.agentVersion || exchange.claudeVersion || null, exchange.model || null, exchange.modelProvider || null, exchange.thinkingLevel || null, exchange.thinkingDisabled ? 1 : 0, exchange.thinkingTriggers || null, EMBEDDING_VERSION);
     // Insert into vector table (delete first since virtual tables don't support REPLACE)
     const delStmt = db.prepare(`DELETE FROM vec_exchanges WHERE id = ?`);
     delStmt.run(exchange.id);

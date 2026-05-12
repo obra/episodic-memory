@@ -5,8 +5,15 @@
  */
 export declare function getClaudeDir(): string;
 /**
- * Get all directories where Claude Code stores conversation files.
- * Checks both legacy (projects/) and current (transcripts/) locations.
+ * Get the Codex configuration directory.
+ * Supports CODEX_HOME for alternate profiles.
+ * Falls back to ~/.codex when not set.
+ */
+export declare function getCodexDir(): string;
+/**
+ * Get all directories where supported harnesses store conversation files.
+ * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
+ * plus Codex sessions.
  * Returns only directories that exist.
  */
 export declare function getConversationSourceDirs(): string[];

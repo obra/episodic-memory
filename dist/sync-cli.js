@@ -21,7 +21,7 @@ if (args.includes('--help') || args.includes('-h')) {
     console.log(`
 Usage: episodic-memory sync [--background]
 
-Sync conversations from ~/.claude/projects to archive and index them.
+Sync conversations from Claude Code and Codex transcript directories to archive and index them.
 
 This command:
 1. Copies new or updated .jsonl files to conversation archive
@@ -68,7 +68,7 @@ const sourceDirs = getConversationSourceDirs();
 const destDir = getArchiveDir();
 if (sourceDirs.length === 0) {
     console.log('⚠️  No conversation source directories found.');
-    console.log('  Checked: ~/.claude/projects and ~/.claude/transcripts');
+    console.log('  Checked: ~/.claude/projects, ~/.claude/transcripts, and ~/.codex/sessions');
     if (process.env.CLAUDE_CONFIG_DIR) {
         console.log(`  CLAUDE_CONFIG_DIR is set to: ${process.env.CLAUDE_CONFIG_DIR}`);
     }

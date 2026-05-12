@@ -5,6 +5,9 @@ export function formatConversationAsMarkdown(jsonl, startLine, endLine) {
     const lines = startLine !== undefined || endLine !== undefined
         ? allLines.slice(startLine !== undefined ? startLine - 1 : 0, endLine !== undefined ? endLine : undefined)
         : allLines;
+    if (isCodexRollout(lines)) {
+        return formatCodexConversationAsMarkdown(lines);
+    }
     const allMessages = lines.map(line => JSON.parse(line));
     // Filter out system messages and messages with no content
     const messages = allMessages.filter(msg => {
@@ -191,6 +194,9 @@ export function formatConversationAsMarkdown(jsonl, startLine, endLine) {
 }
 export function formatConversationAsHTML(jsonl) {
     const lines = jsonl.trim().split('\n').filter(line => line.trim());
+    if (isCodexRollout(lines)) {
+        return formatMarkdownDocumentAsHTML(formatCodexConversationAsMarkdown(lines));
+    }
     const allMessages = lines.map(line => JSON.parse(line));
     // Filter out system messages and messages with no content
     const messages = allMessages.filter(msg => {
@@ -713,6 +719,211 @@ export function formatConversationAsHTML(jsonl) {
 </head>
 <body>
 ${bodyContent}
+</body>
+</html>`;
+}
+function isCodexRollout(lines) {
+    for (const line of lines) {
+        try {
+            const parsed = JSON.parse(line);
+            return Boolean(parsed.payload && (parsed.type === 'session_meta' ||
+                parsed.type === 'turn_context' ||
+                parsed.type === 'response_item' ||
+                parsed.type === 'event_msg' ||
+                parsed.type === 'compacted'));
+        }
+        catch {
+            continue;
+        }
+    }
+    return false;
+}
+function extractCodexText(content) {
+    if (typeof content === 'string') {
+        return content;
+    }
+    if (!Array.isArray(content)) {
+        return '';
+    }
+    return content
+        .filter(block => block && typeof block === 'object' && typeof block.text === 'string')
+        .map(block => block.text)
+        .join('\n');
+}
+function safeParseJson(value) {
+    try {
+        return JSON.parse(value);
+    }
+    catch {
+        return value;
+    }
+}
+function codexToolInput(payload) {
+    if (typeof payload.arguments === 'string') {
+        return safeParseJson(payload.arguments);
+    }
+    if (payload.arguments !== undefined) {
+        return payload.arguments;
+    }
+    if (payload.input !== undefined) {
+        return payload.input;
+    }
+    if (payload.action !== undefined) {
+        return payload.action;
+    }
+    return undefined;
+}
+function codexToolOutput(payload) {
+    if (payload.output === undefined || payload.output === null) {
+        return '';
+    }
+    if (typeof payload.output === 'string') {
+        return payload.output;
+    }
+    const text = extractCodexText(payload.output);
+    return text.trim() ? text : JSON.stringify(payload.output, null, 2);
+}
+function formatCodexToolInputMarkdown(input) {
+    if (input === undefined || input === null) {
+        return '';
+    }
+    if (typeof input === 'string') {
+        return `\`\`\`\n${input}\n\`\`\`\n\n`;
+    }
+    if (typeof input !== 'object') {
+        return `${String(input)}\n\n`;
+    }
+    let output = '';
+    for (const [key, value] of Object.entries(input)) {
+        if (typeof value === 'string' && !value.includes('\n')) {
+            output += `- **${key}:** ${value}\n`;
+        }
+        else {
+            output += `- **${key}:**\n\`\`\`json\n${typeof value === 'string' ? value : JSON.stringify(value, null, 2)}\n\`\`\`\n`;
+        }
+    }
+    return output ? `${output}\n` : '';
+}
+function formatCodexConversationAsMarkdown(lines) {
+    const entries = lines.map(line => JSON.parse(line));
+    const metadata = {};
+    for (const entry of entries) {
+        const payload = entry.payload;
+        if (entry.type === 'session_meta' && payload) {
+            metadata.sessionId = payload.id || metadata.sessionId;
+            metadata.cwd = payload.cwd || metadata.cwd;
+            metadata.gitBranch = payload.git?.branch || metadata.gitBranch;
+            metadata.cliVersion = payload.cli_version || metadata.cliVersion;
+            metadata.modelProvider = payload.model_provider || metadata.modelProvider;
+        }
+        else if (entry.type === 'turn_context' && payload) {
+            metadata.cwd = payload.cwd || metadata.cwd;
+            metadata.model = payload.model || metadata.model;
+        }
+    }
+    let output = '# Conversation\n\n';
+    output += '## Metadata\n\n';
+    output += '**Harness:** Codex\n\n';
+    if (metadata.sessionId)
+        output += `**Session ID:** ${metadata.sessionId}\n\n`;
+    if (metadata.gitBranch)
+        output += `**Git Branch:** ${metadata.gitBranch}\n\n`;
+    if (metadata.cwd)
+        output += `**Working Directory:** ${metadata.cwd}\n\n`;
+    if (metadata.cliVersion)
+        output += `**Codex Version:** ${metadata.cliVersion}\n\n`;
+    if (metadata.model)
+        output += `**Model:** ${metadata.model}\n\n`;
+    if (metadata.modelProvider)
+        output += `**Model Provider:** ${metadata.modelProvider}\n\n`;
+    output += '---\n\n';
+    output += '## Messages\n\n';
+    for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const payload = entry.payload;
+        if (entry.type !== 'response_item' || !payload) {
+            continue;
+        }
+        const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+        const anchor = payload.call_id || `msg-${i}`;
+        if (payload.type === 'message') {
+            const text = extractCodexText(payload.content);
+            if (!text.trim()) {
+                continue;
+            }
+            const roleLabel = payload.role === 'user' ? 'User' : 'Agent';
+            output += `### **${roleLabel}** (${timestamp}) {#${anchor}}\n\n`;
+            output += `${text}\n\n`;
+        }
+        else if (payload.type === 'function_call' ||
+            payload.type === 'custom_tool_call' ||
+            payload.type === 'tool_search_call' ||
+            payload.type === 'local_shell_call') {
+            const toolName = payload.name || payload.namespace || payload.type || 'unknown';
+            output += `### **Tool Use** (${timestamp}) {#${anchor}}\n\n`;
+            output += `**Tool Use:** \`${toolName}\`\n\n`;
+            output += formatCodexToolInputMarkdown(codexToolInput(payload));
+        }
+        else if (payload.type === 'function_call_output' ||
+            payload.type === 'custom_tool_call_output' ||
+            payload.type === 'tool_search_output') {
+            const result = codexToolOutput(payload);
+            output += `### **Tool Result** (${timestamp}) {#${anchor}-result}\n\n`;
+            output += '**Result:**\n';
+            if (result.includes('\n') || result.length > 100) {
+                output += `\`\`\`\n${result}\n\`\`\`\n\n`;
+            }
+            else {
+                output += `${result}\n\n`;
+            }
+        }
+        else if (payload.type === 'reasoning') {
+            const text = extractCodexText(payload.summary);
+            if (text.trim()) {
+                output += `### **Reasoning Summary** (${timestamp}) {#${anchor}}\n\n`;
+                output += `${text}\n\n`;
+            }
+        }
+    }
+    return output;
+}
+function formatMarkdownDocumentAsHTML(markdown) {
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conversation</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+      line-height: 1.5;
+      color: #1d1d1f;
+      background: #f5f5f7;
+    }
+    .markdown-content {
+      background: #ffffff;
+      padding: 24px;
+      border-radius: 12px;
+    }
+    pre {
+      overflow-x: auto;
+      background: #f5f5f7;
+      padding: 12px;
+      border-radius: 6px;
+    }
+    code {
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+<div class="markdown-content">
+${renderMarkdownSafely(markdown)}
+</div>
 </body>
 </html>`;
 }

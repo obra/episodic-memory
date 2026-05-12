@@ -7,6 +7,7 @@ export interface ToolCall {
     isError: boolean;
     timestamp: string;
 }
+export type ConversationHarness = 'claude' | 'codex';
 export interface ConversationExchange {
     id: string;
     project: string;
@@ -18,10 +19,14 @@ export interface ConversationExchange {
     lineEnd: number;
     parentUuid?: string;
     isSidechain?: boolean;
+    harness?: ConversationHarness;
     sessionId?: string;
     cwd?: string;
     gitBranch?: string;
     claudeVersion?: string;
+    agentVersion?: string;
+    model?: string;
+    modelProvider?: string;
     thinkingLevel?: string;
     thinkingDisabled?: boolean;
     thinkingTriggers?: string;
