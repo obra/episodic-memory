@@ -1,6 +1,6 @@
 ---
 name: search-conversations
-description: Search previous Claude Code conversations using semantic or text search
+description: Use when recall from past Claude Code and Codex conversations or prior experience would help: prior decisions, repeated issues, implementation patterns, release steps, workflow gotchas, or lessons from similar work
 ---
 
 # Search Past Conversations
@@ -14,6 +14,7 @@ description: Search previous Claude Code conversations using semantic or text se
 - Debugging similar issues
 - Looking for architectural decisions or patterns
 - Before implementing something familiar
+- Before guessing from memory about something that may have come up before
 
 **Don't search when:**
 - Info is in current conversation

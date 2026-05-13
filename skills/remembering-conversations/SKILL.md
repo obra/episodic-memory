@@ -1,6 +1,6 @@
 ---
 name: remembering-conversations
-description: Use when user asks 'how should I...' or 'what's the best approach...' after exploring code, OR when you've tried to solve something and are stuck, OR for unfamiliar workflows, OR when user references past work. Searches conversation history.
+description: Use when the agent needs to recall information learned in past Claude Code/Codex conversations or prior experience: decisions, patterns, solutions, pitfalls, project context, repeated workflows, or lessons from similar work.
 ---
 
 # Remembering Conversations
@@ -43,12 +43,12 @@ The search workflow will:
 
 ## When to Use
 
-You often get value out of consulting your episodic memory once you understand what you're being asked. Search memory in these situations:
+Use this whenever the current task would benefit from information you may have learned before, even if the user did not explicitly ask you to search.
 
-**After understanding the task:**
-- User asks "how should I..." or "what's the best approach..."
-- You've explored current codebase and need to make architectural decisions
-- User asks for implementation approach after describing what they want
+**When past experience may help:**
+- You need to recall decisions, rationale, patterns, solutions, pitfalls, or project context from earlier work
+- A task resembles something you've solved, debugged, reviewed, released, or planned before
+- You need to repeat a workflow or process that may have prior gotchas or established steps
 
 **When you're stuck:**
 - You've investigated a problem and can't find the solution
@@ -59,6 +59,9 @@ You often get value out of consulting your episodic memory once you understand w
 - User says "last time", "before", "we discussed", "you implemented"
 - User asks "why did we...", "what was the reason..."
 - User says "do you remember...", "what do we know about..."
+
+**Before answering from uncertainty:**
+- Before guessing from memory or saying "I don't know" about something that may have been learned in a past conversation, search memory unless the current conversation already answers it
 
 **Don't search first:**
 - For current codebase structure (use Grep/Read to explore first)

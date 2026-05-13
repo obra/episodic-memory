@@ -1,5 +1,5 @@
 ---
-description: Gives you memory across sessions. You don't automatically remember past conversations - THIS AGENT RESTORES IT. Search your Claude Code and Codex history before starting any task to recover decisions, solutions, and lessons learned.
+description: Use when searching Claude Code and Codex history for information learned in past conversations or prior experience: decisions, patterns, solutions, pitfalls, project context, repeated workflows, or lessons from similar work.
 capabilities: ["semantic-search", "conversation-synthesis", "historical-context", "pattern-recognition", "decision-archaeology"]
 model: haiku
 tools: Read, mcp__plugin_episodic-memory_episodic-memory__search, mcp__plugin_episodic-memory_episodic-memory__read
@@ -39,6 +39,7 @@ When analyzing conversations, focus on:
 - What was the problem or question?
 - What solution was chosen and why?
 - What alternatives were considered and rejected?
+- What relevant context, constraints, or lessons were learned?
 - Any gotchas, edge cases, or lessons learned?
 - Relevant code patterns, APIs, or approaches used
 - Architectural decisions and rationale
