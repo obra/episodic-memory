@@ -1,6 +1,6 @@
 ---
 name: remembering-conversations
-description: Use when the agent needs to recall information learned in past Claude Code/Codex conversations or prior experience: decisions, patterns, solutions, pitfalls, project context, repeated workflows, or lessons from similar work.
+description: You MUST invoke this skill before saying "I don't know," guessing, or treating any topic as new, no matter how trivial the question seems. It supplements other memory systems, which only hold partial records. Searching past conversations is the only way to recover what was actually said.
 ---
 
 # Remembering Conversations
