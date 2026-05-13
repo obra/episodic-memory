@@ -26850,7 +26850,7 @@ ${result}
 }
 
 // src/version.ts
-var VERSION = "1.3.1";
+var VERSION = "1.4.0";
 
 // src/mcp-server.ts
 import fs4 from "fs";

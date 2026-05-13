@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-05-13
+
+### Changed
+- The `remembering-conversations` skill now triggers reliably for personal-fact lookups and other small questions that previously slipped past it. Tested against fresh sessions asking a personal-fact question, the previous description fired the skill 0/5 trials; the new description fires 3/5.
 
 ### Removed
 - The `/search-conversations` slash command. Reference past work in natural conversation instead — the `remembering-conversations` skill dispatches the `search-conversations` agent automatically when recall is needed.
