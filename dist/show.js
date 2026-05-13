@@ -956,7 +956,9 @@ function isMarkdown(text) {
 }
 function renderMarkdownSafely(text) {
     try {
-        return marked.parse(text, { async: false });
+        const renderer = new marked.Renderer();
+        renderer.html = ({ text }) => escapeHtml(text);
+        return marked.parse(text, { async: false, renderer });
     }
     catch (error) {
         // Fallback to escaped HTML if markdown parsing fails

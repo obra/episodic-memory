@@ -64,6 +64,58 @@ function codexJsonl(): string {
   ].map(line => JSON.stringify(line)).join('\n');
 }
 
+function codexJsonlWithRawHtml(): string {
+  return [
+    {
+      timestamp: '2026-05-12T18:00:00.000Z',
+      type: 'session_meta',
+      payload: {
+        id: '019e4c75-d5bf-7c71-9df7-77f5fb86b711',
+        cwd: '/Users/jesse/Documents/GitHub/example-project',
+        cli_version: '0.130.0',
+        model_provider: 'openai',
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:01.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Please inspect <script>alert("message")</script>.' }]
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:02.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        name: 'exec_command',
+        arguments: '{"cmd":"printf \\"<script>alert(\\\\\\"tool\\\\\\")</script>\\""}',
+        call_id: 'call_html'
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:03.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'call_html',
+        output: '<script>alert("result")</script>'
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:04.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'Saw <b>literal markup</b> in the output.' }]
+      }
+    }
+  ].map(line => JSON.stringify(line)).join('\n');
+}
+
 describe('show command - markdown formatting', () => {
   const fixturesDir = join(import.meta.dirname, 'fixtures');
 
@@ -217,5 +269,16 @@ describe('show command - HTML formatting', () => {
     expect(html).toContain('Tool Use');
     expect(html).toContain('exec_command');
     expect(html).toContain('The config loader reads the default profile first.');
+  });
+
+  it('escapes raw HTML from Codex messages and tool results', () => {
+    const html = formatConversationAsHTML(codexJsonlWithRawHtml());
+
+    expect(html).not.toMatch(/<script\b/i);
+    expect(html).not.toMatch(/<\/script>/i);
+    expect(html).not.toContain('<b>literal markup</b>');
+    expect(html).toContain('&lt;script&gt;alert(');
+    expect(html).toContain('&lt;/script&gt;');
+    expect(html).toContain('&lt;b&gt;literal markup&lt;/b&gt;');
   });
 });
