@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-13
+
+### Added
+- Native Codex plugin support with `.codex-plugin/plugin.json`, Codex MCP configuration, plugin hook packaging, and a local development marketplace entry.
+- Codex rollout transcript parsing, display, archiving, indexing, and cross-harness search across Claude Code and Codex conversations.
+- Codex-native summarization through `codex app-server` ephemeral `thread/fork`, with transcript-text fallback when Codex summarization is unavailable.
+- `episodic-memory doctor codex` for checking Codex version, plugin features, MCP registration, hook trust, transcript directory, database, and sync log paths.
+- Opt-in live Codex and Claude E2E scripts that verify archive, summary, index, and MCP recall behavior.
+
+### Changed
+- Recall skill instructions and MCP tool documentation now describe Claude Code and Codex usage, including direct MCP search/read guidance in Codex.
+- CLI help, README setup, and architecture documentation now describe Claude Code plus Codex support.
+
+### Fixed
+- Codex hook trust diagnostics now report when the Episodic Memory hook is already trusted instead of always suggesting `/hooks`.
+- Codex HTML transcript rendering now escapes raw HTML from transcript content before rendering.
+- Codex `local_shell_call_output` items are now paired with local shell tool calls during parsing and included in rendered transcript output.
+
 ## [1.2.0] - 2026-05-03
 
 ### Better search results
