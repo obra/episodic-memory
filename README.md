@@ -154,13 +154,14 @@ episodic-memory-search "query"
 
 ### In Claude Code or Codex
 
-The plugin automatically syncs and indexes conversations from the harness that starts it. In Claude Code, use the search command:
+The plugin automatically syncs and indexes conversations from the harness that starts it. Reference past work in natural conversation — the `remembering-conversations` skill dispatches the `search-conversations` agent automatically when recall is needed. Example prompts:
 
-```
-/search-conversations
-```
+- "How did we handle authentication in React Router?"
+- "The conversation about async testing patterns"
+- "Error message about sqlite-vec initialization"
+- "Git commit SHA for the routing refactor"
 
-Or reference past work in natural conversation. In Codex, the skill guides the agent to use the episodic-memory MCP search/read tools directly when an agent-dispatch path is not available.
+In Codex, the skill guides the agent to use the episodic-memory MCP search/read tools directly when an agent-dispatch path is not available.
 
 ## API Configuration
 

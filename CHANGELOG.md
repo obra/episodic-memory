@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+- The `/search-conversations` slash command. Reference past work in natural conversation instead — the `remembering-conversations` skill dispatches the `search-conversations` agent automatically when recall is needed.
+
 ## [1.3.1] - 2026-05-13
 
 ### Fixed
