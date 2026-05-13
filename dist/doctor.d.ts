@@ -1,3 +1,4 @@
+import type { CodexHookTrustState } from './codex-hook-trust.js';
 export interface CodexDoctorInputs {
     codexVersionOutput: string;
     featuresOutput: string;
@@ -6,6 +7,7 @@ export interface CodexDoctorInputs {
     sessionsDirExists: boolean;
     logPath: string;
     dbPath: string;
+    hookTrustState: CodexHookTrustState;
 }
 export interface DoctorReport {
     ok: boolean;

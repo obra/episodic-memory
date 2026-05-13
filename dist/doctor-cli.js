@@ -6,6 +6,7 @@ import { buildCodexDoctorReport } from './doctor.js';
 import { getCodexDir } from './paths.js';
 import { getDbPath } from './paths.js';
 import { getSyncLogPath } from './logging.js';
+import { detectCodexHookTrustState } from './codex-hook-trust.js';
 function capture(command, args) {
     const result = spawnSync(command, args, {
         encoding: 'utf-8',
@@ -25,6 +26,7 @@ async function main() {
         process.exit(target ? 1 : 0);
     }
     const codexHome = getCodexDir();
+    const hookTrustState = await detectCodexHookTrustState(codexHome, process.cwd());
     const report = buildCodexDoctorReport({
         codexVersionOutput: capture('codex', ['--version']),
         featuresOutput: capture('codex', ['features', 'list']),
@@ -33,6 +35,7 @@ async function main() {
         sessionsDirExists: fs.existsSync(path.join(codexHome, 'sessions')),
         logPath: getSyncLogPath(),
         dbPath: getDbPath(),
+        hookTrustState,
     });
     process.stdout.write(report.text);
     process.exit(report.ok ? 0 : 1);

@@ -3,6 +3,7 @@ import {
   parseCodexCliVersion,
   versionMeetsMinimum,
 } from './codex-support.js';
+import type { CodexHookTrustState } from './codex-hook-trust.js';
 
 export interface CodexDoctorInputs {
   codexVersionOutput: string;
@@ -12,6 +13,7 @@ export interface CodexDoctorInputs {
   sessionsDirExists: boolean;
   logPath: string;
   dbPath: string;
+  hookTrustState: CodexHookTrustState;
 }
 
 export interface DoctorReport {
@@ -44,6 +46,21 @@ function parseMcpState(mcpListOutput: string): 'enabled' | 'disabled' | 'missing
   return line.includes(' enabled') ? 'enabled' : 'disabled';
 }
 
+function formatHookTrustState(hookTrustState: CodexHookTrustState): string {
+  switch (hookTrustState) {
+    case 'trusted':
+      return 'trusted';
+    case 'untrusted':
+      return 'untrusted; open /hooks in Codex, review the Episodic Memory hook, and press t to trust it.';
+    case 'modified':
+      return 'modified since it was trusted; open /hooks in Codex, review the Episodic Memory hook, and press t to trust it again.';
+    case 'not_found':
+      return 'not found; confirm the Episodic Memory plugin is installed and enabled.';
+    case 'unknown':
+      return 'unknown; could not inspect Codex hooks. Open /hooks in Codex to verify trust.';
+  }
+}
+
 export function buildCodexDoctorReport(inputs: CodexDoctorInputs): DoctorReport {
   const version = parseCodexCliVersion(inputs.codexVersionOutput);
   const versionOk = version !== undefined && versionMeetsMinimum(version);
@@ -67,6 +84,13 @@ export function buildCodexDoctorReport(inputs: CodexDoctorInputs): DoctorReport 
   if (mcpState !== 'enabled') {
     issues.push('Episodic Memory MCP server is not enabled in codex mcp list.');
   }
+  if (inputs.hookTrustState === 'untrusted' || inputs.hookTrustState === 'modified') {
+    issues.push('Episodic Memory Codex hook is not trusted; open /hooks in Codex and press t to trust it.');
+  } else if (inputs.hookTrustState === 'not_found') {
+    issues.push('Episodic Memory Codex hook was not found; confirm the plugin is installed and enabled.');
+  } else if (inputs.hookTrustState === 'unknown') {
+    issues.push('Episodic Memory Codex hook trust could not be verified.');
+  }
 
   const lines = [
     'Episodic Memory Codex Doctor',
@@ -81,7 +105,7 @@ export function buildCodexDoctorReport(inputs: CodexDoctorInputs): DoctorReport 
     `Index database: ${inputs.dbPath}`,
     `Hook/background sync log: ${inputs.logPath}`,
     '',
-    'Hook trust: open /hooks in Codex, review the Episodic Memory hook, and press t to trust it.',
+    `Hook trust: ${formatHookTrustState(inputs.hookTrustState)}`,
   ];
 
   if (issues.length > 0) {
