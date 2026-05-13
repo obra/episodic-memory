@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-05-13
+
+### Fixed
+- Recall skills now trigger when an agent needs to remember anything learned from prior Claude Code or Codex conversations, including decisions, patterns, solutions, pitfalls, workflows, project context, and lessons from similar work.
+- Search-agent and slash-command descriptions now describe broad recall situations instead of narrowing discovery to explicit user requests or personal facts.
+
 ## [1.3.0] - 2026-05-13
 
 ### Added
