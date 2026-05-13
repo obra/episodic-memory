@@ -514,7 +514,7 @@ async function parseCodexConversation(
         }
       } else if (payload.type === 'function_call' || payload.type === 'custom_tool_call' || payload.type === 'tool_search_call' || payload.type === 'local_shell_call') {
         appendToolCall(payload, timestamp);
-      } else if (payload.type === 'function_call_output' || payload.type === 'custom_tool_call_output' || payload.type === 'tool_search_output') {
+      } else if (payload.type === 'function_call_output' || payload.type === 'custom_tool_call_output' || payload.type === 'tool_search_output' || payload.type === 'local_shell_call_output') {
         appendToolResult(payload);
       }
     } catch {

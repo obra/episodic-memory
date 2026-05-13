@@ -96,6 +96,57 @@ function codexRolloutLines() {
   ];
 }
 
+function codexRolloutLinesWithLocalShell() {
+  return [
+    {
+      timestamp: '2026-05-12T18:00:00.000Z',
+      type: 'session_meta',
+      payload: {
+        id: '019e4c75-d5bf-7c71-9df7-77f5fb86b711',
+        cwd: '/Users/jesse/Documents/GitHub/example-org/example-project',
+        cli_version: '0.130.0',
+        model_provider: 'openai',
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:01.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Run a local shell command.' }]
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:02.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'local_shell_call',
+        call_id: 'local_shell_1',
+        action: { command: ['/bin/echo', 'local shell'] }
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:03.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'local_shell_call_output',
+        call_id: 'local_shell_1',
+        output: 'Exit code: 0\nOutput:\nlocal shell'
+      }
+    },
+    {
+      timestamp: '2026-05-12T18:00:04.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'Local shell command completed.' }]
+      }
+    }
+  ];
+}
+
 describe('Codex transcript support', () => {
   let testDir: string;
   let originalClaudeConfigDir: string | undefined;
@@ -167,6 +218,25 @@ describe('Codex transcript support', () => {
         toolResult: 'export function loadConfig() {}',
         isError: false,
         timestamp: '2026-05-12T18:00:04.000Z'
+      })
+    ]);
+  });
+
+  it('pairs Codex local shell calls with their output', async () => {
+    const rolloutPath = join(testDir, 'rollout-2026-05-12T18-00-00-019e4c75-d5bf-7c71-9df7-77f5fb86b711.jsonl');
+    writeJsonl(rolloutPath, codexRolloutLinesWithLocalShell());
+
+    const exchanges = await parseConversation(rolloutPath, '2026', rolloutPath);
+
+    expect(exchanges).toHaveLength(1);
+    expect(exchanges[0].toolCalls).toEqual([
+      expect.objectContaining({
+        exchangeId: exchanges[0].id,
+        toolName: 'local_shell_call',
+        toolInput: { command: ['/bin/echo', 'local shell'] },
+        toolResult: 'Exit code: 0\nOutput:\nlocal shell',
+        isError: false,
+        timestamp: '2026-05-12T18:00:02.000Z'
       })
     ]);
   });

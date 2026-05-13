@@ -866,7 +866,8 @@ function formatCodexConversationAsMarkdown(lines) {
         }
         else if (payload.type === 'function_call_output' ||
             payload.type === 'custom_tool_call_output' ||
-            payload.type === 'tool_search_output') {
+            payload.type === 'tool_search_output' ||
+            payload.type === 'local_shell_call_output') {
             const result = codexToolOutput(payload);
             output += `### **Tool Result** (${timestamp}) {#${anchor}-result}\n\n`;
             output += '**Result:**\n';
