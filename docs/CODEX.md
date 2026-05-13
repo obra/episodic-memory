@@ -12,7 +12,14 @@ That version is the support floor because this plugin depends on all of these Co
 
 ## Install and Enable
 
-Install the plugin through the normal Codex plugin workflow or a marketplace entry. For local development, use a real copied plugin directory; Codex's plugin loader does not follow symlinked cache directories.
+Install the plugin through the normal Codex plugin workflow or a marketplace entry. For local development, this repo can be added as a local marketplace:
+
+```bash
+npm run build
+codex plugin marketplace add /path/to/episodic-memory
+```
+
+Then start Codex, open `/plugins`, and install/enable `episodic-memory` from `Episodic Memory Dev`.
 
 Enable plugin hooks:
 

@@ -60,8 +60,20 @@ The plugin automatically:
 ### As a Codex plugin
 
 This repository includes a Codex plugin manifest at `.codex-plugin/plugin.json`.
-Install it through Codex's plugin workflow using this repo or a marketplace entry.
 Codex support requires `codex-cli 0.130.0` or newer.
+
+For local testing, build the plugin, add this repo as a local marketplace, then
+install/enable it from `/plugins`:
+
+```bash
+npm run build
+codex features enable plugin_hooks
+codex plugin marketplace add /path/to/episodic-memory
+```
+
+Then start Codex, open `/plugins`, install and enable `episodic-memory` from
+`Episodic Memory Dev`, open `/hooks`, review the Episodic Memory hook, and press
+`t` to trust it.
 
 The Codex plugin:
 - Syncs conversations from `~/.codex/sessions`
@@ -233,6 +245,17 @@ The repository includes an opt-in live Codex E2E test. It creates an isolated te
 npm run build
 EPISODIC_MEMORY_RUN_CODEX_E2E=1 npm run test:codex-e2e
 ```
+
+### Claude E2E Verification
+
+The repository also includes an opt-in live Claude Code E2E test. It loads this repo as a session plugin with `--plugin-dir`, constrains the hook to a temporary transcript source, and verifies archive -> summary -> index -> MCP recall.
+
+```bash
+npm run build
+EPISODIC_MEMORY_RUN_CLAUDE_E2E=1 npm run test:claude-e2e
+```
+
+This test uses your normal Claude Code auth and writes small test transcripts to your normal Claude transcript directory. The archive and index are isolated in a temporary `EPISODIC_MEMORY_CONFIG_DIR`.
 
 ### `episodic-memory index`
 

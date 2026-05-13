@@ -47,6 +47,25 @@ describe('Codex plugin packaging', () => {
     });
   });
 
+  it('declares a Codex marketplace for local install testing', () => {
+    const marketplacePath = join(REPO_ROOT, '.agents/plugins/marketplace.json');
+    expect(existsSync(marketplacePath)).toBe(true);
+
+    const marketplace = readJson('.agents/plugins/marketplace.json');
+    expect(marketplace.name).toBe('episodic-memory-dev');
+    expect(marketplace.plugins).toContainEqual({
+      name: 'episodic-memory',
+      source: {
+        source: 'url',
+        url: './'
+      },
+      policy: {
+        installation: 'AVAILABLE',
+        authentication: 'ON_USE'
+      }
+    });
+  });
+
   it('includes Codex manifest in version bump config', () => {
     const bump = readJson('.version-bump.json');
     expect(bump.files).toContainEqual({

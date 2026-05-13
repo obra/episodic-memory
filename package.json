@@ -18,6 +18,7 @@
     "postinstall": "npm rebuild better-sqlite3 2>/dev/null || true",
     "pretest": "npm run generate-version",
     "test": "vitest run",
+    "test:claude-e2e": "node scripts/claude-e2e.js",
     "test:codex-e2e": "node scripts/codex-e2e.js",
     "test:watch": "vitest"
   },
