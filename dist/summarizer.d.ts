@@ -1,4 +1,19 @@
 import { ConversationExchange } from './types.js';
+/**
+ * Thrown by callClaude when the SDK yields an `is_error: true` result message.
+ * Carries the SDK's `subtype` and `session_id` as typed fields so callers can
+ * dispatch on structural metadata rather than parsing error message text.
+ */
+export declare class SummarizerSdkError extends Error {
+    readonly subtype: string;
+    readonly sessionId?: string | undefined;
+    constructor(subtype: string, sessionId?: string | undefined);
+}
+/**
+ * True when the SDK's reported failure subtype indicates resume couldn't find
+ * the session — the trigger for the non-resume fallback in summarizeConversation.
+ */
+export declare function isResumeFailure(error: unknown): boolean;
 export interface CodexSummarizerCommand {
     command: string;
     args: string[];
@@ -40,6 +55,7 @@ export declare function formatConversationText(exchanges: ConversationExchange[]
 export declare function buildSummarizerQueryOptions(args: {
     model: string;
     sessionId?: string;
+    cwd?: string;
 }): Record<string, unknown>;
 export declare function buildCodexSummaryPrompt(): string;
 export declare function buildCodexSummarizerCommand(args: {

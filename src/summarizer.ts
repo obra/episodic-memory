@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { ConversationExchange } from './types.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
@@ -9,6 +10,26 @@ import {
   parseCodexCliVersion,
   versionMeetsMinimum,
 } from './codex-support.js';
+
+/**
+ * Thrown by callClaude when the SDK yields an `is_error: true` result message.
+ * Carries the SDK's `subtype` and `session_id` as typed fields so callers can
+ * dispatch on structural metadata rather than parsing error message text.
+ */
+export class SummarizerSdkError extends Error {
+  constructor(public readonly subtype: string, public readonly sessionId?: string) {
+    super(`Summarizer SDK error: ${subtype}${sessionId ? ` (session ${sessionId})` : ''}`);
+    this.name = 'SummarizerSdkError';
+  }
+}
+
+/**
+ * True when the SDK's reported failure subtype indicates resume couldn't find
+ * the session — the trigger for the non-resume fallback in summarizeConversation.
+ */
+export function isResumeFailure(error: unknown): boolean {
+  return error instanceof SummarizerSdkError && error.subtype === 'error_during_execution';
+}
 
 export interface CodexSummarizerCommand {
   command: string;
@@ -87,14 +108,17 @@ function extractSummary(text: string): string {
 export function buildSummarizerQueryOptions(args: {
   model: string;
   sessionId?: string;
+  cwd?: string;
 }): Record<string, unknown> {
-  const { model, sessionId } = args;
+  const { model, sessionId, cwd } = args;
   return {
     model,
     max_tokens: 4096,
     env: getApiEnv(),
     resume: sessionId,
     persistSession: false,
+    // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
+    ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
     // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.
     ...(sessionId ? {} : {
       systemPrompt: 'Write concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
@@ -145,23 +169,27 @@ export function buildCodexSummarizerCommand(args: {
   };
 }
 
-async function callClaude(prompt: string, sessionId?: string, useFallback = false): Promise<string> {
+async function callClaude(prompt: string, sessionId?: string, useFallback = false, cwd?: string): Promise<string> {
   const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
   const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
   const model = useFallback ? fallbackModel : primaryModel;
 
   for await (const message of query({
     prompt,
-    options: buildSummarizerQueryOptions({ model, sessionId }) as any,
+    options: buildSummarizerQueryOptions({ model, sessionId, cwd }) as any,
   })) {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
+      // Throw on is_error — otherwise we return `message.result` (undefined) and the SDK's later iterator throw never fires.
+      if ((message as any).is_error) {
+        throw new SummarizerSdkError((message as any).subtype || 'unknown', (message as any).session_id);
+      }
       const result = (message as any).result;
 
       // Check if result is an API error (SDK returns errors as result strings)
       if (typeof result === 'string' && result.includes('API Error') && result.includes('thinking.budget_tokens')) {
         if (!useFallback) {
           console.log(`    ${primaryModel} hit thinking budget error, retrying with ${fallbackModel}`);
-          return await callClaude(prompt, sessionId, true);
+          return await callClaude(prompt, sessionId, true, cwd);
         }
         // If fallback also fails, return error message
         return result;
@@ -444,6 +472,7 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
   // For short conversations (≤15 exchanges), summarize directly
   if (exchanges.length <= 15) {
     const claudeSessionId = codexSessionId ? undefined : sessionId;
+    const cwd = claudeSessionId ? exchanges.find(e => e.cwd)?.cwd : undefined;
     const conversationText = claudeSessionId
       ? '' // When resuming, no need to include conversation text - it's already in context
       : formatConversationText(exchanges);
@@ -472,8 +501,19 @@ Bad:
 
 ${conversationText}`;
 
-    const result = await callClaude(prompt, claudeSessionId);
-    return extractSummary(result);
+    try {
+      const result = await callClaude(prompt, claudeSessionId, false, cwd);
+      return extractSummary(result);
+    } catch (error) {
+      // Resume fails when the session's cwd doesn't exist on disk — retry without resume and feed the conversation text directly.
+      if (claudeSessionId && isResumeFailure(error)) {
+        console.log(`    resume failed for ${claudeSessionId} (${(error as Error).message}); retrying without resume`);
+        const fullPrompt = prompt + '\n\n' + formatConversationText(exchanges);
+        const result = await callClaude(fullPrompt);
+        return extractSummary(result);
+      }
+      throw error;
+    }
   }
 
   // For long conversations, use hierarchical summarization
