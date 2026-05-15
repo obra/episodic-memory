@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, utimesSync, existsSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, utimesSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { syncConversations } from '../src/sync.js';
@@ -207,5 +207,44 @@ describe('sync command', () => {
     dbCheck.close();
 
     expect(count.count).toBe(1); // Only normal conversation indexed
+  });
+
+  it('writes an empty summary sentinel for zero-exchange files so they do not re-queue forever', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+
+    // Stage more than summaryLimit (default 10) zero-exchange files — file-history-snapshot is a metadata record the parser drops.
+    const zeroExchangeFileCount = 12;
+    for (let i = 0; i < zeroExchangeFileCount; i++) {
+      const id = `1111aaaa-1111-1111-1111-${String(i).padStart(12, '0')}`;
+      const content = JSON.stringify({
+        type: 'file-history-snapshot',
+        sessionId: id,
+        uuid: `meta-${i}`,
+        timestamp: '2025-10-01T12:00:00Z'
+      });
+      writeFileSync(join(sourceDir, 'project-a', `${id}.jsonl`), content, 'utf-8');
+    }
+
+    // First sync: sentinel up to summaryLimit (default 10).
+    const r1 = await syncConversations(sourceDir, destDir, { skipIndex: true });
+    expect(r1.copied).toBe(zeroExchangeFileCount);
+    expect(r1.summarized).toBe(0);
+
+    const sentinelsAfter1 = readdirSync(join(destDir, 'project-a'))
+      .filter(f => f.endsWith('-summary.txt'));
+    expect(sentinelsAfter1.length).toBeGreaterThanOrEqual(10);
+
+    // Sentinels must be empty — that's how future syncs know to skip the file.
+    for (const s of sentinelsAfter1) {
+      expect(statSync(join(destDir, 'project-a', s)).size).toBe(0);
+    }
+
+    // Second sync drains the rest. Before the fix the same 10 would re-queue forever.
+    const r2 = await syncConversations(sourceDir, destDir, { skipIndex: true });
+    expect(r2.summarized).toBe(0);
+
+    const sentinelsAfter2 = readdirSync(join(destDir, 'project-a'))
+      .filter(f => f.endsWith('-summary.txt'));
+    expect(sentinelsAfter2.length).toBe(zeroExchangeFileCount);
   });
 });

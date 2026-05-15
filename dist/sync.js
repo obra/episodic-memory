@@ -154,7 +154,10 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                 const project = path.basename(path.dirname(filePath));
                 const exchanges = await parseConversation(filePath, project, filePath);
                 if (exchanges.length === 0) {
-                    continue; // Skip empty conversations
+                    // Skip empty conversations — write an empty -summary.txt sentinel so they aren't re-queued forever
+                    const summaryPath = filePath.replace('.jsonl', '-summary.txt');
+                    fs.writeFileSync(summaryPath, '', 'utf-8');
+                    continue;
                 }
                 console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
                 const summary = await summarizeConversation(exchanges, sessionId);
