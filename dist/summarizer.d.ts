@@ -49,4 +49,20 @@ export declare function buildCodexSummarizerCommand(args: {
     codexBin?: string;
 }): CodexSummarizerCommand;
 export declare function runCodexCommand(command: CodexSummarizerCommand): Promise<string>;
+/**
+ * Resolve the model to pass into Codex `thread/fork` for summarization.
+ *
+ * Historical exchanges may carry deprecated model ids (e.g. `gpt-5.2-codex`),
+ * and `-codex`-suffixed variants are API-key-only — ChatGPT-subscription users
+ * get a 400 from `app-server` regardless of the suffix used. Reading the model
+ * from history therefore breaks summarization for two large user populations.
+ *
+ * Default to `undefined` so `app-server` uses the current Codex config
+ * (`~/.codex/config.toml#model`). Operators can override via
+ * `EPISODIC_MEMORY_CODEX_MODEL` if they need a specific model id (e.g. an
+ * API-key user wanting `gpt-5.5-codex`).
+ *
+ * See https://github.com/obra/episodic-memory/issues/98.
+ */
+export declare function getCodexModel(_exchanges: ConversationExchange[]): string | undefined;
 export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string>;

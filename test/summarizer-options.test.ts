@@ -4,9 +4,11 @@ import {
   buildCodexSummarizerCommand,
   buildSummarizerQueryOptions,
   getApiEnv,
+  getCodexModel,
   runCodexCommand,
   shouldSkipReentrantSync
 } from '../src/summarizer.js';
+import { ConversationExchange } from '../src/types.js';
 
 describe('buildSummarizerQueryOptions', () => {
   it('sets persistSession: false so the SDK does not write session JSONLs to ~/.claude/projects/ (#83)', () => {
@@ -125,6 +127,45 @@ describe('runCodexCommand', () => {
       prompt: 'Summarize this conversation.',
       skipVersionCheck: true,
     })).rejects.toThrow(/thread\/fork returned unexpected response/);
+  });
+});
+
+describe('getCodexModel', () => {
+  afterEach(() => {
+    delete process.env.EPISODIC_MEMORY_CODEX_MODEL;
+  });
+
+  const codexExchange = (model?: string): ConversationExchange => ({
+    id: 'ex-1',
+    project: 'test',
+    timestamp: '2026-04-01T00:00:00Z',
+    userMessage: 'hi',
+    assistantMessage: 'hello',
+    archivePath: '/tmp/test.jsonl',
+    lineStart: 1,
+    lineEnd: 2,
+    harness: 'codex',
+    model,
+  });
+
+  it('returns undefined by default so app-server falls back to ~/.codex/config.toml#model', () => {
+    expect(getCodexModel([codexExchange('gpt-5.2-codex')])).toBeUndefined();
+  });
+
+  it('ignores deprecated model ids baked into historical exchanges (#98)', () => {
+    // pre-deprecation Codex sessions carry model: "gpt-5.2-codex"; forcing that
+    // into thread/fork returns 400 "model is not supported".
+    expect(getCodexModel([codexExchange('gpt-5.2-codex')])).toBeUndefined();
+  });
+
+  it('honors EPISODIC_MEMORY_CODEX_MODEL when operators want a specific model', () => {
+    process.env.EPISODIC_MEMORY_CODEX_MODEL = 'gpt-5.5-codex';
+    expect(getCodexModel([codexExchange('gpt-5.2-codex')])).toBe('gpt-5.5-codex');
+  });
+
+  it('treats an empty EPISODIC_MEMORY_CODEX_MODEL the same as unset', () => {
+    process.env.EPISODIC_MEMORY_CODEX_MODEL = '';
+    expect(getCodexModel([codexExchange('gpt-5.2-codex')])).toBeUndefined();
   });
 });
 
