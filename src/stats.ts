@@ -31,6 +31,7 @@ export async function getIndexStats(dbPath?: string): Promise<IndexStats> {
   }
 
   const db = new Database(resolvedDbPath, { readonly: true });
+  db.pragma('busy_timeout = 5000');
 
   try {
     // Check if tables exist
