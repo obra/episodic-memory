@@ -24885,6 +24885,8 @@ function initDatabase() {
   const db = new Database(dbPath);
   sqliteVec.load(db);
   db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
+  db.pragma("foreign_keys = ON");
   db.exec(`
     CREATE TABLE IF NOT EXISTS exchanges (
       id TEXT PRIMARY KEY,
@@ -26865,7 +26867,7 @@ ${result}
 }
 
 // src/version.ts
-var VERSION = "1.4.1";
+var VERSION = "1.4.2";
 
 // src/mcp-server.ts
 import fs4 from "fs";
