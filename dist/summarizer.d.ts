@@ -51,6 +51,14 @@ export declare function formatConversationText(exchanges: ConversationExchange[]
  * ~/.claude/projects/ (#83). Without it, every summarization spawns a fake
  * session JSONL that pollutes the IDE session sidebar. The option is honored
  * by claude-agent-sdk >= 0.2.0.
+ *
+ * settingSources: [] + mcpServers: {} isolate the summarizer subprocess from
+ * the user's environment (#106). The SDK loads all filesystem settings by
+ * default (~/.claude/settings.json, .mcp.json, ~/.claude.json mcpServers, ...),
+ * so without this every summarization boots the user's entire global MCP fleet
+ * — one set of MCP server subprocesses per conversation. Servers that open a
+ * GUI (e.g. Serena's dashboard) pop a window per conversation; the rest churn
+ * CPU/RAM silently. A summarizer needs no tools or MCP servers.
  */
 export declare function buildSummarizerQueryOptions(args: {
     model: string;

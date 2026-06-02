@@ -104,6 +104,14 @@ function extractSummary(text: string): string {
  * ~/.claude/projects/ (#83). Without it, every summarization spawns a fake
  * session JSONL that pollutes the IDE session sidebar. The option is honored
  * by claude-agent-sdk >= 0.2.0.
+ *
+ * settingSources: [] + mcpServers: {} isolate the summarizer subprocess from
+ * the user's environment (#106). The SDK loads all filesystem settings by
+ * default (~/.claude/settings.json, .mcp.json, ~/.claude.json mcpServers, ...),
+ * so without this every summarization boots the user's entire global MCP fleet
+ * — one set of MCP server subprocesses per conversation. Servers that open a
+ * GUI (e.g. Serena's dashboard) pop a window per conversation; the rest churn
+ * CPU/RAM silently. A summarizer needs no tools or MCP servers.
  */
 export function buildSummarizerQueryOptions(args: {
   model: string;
@@ -117,6 +125,12 @@ export function buildSummarizerQueryOptions(args: {
     env: getApiEnv(),
     resume: sessionId,
     persistSession: false,
+    // Isolate the subprocess from the user's settings/MCP servers (#106). The SDK
+    // otherwise loads all filesystem settings, so each summarization would boot the
+    // user's entire global MCP fleet — one set of MCP subprocesses per conversation.
+    // [] is the SDK's documented isolation mode; {} makes the empty server set explicit.
+    settingSources: [],
+    mcpServers: {},
     // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
     ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
     // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.

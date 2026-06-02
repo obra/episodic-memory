@@ -21,6 +21,22 @@ describe('buildSummarizerQueryOptions', () => {
     expect(opts.persistSession).toBe(false);
   });
 
+  it('disables filesystem settings (settingSources: []) so the subprocess does not inherit the user\'s config (#106)', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku' });
+    expect(opts.settingSources).toEqual([]);
+  });
+
+  it('passes an empty mcpServers set so no MCP servers are spawned per conversation (#106)', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku' });
+    expect(opts.mcpServers).toEqual({});
+  });
+
+  it('keeps MCP/settings isolation on resumed sessions too — the path that runs in the SessionStart sync (#106)', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku', sessionId: 'abc-123' });
+    expect(opts.settingSources).toEqual([]);
+    expect(opts.mcpServers).toEqual({});
+  });
+
   it('passes through the model and max_tokens', () => {
     const opts = buildSummarizerQueryOptions({ model: 'haiku' });
     expect(opts.model).toBe('haiku');
