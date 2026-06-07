@@ -62,6 +62,18 @@ describe('buildSummarizerQueryOptions', () => {
     const opts = buildSummarizerQueryOptions({ model: 'haiku', sessionId: 'abc-123' });
     expect(opts.cwd).toBeUndefined();
   });
+
+  // tools: [] strips every built-in tool so a resumed mid-task session can't keep
+  // executing the task instead of summarizing.
+  it('disables all built-in tools via tools: [] so a resumed mid-task session cannot execute the task', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku', sessionId: 'abc-123' });
+    expect(opts.tools).toEqual([]);
+  });
+
+  it('applies the tool restriction on fresh (non-resume) sessions too, not only when resuming', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku' });
+    expect(opts.tools).toEqual([]);
+  });
 });
 
 describe('isResumeFailure', () => {
