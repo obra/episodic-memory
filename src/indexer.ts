@@ -7,7 +7,9 @@ import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
 import { ConversationExchange } from './types.js';
 import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles } from './paths.js';
-import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
+import {
+  needsSummary, isQuiescent, writeSummary, writeErrorSentinelIfNew,
+} from './summary-sentinel.js';
 
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
@@ -35,6 +37,31 @@ async function processBatch<T, R>(
 
 function sessionIdForSummary(exchanges: ConversationExchange[]): string | undefined {
   return exchanges.find(exchange => exchange.sessionId)?.sessionId;
+}
+
+/**
+ * Summarize one conversation once it has gone quiescent, writing the summary with
+ * its coverage header. Preserves a prior summary on failure (an error sentinel is
+ * written only for a first-time failure). Returns the summary, or null when the
+ * conversation is skipped (not yet quiescent) or summarization fails.
+ */
+async function summarizeIfQuiescent(
+  summaryPath: string,
+  archivePath: string,
+  exchanges: ConversationExchange[],
+  label: string,
+): Promise<string | null> {
+  if (!isQuiescent(exchanges, Date.now())) return null;
+  try {
+    const summary = await summarizeConversation(exchanges, sessionIdForSummary(exchanges));
+    writeSummary(summaryPath, archivePath, exchanges, summary);
+    console.log(`  ✓ ${label}: ${summary.split(/\s+/).length} words`);
+    return summary;
+  } catch (error) {
+    writeErrorSentinelIfNew(summaryPath, error);
+    console.log(`  ✗ ${label}: ${error}`);
+    return null;
+  }
 }
 
 export async function indexConversations(
@@ -132,25 +159,15 @@ export async function indexConversations(
 
     // Batch summarize conversations in parallel (unless --no-summaries)
     if (!noSummaries) {
-      const needsSummary = toProcess.filter(c => shouldQueueForSummary(c.summaryPath));
+      const toSummarize = toProcess.filter(c => needsSummary(c.summaryPath, c.archivePath));
 
-      if (needsSummary.length > 0) {
-        console.log(`  Generating ${needsSummary.length} summaries (concurrency: ${concurrency})...`);
-
-        await processBatch(needsSummary, async (conv) => {
-          try {
-            const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
-            fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
-            const wordCount = summary.split(/\s+/).length;
-            console.log(`  ✓ ${conv.file}: ${wordCount} words`);
-            return summary;
-          } catch (error) {
-            // Write an error sentinel so the failure is retryable on a later run (#96).
-            try { fs.writeFileSync(conv.summaryPath, formatErrorSentinel(error), 'utf-8'); } catch {}
-            console.log(`  ✗ ${conv.file}: ${error}`);
-            return null;
-          }
-        }, concurrency);
+      if (toSummarize.length > 0) {
+        console.log(`  Generating ${toSummarize.length} summaries (concurrency: ${concurrency})...`);
+        await processBatch(
+          toSummarize,
+          conv => summarizeIfQuiescent(conv.summaryPath, conv.archivePath, conv.exchanges, conv.file),
+          concurrency,
+        );
       }
     } else {
       console.log(`  Skipping ${toProcess.length} summaries (--no-summaries mode)`);
@@ -233,17 +250,9 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
       if (exchanges.length > 0) {
         // Generate summary (unless --no-summaries)
         const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
-        if (!noSummaries && shouldQueueForSummary(summaryPath)) {
+        if (!noSummaries && needsSummary(summaryPath, archivePath)) {
           fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
-          try {
-            const summary = await summarizeConversation(exchanges, sessionIdForSummary(exchanges));
-            fs.writeFileSync(summaryPath, summary, 'utf-8');
-            console.log(`Summary: ${summary.split(/\s+/).length} words`);
-          } catch (error) {
-            // Write an error sentinel so the failure is retryable on a later run (#96).
-            try { fs.writeFileSync(summaryPath, formatErrorSentinel(error), 'utf-8'); } catch {}
-            console.log(`Summary failed: ${error instanceof Error ? error.message : String(error)}`);
-          }
+          await summarizeIfQuiescent(summaryPath, archivePath, exchanges, file);
         }
 
         // Index
@@ -351,24 +360,14 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
 
   // Batch process summaries (unless --no-summaries)
   if (!noSummaries) {
-    const needsSummary = unprocessed.filter(c => shouldQueueForSummary(c.summaryPath));
-    if (needsSummary.length > 0) {
-      console.log(`Generating ${needsSummary.length} summaries (concurrency: ${concurrency})...\n`);
-
-      await processBatch(needsSummary, async (conv) => {
-        try {
-          const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
-          fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
-          const wordCount = summary.split(/\s+/).length;
-          console.log(`  ✓ ${conv.project}/${conv.file}: ${wordCount} words`);
-          return summary;
-        } catch (error) {
-          // Write an error sentinel so the failure is retryable on a later run (#96).
-          try { fs.writeFileSync(conv.summaryPath, formatErrorSentinel(error), 'utf-8'); } catch {}
-          console.log(`  ✗ ${conv.project}/${conv.file}: ${error}`);
-          return null;
-        }
-      }, concurrency);
+    const toSummarize = unprocessed.filter(c => needsSummary(c.summaryPath, c.archivePath));
+    if (toSummarize.length > 0) {
+      console.log(`Generating ${toSummarize.length} summaries (concurrency: ${concurrency})...\n`);
+      await processBatch(
+        toSummarize,
+        conv => summarizeIfQuiescent(conv.summaryPath, conv.archivePath, conv.exchanges, `${conv.project}/${conv.file}`),
+        concurrency,
+      );
     }
   } else {
     console.log(`Skipping summaries for ${unprocessed.length} conversations (--no-summaries mode)\n`);

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getExcludedProjects, findJsonlFiles } from './paths.js';
-import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
+import { needsSummary, isQuiescent, writeSummary, writeErrorSentinelIfNew, } from './summary-sentinel.js';
 const EXCLUSION_MARKERS = [
     '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
     'Only use NO_INSIGHTS_FOUND',
@@ -90,11 +90,9 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                     result.skipped++;
                 }
                 // Check if this file needs a summary (whether newly copied or existing).
-                // shouldQueueForSummary skips files that already have a real summary or
-                // an empty zero-exchange sentinel, and retries stale error sentinels (#96).
                 if (!options.skipSummaries) {
                     const summaryPath = destFile.replace('.jsonl', '-summary.txt');
-                    if (shouldQueueForSummary(summaryPath) && !shouldSkipConversation(destFile)) {
+                    if (needsSummary(summaryPath, destFile) && !shouldSkipConversation(destFile)) {
                         const sessionId = extractSessionIdFromPath(destFile);
                         if (sessionId) {
                             filesToSummarize.push({ path: destFile, sessionId });
@@ -153,35 +151,28 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
             console.log(`  (${remaining} more need summaries - will process on next sync)`);
         }
         for (const { path: filePath, sessionId } of toSummarize) {
+            const summaryPath = filePath.replace('.jsonl', '-summary.txt');
             try {
                 const project = path.basename(path.dirname(filePath));
                 const exchanges = await parseConversation(filePath, project, filePath);
                 if (exchanges.length === 0) {
-                    // Skip empty conversations — write an empty -summary.txt sentinel so they aren't re-queued forever
-                    const summaryPath = filePath.replace('.jsonl', '-summary.txt');
-                    fs.writeFileSync(summaryPath, '', 'utf-8');
+                    fs.writeFileSync(summaryPath, '', 'utf-8'); // empty zero-exchange sentinel
                     continue;
                 }
+                // Only summarize once the conversation is quiescent, so we never freeze a
+                // mid-session snapshot. A non-quiescent file is left as-is and re-queued next sync.
+                if (!isQuiescent(exchanges, Date.now()))
+                    continue;
                 console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
                 const summary = await summarizeConversation(exchanges, sessionId);
-                const summaryPath = filePath.replace('.jsonl', '-summary.txt');
-                fs.writeFileSync(summaryPath, summary, 'utf-8');
+                writeSummary(summaryPath, filePath, exchanges, summary);
                 result.summarized++;
             }
             catch (error) {
-                // Write a structured error sentinel (#96): distinct from the empty
-                // zero-exchange sentinel so a stale failure can self-heal on the next
-                // sync run past the retry threshold. The marker also keeps the error
-                // text on disk for post-hoc diagnosis. Best-effort — if the sentinel
-                // write itself fails, fall through and surface the original error.
-                try {
-                    const summaryPath = filePath.replace('.jsonl', '-summary.txt');
-                    fs.writeFileSync(summaryPath, formatErrorSentinel(error), 'utf-8');
-                }
-                catch { }
+                writeErrorSentinelIfNew(summaryPath, error);
                 result.errors.push({
                     file: filePath,
-                    error: `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`
+                    error: `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`,
                 });
             }
         }

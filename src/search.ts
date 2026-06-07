@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { initDatabase } from './db.js';
 import { initEmbeddings, generateQueryEmbedding } from './embeddings.js';
 import { SearchResult, ConversationExchange, MultiConceptResult } from './types.js';
-import { isErroredSentinel } from './summary-sentinel.js';
+import { isErroredSentinel, parseSummaryFile } from './summary-sentinel.js';
 import fs from 'fs';
 import readline from 'readline';
 
@@ -218,7 +218,7 @@ export async function searchConversations(
     if (fs.existsSync(summaryPath)) {
       const raw = fs.readFileSync(summaryPath, 'utf-8');
       if (!isErroredSentinel(raw)) {
-        summary = raw.trim();
+        summary = parseSummaryFile(raw).body.trim();
       }
     }
 

@@ -3,7 +3,7 @@ import path from 'path';
 import { parseConversation } from './parser.js';
 import { initDatabase, getAllExchanges, getFileLastIndexed } from './db.js';
 import { getArchiveDir, getExcludedProjects, findJsonlFiles } from './paths.js';
-import { isErroredSentinel } from './summary-sentinel.js';
+import { isErroredSentinel, writeSummary } from './summary-sentinel.js';
 
 export interface VerificationResult {
   missing: Array<{ path: string; reason: string }>;
@@ -161,7 +161,7 @@ export async function repairIndex(issues: VerificationResult): Promise<void> {
       // Generate/update summary
       const summaryPath = conversationPath.replace('.jsonl', '-summary.txt');
       const summary = await summarizeConversation(exchanges);
-      fs.writeFileSync(summaryPath, summary, 'utf-8');
+      writeSummary(summaryPath, conversationPath, exchanges, summary);
       console.log(`  Created summary: ${summary.split(/\s+/).length} words`);
 
       // Index exchanges

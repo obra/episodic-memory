@@ -25002,6 +25002,23 @@ async function generateQueryEmbedding(query) {
 var ERROR_MARKER = "__ERRORED__";
 var ERROR_MARKER_PREFIX = `${ERROR_MARKER}
 `;
+var COVERAGE_PREFIX = "__COVERAGE__ ";
+function parseSummaryFile(content) {
+  if (!content.startsWith(COVERAGE_PREFIX)) {
+    return { coverage: null, body: content };
+  }
+  const newlineIndex = content.indexOf("\n");
+  const headerJson = content.slice(COVERAGE_PREFIX.length, newlineIndex === -1 ? void 0 : newlineIndex);
+  const body = newlineIndex === -1 ? "" : content.slice(newlineIndex + 1);
+  let coverage = null;
+  try {
+    const parsed = JSON.parse(headerJson);
+    if (parsed && typeof parsed.bytes === "number") coverage = parsed;
+  } catch {
+    coverage = null;
+  }
+  return { coverage, body };
+}
 function isErroredSentinel(content) {
   return content.startsWith(ERROR_MARKER_PREFIX);
 }
@@ -25165,7 +25182,7 @@ async function searchConversations(query, options = {}) {
     if (fs3.existsSync(summaryPath)) {
       const raw = fs3.readFileSync(summaryPath, "utf-8");
       if (!isErroredSentinel(raw)) {
-        summary = raw.trim();
+        summary = parseSummaryFile(raw).body.trim();
       }
     }
     const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, " ").trim();

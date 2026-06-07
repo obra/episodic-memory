@@ -16,7 +16,7 @@ vi.mock('../src/summarizer.js', async () => {
 
 import { syncConversations } from '../src/sync.js';
 import { summarizeConversation } from '../src/summarizer.js';
-import { ERROR_MARKER, isErroredSentinel, shouldQueueForSummary, formatErrorSentinel } from '../src/summary-sentinel.js';
+import { ERROR_MARKER, isErroredSentinel, shouldQueueForSummary, formatErrorSentinel, parseSummaryFile } from '../src/summary-sentinel.js';
 
 function makeNonEmptyJsonl(sessionId: string): string {
   return [
@@ -52,10 +52,14 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
     mkdirSync(sourceDir, { recursive: true });
     vi.mocked(summarizeConversation).mockReset();
     delete process.env.EPISODIC_MEMORY_SUMMARY_ERROR_RETRY_HOURS;
+    // Disable the quiescence gate (default 1h idle) so summaries are produced
+    // synchronously from fixtures during the test run.
+    process.env.EPISODIC_MEMORY_SUMMARY_QUIESCENCE_HOURS = '0';
   });
 
   afterEach(() => {
     delete process.env.EPISODIC_MEMORY_SUMMARY_ERROR_RETRY_HOURS;
+    delete process.env.EPISODIC_MEMORY_SUMMARY_QUIESCENCE_HOURS;
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch {}
@@ -121,7 +125,8 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
 
     expect(vi.mocked(summarizeConversation).mock.calls.length).toBe(2);
     expect(r2.summarized).toBe(1);
-    expect(readFileSync(summaryPath, 'utf-8')).toBe('Recovered summary.');
+    // Real summaries now carry a __COVERAGE__ header; compare only the body.
+    expect(parseSummaryFile(readFileSync(summaryPath, 'utf-8')).body).toBe('Recovered summary.');
   });
 
   it('respects EPISODIC_MEMORY_SUMMARY_ERROR_RETRY_HOURS for the retry threshold', async () => {
@@ -175,12 +180,13 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
     // skip; #91) from __ERRORED__ (transient; retry after threshold).
     const sentinelPath = join(testDir, 'empty-summary.txt');
     writeFileSync(sentinelPath, '', 'utf-8');
-    expect(shouldQueueForSummary(sentinelPath)).toBe(false);
+    // Byte arg is irrelevant for the empty (permanent-skip) path; pass 0.
+    expect(shouldQueueForSummary(sentinelPath, 0)).toBe(false);
 
     // Even if the empty sentinel is ancient, it must not be re-queued.
     const ancient = new Date(Date.now() - 365 * 24 * 3600_000);
     utimesSync(sentinelPath, ancient, ancient);
-    expect(shouldQueueForSummary(sentinelPath)).toBe(false);
+    expect(shouldQueueForSummary(sentinelPath, 0)).toBe(false);
   });
 
   it('formatErrorSentinel + isErroredSentinel round-trip', () => {
