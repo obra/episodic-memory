@@ -152,4 +152,35 @@ describe('summarizeConversation — Claude resume fallback (cwd-mismatch recover
       .rejects.toBeInstanceOf(SummarizerSdkError);
     expect(vi.mocked(query)).toHaveBeenCalledTimes(1);
   });
+
+  it('falls back to the non-resume path when resume hits the thinking-block 400, returning the recovered summary', async () => {
+    // Resume replays immutable thinking blocks → 400 (subtype 'success',
+    // is_error true). The non-resume path retries with the transcript as text.
+    vi.mocked(query)
+      .mockReturnValueOnce(asyncIterableFor([
+        {
+          type: 'result',
+          subtype: 'success',
+          is_error: true,
+          api_error_status: 400,
+          session_id: 'abc-123',
+          result: 'API Error: 400 messages.1.content.25: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response.',
+        },
+      ]) as any)
+      .mockReturnValueOnce(asyncIterableFor([
+        { type: 'result', is_error: false, result: '<summary>Summary recovered via transcript fallback.</summary>' },
+      ]) as any);
+
+    const result = await summarizeConversation([makeExchange()], 'abc-123');
+    expect(result).toBe('Summary recovered via transcript fallback.');
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
+
+    const firstCallOptions = vi.mocked(query).mock.calls[0][0].options as any;
+    expect(firstCallOptions.resume).toBe('abc-123');
+
+    const secondCallOptions = vi.mocked(query).mock.calls[1][0].options as any;
+    expect(secondCallOptions.resume).toBeUndefined();
+    const secondPrompt = vi.mocked(query).mock.calls[1][0].prompt as string;
+    expect(secondPrompt).toContain('How do I rebase against origin/main?');
+  });
 });

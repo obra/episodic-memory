@@ -1,17 +1,26 @@
 import { ConversationExchange } from './types.js';
 /**
- * Thrown by callClaude when the SDK yields an `is_error: true` result message.
- * Carries the SDK's `subtype` and `session_id` as typed fields so callers can
- * dispatch on structural metadata rather than parsing error message text.
+ * Thrown by callClaude on an `is_error: true` result. Carries `subtype`,
+ * `session_id`, `api_error_status`, and the error text so callers can dispatch
+ * on structure and logs show the real failure, not a bare subtype. The SDK
+ * pairs `subtype: 'success'` with `is_error: true` when the loop finished but
+ * the turn hit an API error (carried in `result` / `api_error_status`).
  */
 export declare class SummarizerSdkError extends Error {
     readonly subtype: string;
     readonly sessionId?: string | undefined;
-    constructor(subtype: string, sessionId?: string | undefined);
+    readonly apiErrorStatus?: number | null | undefined;
+    readonly apiError?: string | undefined;
+    constructor(subtype: string, sessionId?: string | undefined, apiErrorStatus?: number | null | undefined, apiError?: string | undefined);
 }
 /**
- * True when the SDK's reported failure subtype indicates resume couldn't find
- * the session — the trigger for the non-resume fallback in summarizeConversation.
+ * True when the resume continuation itself failed — the trigger for the
+ * non-resume fallback in summarizeConversation. Two signals:
+ * - `error_during_execution`: the SDK couldn't resume (e.g. recorded cwd gone).
+ * - HTTP 400: the API rejected the replayed history, canonically `thinking`
+ *   blocks it forbids modifying on continuation. Our prompt is plain text, so a
+ *   400 on resume can only come from the replayed turns. Other statuses aren't
+ *   resume-specific and propagate.
  */
 export declare function isResumeFailure(error: unknown): boolean;
 export interface CodexSummarizerCommand {

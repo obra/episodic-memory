@@ -76,12 +76,64 @@ describe('isResumeFailure', () => {
     expect(isResumeFailure(new SummarizerSdkError('unknown'))).toBe(false);
   });
 
+  it('matches an is_error result carrying HTTP 400 — the API rejecting the replayed thinking blocks on resume', () => {
+    // 'success' subtype but the turn hit a 400 — the thinking-block rejection.
+    const thinkingBlock400 = new SummarizerSdkError(
+      'success',
+      'abc-123',
+      400,
+      'API Error: 400 messages.1.content.25: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response.',
+    );
+    expect(isResumeFailure(thinkingBlock400)).toBe(true);
+  });
+
+  it('does not match non-400 HTTP statuses — auth/rate-limit/server errors are not resume-specific', () => {
+    // Retrying without resume wouldn't help these, so they propagate.
+    expect(isResumeFailure(new SummarizerSdkError('success', 'abc-123', 401, 'API Error: 401'))).toBe(false);
+    expect(isResumeFailure(new SummarizerSdkError('success', 'abc-123', 429, 'API Error: 429'))).toBe(false);
+    expect(isResumeFailure(new SummarizerSdkError('success', 'abc-123', 529, 'API Error: 529'))).toBe(false);
+  });
+
   it('does not match plain Error or non-Error values, even if their text looks resume-related', () => {
     expect(isResumeFailure(new Error('No conversation found with session ID: abc'))).toBe(false);
     expect(isResumeFailure(new Error('error_during_execution'))).toBe(false);
     expect(isResumeFailure('No conversation found')).toBe(false);
     expect(isResumeFailure(undefined)).toBe(false);
     expect(isResumeFailure(null)).toBe(false);
+  });
+});
+
+describe('SummarizerSdkError', () => {
+  it('exposes subtype, sessionId, apiErrorStatus, and the API error text as typed fields', () => {
+    const error = new SummarizerSdkError(
+      'success',
+      'sess-1',
+      400,
+      'API Error: 400 messages.1.content.25: `thinking` blocks cannot be modified.',
+    );
+    expect(error.subtype).toBe('success');
+    expect(error.sessionId).toBe('sess-1');
+    expect(error.apiErrorStatus).toBe(400);
+    expect(error.apiError).toContain('thinking');
+  });
+
+  it('builds a diagnostic message that surfaces the real API error instead of a bare subtype', () => {
+    const error = new SummarizerSdkError(
+      'success',
+      'sess-1',
+      400,
+      'API Error: 400 messages.1.content.25: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified.',
+    );
+    // The pre-fix message was the useless "Summarizer SDK error: success".
+    expect(error.message).not.toBe('Summarizer SDK error: success');
+    expect(error.message).toContain('400');
+    expect(error.message).toContain('cannot be modified');
+  });
+
+  it('still renders a compact message when no API error detail is present', () => {
+    const error = new SummarizerSdkError('error_during_execution', 'sess-2');
+    expect(error.message).toContain('error_during_execution');
+    expect(error.message).toContain('sess-2');
   });
 });
 
