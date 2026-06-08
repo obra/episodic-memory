@@ -122,10 +122,11 @@ export async function repairIndex(issues: VerificationResult): Promise<void> {
   console.log('Repairing index...');
 
   // To avoid circular dependencies, we import the indexer functions dynamically
-  const { initDatabase, insertExchange, deleteExchange } = await import('./db.js');
+  const { initDatabase, deleteExchange } = await import('./db.js');
   const { parseConversation } = await import('./parser.js');
-  const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
+  const { initEmbeddings } = await import('./embeddings.js');
   const { summarizeConversation } = await import('./summarizer.js');
+  const { indexExchanges } = await import('./indexer.js');
 
   const db = initDatabase();
   await initEmbeddings();
@@ -164,18 +165,10 @@ export async function repairIndex(issues: VerificationResult): Promise<void> {
       fs.writeFileSync(summaryPath, summary, 'utf-8');
       console.log(`  Created summary: ${summary.split(/\s+/).length} words`);
 
-      // Index exchanges
-      for (const exchange of exchanges) {
-        const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-        const embedding = await generateExchangeEmbedding(
-          exchange.userMessage,
-          exchange.assistantMessage,
-          toolNames
-        );
-        insertExchange(db, exchange, embedding, toolNames);
-      }
+      // Index exchanges (skips sidechains)
+      const inserted = await indexExchanges(db, exchanges);
 
-      console.log(`  Indexed ${exchanges.length} exchanges`);
+      console.log(`  Indexed ${inserted} exchanges`);
     } catch (error) {
       console.error(`Failed to re-index ${conversationPath}:`, error);
     }

@@ -21,12 +21,18 @@ describe('sync command', () => {
     // Create source directory
     mkdirSync(sourceDir, { recursive: true });
 
+    // Isolate from the user's real exclude.txt / config so subagents/ dirs
+    // aren't pre-filtered at discovery.
+    process.env.EPISODIC_MEMORY_CONFIG_DIR = join(testDir, 'config');
+    mkdirSync(process.env.EPISODIC_MEMORY_CONFIG_DIR, { recursive: true });
+
     // Set DB path for sync to use
     process.env.TEST_DB_PATH = dbPath;
   });
 
   afterEach(() => {
     delete process.env.TEST_DB_PATH;
+    delete process.env.EPISODIC_MEMORY_CONFIG_DIR;
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch (error) {
@@ -246,5 +252,164 @@ describe('sync command', () => {
     const sentinelsAfter2 = readdirSync(join(destDir, 'project-a'))
       .filter(f => f.endsWith('-summary.txt'));
     expect(sentinelsAfter2.length).toBe(zeroExchangeFileCount);
+  });
+
+  it('should not copy sidechain files (top-level Warmup stub)', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+    const sidechainFile = join(sourceDir, 'project-a', 'agent-a01.jsonl');
+    writeFileSync(
+      sidechainFile,
+      JSON.stringify({
+        isSidechain: true,
+        type: 'user',
+        message: { role: 'user', content: 'Warmup' },
+        uuid: 'warmup-1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }) + '\n',
+      'utf-8'
+    );
+
+    const result = await syncConversations(sourceDir, destDir, { skipIndex: true, skipSummaries: true });
+
+    expect(result.copied).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(existsSync(join(destDir, 'project-a', 'agent-a01.jsonl'))).toBe(false);
+  });
+
+  it('should not copy sidechain files (nested subagent dispatch)', async () => {
+    mkdirSync(join(sourceDir, 'project-a', 'parent-session', 'subagents'), { recursive: true });
+    const sidechainFile = join(sourceDir, 'project-a', 'parent-session', 'subagents', 'agent-a01.jsonl');
+    writeFileSync(
+      sidechainFile,
+      JSON.stringify({
+        isSidechain: true,
+        type: 'user',
+        cwd: '/test/project',
+        message: { role: 'user', content: 'Investigate the bug' },
+        uuid: 'sub-1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }) + '\n' +
+      JSON.stringify({
+        isSidechain: true,
+        type: 'assistant',
+        cwd: '/test/project',
+        message: { role: 'assistant', content: 'Found it in foo.ts' },
+        uuid: 'sub-2',
+        timestamp: '2026-01-01T00:00:01.000Z',
+      }) + '\n',
+      'utf-8'
+    );
+
+    const result = await syncConversations(sourceDir, destDir, { skipIndex: true, skipSummaries: true });
+
+    expect(result.copied).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(existsSync(join(destDir, 'project-a', 'parent-session', 'subagents', 'agent-a01.jsonl'))).toBe(false);
+  });
+
+  it('should copy regular non-sidechain conversation files', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+    const regularFile = join(sourceDir, 'project-a', 'session-1.jsonl');
+    writeFileSync(
+      regularFile,
+      JSON.stringify({
+        isSidechain: false,
+        type: 'user',
+        cwd: '/test/project',
+        message: { role: 'user', content: 'Hello' },
+        uuid: 'reg-1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }) + '\n',
+      'utf-8'
+    );
+
+    const result = await syncConversations(sourceDir, destDir, { skipIndex: true, skipSummaries: true });
+
+    expect(result.copied).toBe(1);
+    expect(existsSync(join(destDir, 'project-a', 'session-1.jsonl'))).toBe(true);
+  });
+
+  it('does not index inline sidechain exchanges from a mixed file', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+
+    // A regular session (first record non-sidechain, so the file is copied)
+    // that also carries inline sidechain exchanges — the case the per-exchange
+    // filter must catch on the sync indexing path, not just the manual reindex.
+    const rec = (uuid: string, parent: string | null, role: string, text: string, isSidechain: boolean) =>
+      JSON.stringify({
+        parentUuid: parent,
+        isSidechain,
+        userType: 'external',
+        cwd: '/test/project',
+        sessionId: 'mix-1',
+        version: '2.0.9',
+        gitBranch: 'main',
+        type: role,
+        message:
+          role === 'user'
+            ? { role: 'user', content: text }
+            : { model: 'claude-sonnet-4-5', role: 'assistant', content: [{ type: 'text', text }] },
+        uuid,
+        timestamp: '2026-01-01T00:00:00.000Z',
+      });
+
+    const mixed = [
+      rec('m-u1', null, 'user', 'Real question about the indexer', false),
+      rec('m-a1', 'm-u1', 'assistant', 'Real answer about the indexer', false),
+      rec('m-u2', 'm-a1', 'user', 'Subagent internal step', true),
+      rec('m-a2', 'm-u2', 'assistant', 'Subagent internal finding', true),
+    ].join('\n') + '\n';
+    writeFileSync(join(sourceDir, 'project-a', 'mix-1.jsonl'), mixed, 'utf-8');
+
+    const result = await syncConversations(sourceDir, destDir, { skipSummaries: true });
+
+    // File is copied (its first record is non-sidechain) and indexed...
+    expect(result.copied).toBe(1);
+    expect(result.indexed).toBe(1);
+
+    // ...but only the non-sidechain exchange lands in the DB.
+    const db = new Database(dbPath, { readonly: true });
+    const total = (db.prepare('SELECT COUNT(*) AS c FROM exchanges').get() as { c: number }).c;
+    const sidechain = (db.prepare('SELECT COUNT(*) AS c FROM exchanges WHERE is_sidechain = 1').get() as { c: number }).c;
+    db.close();
+
+    expect(total).toBe(1);
+    expect(sidechain).toBe(0);
+  });
+
+  it('skips a sidechain file whose first record is larger than the read chunk', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+
+    // A subagent dispatch whose opening record (big prompt + attachments) is
+    // larger than the chunk size — the file-level peek must read the whole
+    // record to see isSidechain rather than truncating and copying it.
+    const bigPrompt = 'x'.repeat(40000);
+    const sidechainFile = join(sourceDir, 'project-a', 'agent-big01.jsonl');
+    writeFileSync(
+      sidechainFile,
+      JSON.stringify({
+        isSidechain: true,
+        type: 'user',
+        cwd: '/test/project',
+        message: { role: 'user', content: bigPrompt },
+        uuid: 'big-1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }) + '\n' +
+      JSON.stringify({
+        isSidechain: true,
+        type: 'assistant',
+        cwd: '/test/project',
+        message: { role: 'assistant', content: 'done' },
+        uuid: 'big-2',
+        timestamp: '2026-01-01T00:00:01.000Z',
+      }) + '\n',
+      'utf-8'
+    );
+
+    const result = await syncConversations(sourceDir, destDir, { skipIndex: true, skipSummaries: true });
+
+    expect(result.copied).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(existsSync(join(destDir, 'project-a', 'agent-big01.jsonl'))).toBe(false);
   });
 });

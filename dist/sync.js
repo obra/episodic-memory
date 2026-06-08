@@ -18,25 +18,88 @@ function shouldSkipConversation(filePath) {
         return false;
     }
 }
-function copyIfNewer(src, dest) {
+/**
+ * Return whether a JSONL conversation file is a sidechain. A file is
+ * "sidechain" when the first record carrying an isSidechain field has it set to
+ * true — subagent dispatches (every record), Warmup stubs, prompt-suggestion
+ * sidechains, ai-title stubs, etc.
+ *
+ * Conservative: if we can't read the file, can't parse a record, or no record
+ * carries the field within the scan cap, return false so the file is copied.
+ * Mixed-content sessions (regular session with some sidechain records inline)
+ * also return false — the indexer-side filter handles per-exchange skipping.
+ */
+export function isSidechainFile(filePath) {
+    // Read in chunks and parse only complete (newline-terminated) records, so a
+    // first record larger than one chunk — e.g. a big opening prompt with
+    // attachments — is classified rather than truncated. Bounded so a
+    // pathologically large file is never read in full.
+    const CHUNK = 16384;
+    const MAX_BYTES = 1024 * 1024;
+    let fd = null;
+    try {
+        fd = fs.openSync(filePath, 'r');
+        const chunk = Buffer.alloc(CHUNK);
+        let pending = Buffer.alloc(0);
+        let pos = 0;
+        while (pos < MAX_BYTES) {
+            const bytesRead = fs.readSync(fd, chunk, 0, CHUNK, pos);
+            const atEof = bytesRead === 0;
+            if (!atEof) {
+                pos += bytesRead;
+                pending = Buffer.concat([pending, chunk.subarray(0, bytesRead)]);
+            }
+            // Parse each complete line; at EOF the trailing bytes are the final line.
+            let nl;
+            while ((nl = pending.indexOf(0x0a)) !== -1 || (atEof && pending.length > 0)) {
+                const line = nl !== -1 ? pending.subarray(0, nl) : pending;
+                pending = nl !== -1 ? pending.subarray(nl + 1) : Buffer.alloc(0);
+                if (line.length === 0)
+                    continue;
+                let parsed;
+                try {
+                    parsed = JSON.parse(line.toString('utf-8'));
+                }
+                catch {
+                    // A complete line that won't parse is malformed — stop, copy the file.
+                    return false;
+                }
+                if (typeof parsed?.isSidechain === 'boolean') {
+                    return parsed.isSidechain;
+                }
+            }
+            if (atEof)
+                break;
+        }
+        return false;
+    }
+    catch {
+        return false;
+    }
+    finally {
+        if (fd !== null) {
+            try {
+                fs.closeSync(fd);
+            }
+            catch { /* best-effort close */ }
+        }
+    }
+}
+function destIsUpToDate(src, dest) {
+    if (!fs.existsSync(dest))
+        return false;
+    return fs.statSync(dest).mtimeMs >= fs.statSync(src).mtimeMs;
+}
+function copyConversation(src, dest) {
     // Ensure destination directory exists
     const destDir = path.dirname(dest);
     if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
     }
-    // Check if destination exists and is up-to-date
-    if (fs.existsSync(dest)) {
-        const srcStat = fs.statSync(src);
-        const destStat = fs.statSync(dest);
-        if (destStat.mtimeMs >= srcStat.mtimeMs) {
-            return false; // Dest is current, skip
-        }
-    }
     // Atomic copy: temp file + rename
     const tempDest = dest + '.tmp.' + process.pid;
     fs.copyFileSync(src, tempDest);
     fs.renameSync(tempDest, dest); // Atomic on same filesystem
-    return true;
 }
 export function extractSessionIdFromPath(filePath) {
     // Extract session ID from Claude filename or Codex rollout filename.
@@ -81,13 +144,20 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
             const srcFile = path.join(projectPath, file);
             const destFile = path.join(destDir, project, file);
             try {
-                const wasCopied = copyIfNewer(srcFile, destFile);
-                if (wasCopied) {
-                    result.copied++;
-                    filesToIndex.push(destFile);
+                // Cheap mtime gate first; only peek inside files we'd actually copy,
+                // so unchanged files aren't re-read on every sync.
+                if (destIsUpToDate(srcFile, destFile)) {
+                    result.skipped++;
+                }
+                else if (isSidechainFile(srcFile)) {
+                    // Sidechain files are never copied, indexed, or summarized.
+                    result.skipped++;
+                    continue;
                 }
                 else {
-                    result.skipped++;
+                    copyConversation(srcFile, destFile);
+                    result.copied++;
+                    filesToIndex.push(destFile);
                 }
                 // Check if this file needs a summary (whether newly copied or existing).
                 // shouldQueueForSummary skips files that already have a real summary or
@@ -112,9 +182,10 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
     }
     // Index copied files (unless skipIndex is set)
     if (!options.skipIndex && filesToIndex.length > 0) {
-        const { initDatabase, insertExchange } = await import('./db.js');
-        const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
+        const { initDatabase } = await import('./db.js');
+        const { initEmbeddings } = await import('./embeddings.js');
         const { parseConversation } = await import('./parser.js');
+        const { indexExchanges } = await import('./indexer.js');
         const db = initDatabase();
         await initEmbeddings();
         for (const file of filesToIndex) {
@@ -125,11 +196,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                 }
                 const project = path.basename(path.dirname(file));
                 const exchanges = await parseConversation(file, project, file);
-                for (const exchange of exchanges) {
-                    const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-                    const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
-                    insertExchange(db, exchange, embedding, toolNames);
-                }
+                await indexExchanges(db, exchanges);
                 result.indexed++;
             }
             catch (error) {

@@ -37,6 +37,35 @@ function sessionIdForSummary(exchanges: ConversationExchange[]): string | undefi
   return exchanges.find(exchange => exchange.sessionId)?.sessionId;
 }
 
+/**
+ * Embed and insert exchanges, skipping sidechains (subagent dispatches, Warmup
+ * stubs, prompt-suggestion sidechains). Search excludes them via
+ * `AND is_sidechain = 0`, so indexing them would embed and store rows no query
+ * can ever return. Returns the number of exchanges actually inserted.
+ *
+ * This is the single place that decides what gets indexed — every indexing
+ * path (full reindex, single session, unprocessed backlog, background sync,
+ * verify/repair) routes through here so the sidechain filter can't be missed.
+ */
+export async function indexExchanges(
+  db: ReturnType<typeof initDatabase>,
+  exchanges: ConversationExchange[]
+): Promise<number> {
+  let inserted = 0;
+  for (const exchange of exchanges) {
+    if (exchange.isSidechain) continue;
+    const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
+    const embedding = await generateExchangeEmbedding(
+      exchange.userMessage,
+      exchange.assistantMessage,
+      toolNames
+    );
+    insertExchange(db, exchange, embedding, toolNames);
+    inserted++;
+  }
+  return inserted;
+}
+
 export async function indexConversations(
   limitToProject?: string,
   maxConversations?: number,
@@ -158,18 +187,7 @@ export async function indexConversations(
 
     // Now process embeddings and DB inserts (fast, sequential is fine)
     for (const conv of toProcess) {
-      for (const exchange of conv.exchanges) {
-        const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-        const embedding = await generateExchangeEmbedding(
-          exchange.userMessage,
-          exchange.assistantMessage,
-          toolNames
-        );
-
-        insertExchange(db, exchange, embedding, toolNames);
-      }
-
-      totalExchanges += conv.exchanges.length;
+      totalExchanges += await indexExchanges(db, conv.exchanges);
       conversationsProcessed++;
 
       // Check if we hit the limit
@@ -230,7 +248,8 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
       // Parse and summarize
       const exchanges = await parseConversation(sourcePath, project, archivePath);
 
-      if (exchanges.length > 0) {
+      const indexable = exchanges.filter(e => !e.isSidechain);
+      if (indexable.length > 0) {
         // Generate summary (unless --no-summaries)
         const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
         if (!noSummaries && shouldQueueForSummary(summaryPath)) {
@@ -246,18 +265,8 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
           }
         }
 
-        // Index
-        for (const exchange of exchanges) {
-          const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-          const embedding = await generateExchangeEmbedding(
-            exchange.userMessage,
-            exchange.assistantMessage,
-            toolNames
-          );
-          insertExchange(db, exchange, embedding, toolNames);
-        }
-
-        console.log(`✅ Indexed session ${sessionId}: ${exchanges.length} exchanges`);
+        const inserted = await indexExchanges(db, exchanges);
+        console.log(`✅ Indexed session ${sessionId}: ${inserted} exchanges`);
       }
 
       db.close();
@@ -377,15 +386,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
   // Now index embeddings
   console.log(`\nIndexing embeddings...`);
   for (const conv of unprocessed) {
-    for (const exchange of conv.exchanges) {
-      const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-      const embedding = await generateExchangeEmbedding(
-        exchange.userMessage,
-        exchange.assistantMessage,
-        toolNames
-      );
-      insertExchange(db, exchange, embedding, toolNames);
-    }
+    await indexExchanges(db, conv.exchanges);
   }
 
   db.close();
