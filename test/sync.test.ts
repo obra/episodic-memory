@@ -23,10 +23,15 @@ describe('sync command', () => {
 
     // Set DB path for sync to use
     process.env.TEST_DB_PATH = dbPath;
+
+    // Summaries are gated on quiescence (default 1h idle). Disable the gate so
+    // these tests can exercise summary generation synchronously.
+    process.env.EPISODIC_MEMORY_SUMMARY_QUIESCENCE_HOURS = '0';
   });
 
   afterEach(() => {
     delete process.env.TEST_DB_PATH;
+    delete process.env.EPISODIC_MEMORY_SUMMARY_QUIESCENCE_HOURS;
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch (error) {
