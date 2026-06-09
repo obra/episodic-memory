@@ -8,7 +8,7 @@ import { summarizeConversation } from './summarizer.js';
 import { ConversationExchange } from './types.js';
 import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles } from './paths.js';
 import {
-  needsSummary, isQuiescent, writeSummary, writeErrorSentinelIfNew,
+  needsSummary, isQuiescent, writeSummary, recordSummaryFailure,
 } from './summary-sentinel.js';
 
 // Set max output tokens for Claude SDK (used by summarizer)
@@ -41,9 +41,10 @@ function sessionIdForSummary(exchanges: ConversationExchange[]): string | undefi
 
 /**
  * Summarize one conversation once it has gone quiescent, writing the summary with
- * its coverage header. Preserves a prior summary on failure (an error sentinel is
- * written only for a first-time failure). Returns the summary, or null when the
- * conversation is skipped (not yet quiescent) or summarization fails.
+ * its coverage header. On failure, recordSummaryFailure preserves any prior
+ * summary and records the attempt (a first-time failure writes an error sentinel
+ * instead). Returns the summary, or null when the conversation is skipped (not yet
+ * quiescent) or summarization fails.
  */
 async function summarizeIfQuiescent(
   summaryPath: string,
@@ -58,7 +59,7 @@ async function summarizeIfQuiescent(
     console.log(`  ✓ ${label}: ${summary.split(/\s+/).length} words`);
     return summary;
   } catch (error) {
-    writeErrorSentinelIfNew(summaryPath, error);
+    recordSummaryFailure(summaryPath, error);
     console.log(`  ✗ ${label}: ${error}`);
     return null;
   }

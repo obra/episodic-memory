@@ -19,6 +19,7 @@ const ERROR_MARKER_PREFIX = `${ERROR_MARKER}\n`;
 // milliseconds; convert at this single boundary so the two units never mix.
 const MS_PER_HOUR = 3600_000;
 const DEFAULT_ERROR_RETRY_HOURS = 1;
+const DEFAULT_SUMMARY_MAX_ATTEMPTS = 5;
 export const COVERAGE_SCHEMA = 1;
 const COVERAGE_PREFIX = '__COVERAGE__ ';
 /** Serialize a real summary with its coverage header as the first line. */
@@ -49,12 +50,35 @@ export function parseSummaryFile(content) {
     }
     return { coverage, body };
 }
-export function formatErrorSentinel(error) {
+/**
+ * Serialize an error sentinel: the marker, a JSON failure-state line (attempts +
+ * lastAttempt), then the human-readable error message. The failure state lets
+ * shouldQueueForSummary back off and give up identically to a re-summary failure.
+ */
+export function formatErrorSentinel(error, failure) {
     const message = error instanceof Error ? error.message : String(error);
-    return `${ERROR_MARKER}\n${new Date().toISOString()}\n${message}\n`;
+    return `${ERROR_MARKER}\n${JSON.stringify(failure)}\n${message}\n`;
 }
 export function isErroredSentinel(content) {
     return content.startsWith(ERROR_MARKER_PREFIX);
+}
+/**
+ * Read the failure state from an error sentinel. Tolerates the legacy
+ * `__ERRORED__\n<ISO timestamp>\n<message>` form (no attempt count): the ISO
+ * time becomes lastAttempt and attempts starts at 0, so an upgraded sentinel
+ * keeps backing off correctly and recordSummaryFailure resumes counting.
+ */
+export function parseErrorSentinel(content) {
+    const secondLine = content.split('\n', 2)[1] ?? '';
+    try {
+        const parsed = JSON.parse(secondLine);
+        if (parsed && typeof parsed.attempts === 'number' && typeof parsed.lastAttempt === 'number') {
+            return { attempts: parsed.attempts, lastAttempt: parsed.lastAttempt };
+        }
+    }
+    catch { /* legacy ISO-timestamp form */ }
+    const legacyTime = Date.parse(secondLine);
+    return { attempts: 0, lastAttempt: Number.isNaN(legacyTime) ? 0 : legacyTime };
 }
 /** Resolve an `_HOURS` env var to milliseconds, falling back to defaultHours for
  *  undefined/garbage. allowZero=false rejects 0 too (used for retry backoff). */
@@ -70,8 +94,32 @@ function resolveHoursEnvMs(name, defaultHours, allowZero) {
         return defaultMs;
     return hours * MS_PER_HOUR;
 }
-function getErrorRetryMs() {
+/** The retry floor: minimum idle time between failed summary attempts (a
+ *  first-time failure or a re-summary alike). Configurable in hours; default 1h. */
+function getRetryFloorMs() {
     return resolveHoursEnvMs('EPISODIC_MEMORY_SUMMARY_ERROR_RETRY_HOURS', DEFAULT_ERROR_RETRY_HOURS, false);
+}
+/**
+ * Failed summary attempts to make before giving up — keeping whatever good
+ * summary exists (none, for a first-time failure). Bounds cost on a transcript
+ * that never summarizes. Configurable for operators/tests; falls back for garbage.
+ */
+export function getMaxSummaryAttempts() {
+    const raw = process.env.EPISODIC_MEMORY_SUMMARY_MAX_ATTEMPTS;
+    if (raw === undefined)
+        return DEFAULT_SUMMARY_MAX_ATTEMPTS;
+    const attempts = parseInt(raw, 10);
+    return Number.isInteger(attempts) && attempts >= 0 ? attempts : DEFAULT_SUMMARY_MAX_ATTEMPTS;
+}
+/**
+ * The single retry/give-up policy for any recorded summary failure: hold off
+ * until the retry floor has elapsed, then give up once the attempt budget is
+ * spent. Shared by the error-sentinel and re-summary paths so they stay in lockstep.
+ */
+function shouldRetryAfterFailure(failure) {
+    if (failure.attempts >= getMaxSummaryAttempts())
+        return false;
+    return Date.now() - failure.lastAttempt >= getRetryFloorMs();
 }
 /**
  * True when the sentinel at `summaryPath` represents a real summary —
@@ -96,14 +144,41 @@ export function hasRealSummary(summaryPath) {
         return false;
     return parseSummaryFile(content).body.trim().length > 0;
 }
-/**
- * Best-effort error sentinel, written only when no prior real summary exists so a
- * re-summary failure never discards good content. Swallows its own write errors.
- */
-export function writeErrorSentinelIfNew(summaryPath, error) {
+/** Attempts already recorded in an existing error sentinel, or 0 when there is
+ *  no sentinel (or it can't be read). Lets a repeat first-failure keep counting. */
+function readErrorAttempts(summaryPath) {
     try {
-        if (!hasRealSummary(summaryPath))
-            fs.writeFileSync(summaryPath, formatErrorSentinel(error), 'utf-8');
+        const content = fs.readFileSync(summaryPath, 'utf-8');
+        return isErroredSentinel(content) ? parseErrorSentinel(content).attempts : 0;
+    }
+    catch {
+        return 0;
+    }
+}
+/**
+ * Record a summary failure, incrementing the attempt count. Best-effort —
+ * swallows its own IO errors. Both branches feed the same backoff/give-up policy
+ * (shouldRetryAfterFailure); a successful writeSummary later clears the state.
+ *  - No prior real summary: write an attempt-counted error sentinel (#96).
+ *  - Prior real summary exists: keep the good body but stamp the attempt + time
+ *    into its `resummary` header, so the last good summary survives the failure.
+ */
+export function recordSummaryFailure(summaryPath, error) {
+    try {
+        const now = Date.now();
+        if (!hasRealSummary(summaryPath)) {
+            const attempts = readErrorAttempts(summaryPath) + 1;
+            fs.writeFileSync(summaryPath, formatErrorSentinel(error, { attempts, lastAttempt: now }), 'utf-8');
+            return;
+        }
+        const { coverage, body } = parseSummaryFile(fs.readFileSync(summaryPath, 'utf-8'));
+        // A legacy header-less good summary is never re-queued (shouldQueueForSummary
+        // returns false for null coverage), so leave it untouched rather than guessing a baseline.
+        if (coverage === null)
+            return;
+        const attempts = (coverage.resummary?.attempts ?? 0) + 1;
+        const updated = { ...coverage, resummary: { attempts, lastAttempt: now } };
+        fs.writeFileSync(summaryPath, formatSummaryFile(updated, body), 'utf-8');
     }
     catch { }
 }
@@ -113,6 +188,10 @@ export function writeErrorSentinelIfNew(summaryPath, error) {
  *  - a stale error marker, or
  *  - a real summary whose covered byte size is below the current archive size
  *    (the transcript has grown — append-only, so a size increase means new content).
+ * Both a stale error marker and a grown summary carrying failed-re-summary state
+ * are governed by shouldRetryAfterFailure — held back until the retry floor
+ * elapses, then abandoned once getMaxSummaryAttempts() is spent (keeping any good
+ * summary) so a never-summarizable transcript can't thrash.
  * A legacy header-less summary returns false; callers must call
  * ensureCoverageBaseline first so a baseline exists and future growth is detected.
  */
@@ -129,18 +208,16 @@ export function shouldQueueForSummary(summaryPath, currentArchiveBytes) {
     if (content.length === 0)
         return false;
     if (isErroredSentinel(content)) {
-        try {
-            const stat = fs.statSync(summaryPath);
-            return Date.now() - stat.mtimeMs >= getErrorRetryMs();
-        }
-        catch {
-            return false;
-        }
+        return shouldRetryAfterFailure(parseErrorSentinel(content));
     }
     const { coverage } = parseSummaryFile(content);
     if (coverage === null)
         return false; // legacy; caller must have stamped a baseline via ensureCoverageBaseline
-    return currentArchiveBytes > coverage.bytes;
+    if (currentArchiveBytes <= coverage.bytes)
+        return false; // transcript hasn't grown
+    // Transcript grew. A prior failed re-summary backs off / gives up under the
+    // same policy as a first-time failure; otherwise re-summarize the new content.
+    return coverage.resummary ? shouldRetryAfterFailure(coverage.resummary) : true;
 }
 const DEFAULT_QUIESCENCE_HOURS = 1;
 /** Idle time a conversation must reach before it is (re)summarized.

@@ -86,7 +86,7 @@ describe('writeSummary + ensureCoverageBaseline', () => {
 
   it('leaves an error sentinel untouched', () => {
     const summaryPath = join(tmp(), 's-summary.txt');
-    const errored = formatErrorSentinel(new Error('boom'));
+    const errored = formatErrorSentinel(new Error('boom'), { attempts: 1, lastAttempt: Date.now() });
     writeFileSync(summaryPath, errored);
     ensureCoverageBaseline(summaryPath, 999);
     expect(readFileSync(summaryPath, 'utf-8')).toBe(errored);

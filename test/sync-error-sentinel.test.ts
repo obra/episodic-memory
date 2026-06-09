@@ -81,9 +81,11 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
     const content = readFileSync(summaryPath, 'utf-8');
     expect(content.startsWith(`${ERROR_MARKER}\n`)).toBe(true);
     expect(content).toContain('Simulated API outage');
-    // Second line should be an ISO timestamp — sanity check that it parses.
-    const [, ts] = content.split('\n');
-    expect(Number.isFinite(Date.parse(ts))).toBe(true);
+    // Second line is the JSON failure state — records the attempt count and time.
+    const [, stateLine] = content.split('\n');
+    const failure = JSON.parse(stateLine);
+    expect(failure.attempts).toBe(1);
+    expect(Number.isFinite(failure.lastAttempt)).toBe(true);
   });
 
   it('does not re-queue an errored file on an immediate second sync (within retry window)', async () => {
@@ -115,9 +117,8 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
     const summaryPath = join(destDir, 'project-a', `${sessionId}-summary.txt`);
     expect(isErroredSentinel(readFileSync(summaryPath, 'utf-8'))).toBe(true);
 
-    // Backdate the sentinel's mtime past the default 1h retry window.
-    const twoHoursAgo = new Date(Date.now() - 2 * 3600_000);
-    utimesSync(summaryPath, twoHoursAgo, twoHoursAgo);
+    // Backdate the sentinel's recorded attempt past the default 1h retry window.
+    writeFileSync(summaryPath, formatErrorSentinel(new Error('Transient API outage'), { attempts: 1, lastAttempt: Date.now() - 2 * 3600_000 }), 'utf-8');
 
     // Second sync — now the file should be re-attempted. This time it succeeds.
     vi.mocked(summarizeConversation).mockResolvedValueOnce('Recovered summary.');
@@ -139,9 +140,8 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
     await syncConversations(sourceDir, destDir, { skipIndex: true });
     const summaryPath = join(destDir, 'project-a', `${sessionId}-summary.txt`);
 
-    // Backdate sentinel by 1 minute — well past the 36-second threshold.
-    const oneMinuteAgo = new Date(Date.now() - 60_000);
-    utimesSync(summaryPath, oneMinuteAgo, oneMinuteAgo);
+    // Backdate the recorded attempt by 1 minute — well past the 36-second threshold.
+    writeFileSync(summaryPath, formatErrorSentinel(new Error('Outage'), { attempts: 1, lastAttempt: Date.now() - 60_000 }), 'utf-8');
 
     vi.mocked(summarizeConversation).mockResolvedValueOnce('Recovered.');
     const r2 = await syncConversations(sourceDir, destDir, { skipIndex: true });
@@ -190,7 +190,7 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
   });
 
   it('formatErrorSentinel + isErroredSentinel round-trip', () => {
-    const s = formatErrorSentinel(new Error('boom'));
+    const s = formatErrorSentinel(new Error('boom'), { attempts: 1, lastAttempt: Date.now() });
     expect(isErroredSentinel(s)).toBe(true);
     expect(s).toContain('boom');
     expect(isErroredSentinel('Real summary content.')).toBe(false);
@@ -231,7 +231,7 @@ describe('hasRealSummary helper', () => {
   it('returns false for error sentinels (#96) — they are not real coverage', async () => {
     const { hasRealSummary } = await import('../src/summary-sentinel.js');
     const p = join(testDir, 'errored.txt');
-    writeFileSync(p, formatErrorSentinel(new Error('outage')), 'utf-8');
+    writeFileSync(p, formatErrorSentinel(new Error('outage'), { attempts: 1, lastAttempt: Date.now() }), 'utf-8');
     expect(hasRealSummary(p)).toBe(false);
   });
 });

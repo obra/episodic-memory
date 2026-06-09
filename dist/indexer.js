@@ -5,7 +5,7 @@ import { parseConversation } from './parser.js';
 import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
 import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles } from './paths.js';
-import { needsSummary, isQuiescent, writeSummary, writeErrorSentinelIfNew, } from './summary-sentinel.js';
+import { needsSummary, isQuiescent, writeSummary, recordSummaryFailure, } from './summary-sentinel.js';
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
 // Increase max listeners for concurrent API calls
@@ -26,9 +26,10 @@ function sessionIdForSummary(exchanges) {
 }
 /**
  * Summarize one conversation once it has gone quiescent, writing the summary with
- * its coverage header. Preserves a prior summary on failure (an error sentinel is
- * written only for a first-time failure). Returns the summary, or null when the
- * conversation is skipped (not yet quiescent) or summarization fails.
+ * its coverage header. On failure, recordSummaryFailure preserves any prior
+ * summary and records the attempt (a first-time failure writes an error sentinel
+ * instead). Returns the summary, or null when the conversation is skipped (not yet
+ * quiescent) or summarization fails.
  */
 async function summarizeIfQuiescent(summaryPath, archivePath, exchanges, label) {
     if (!isQuiescent(exchanges, Date.now()))
@@ -40,7 +41,7 @@ async function summarizeIfQuiescent(summaryPath, archivePath, exchanges, label) 
         return summary;
     }
     catch (error) {
-        writeErrorSentinelIfNew(summaryPath, error);
+        recordSummaryFailure(summaryPath, error);
         console.log(`  ✗ ${label}: ${error}`);
         return null;
     }

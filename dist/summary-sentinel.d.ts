@@ -16,6 +16,19 @@ import type { ConversationExchange } from './types.js';
 export declare const ERROR_MARKER = "__ERRORED__";
 export declare const COVERAGE_SCHEMA = 1;
 /**
+ * Attempt-counted failure state shared by both failure stores — the error
+ * sentinel (no good summary yet) and a preserved good summary's `resummary`
+ * field. Drives the unified backoff-and-give-up in shouldRetryAfterFailure: hold
+ * off until the retry floor elapses, then give up once the attempt budget is
+ * spent. Cleared when a summary finally succeeds.
+ */
+export interface FailureState {
+    /** Consecutive failed attempts since the last successful summary. */
+    attempts: number;
+    /** Epoch ms of the last failed attempt — gates the per-attempt retry floor. */
+    lastAttempt: number;
+}
+/**
  * Machine-readable header recording how much of a transcript a summary
  * reflects. Stored as the first line of a real summary file so a later
  * sync can detect transcript growth and re-queue for re-summarization.
@@ -26,6 +39,8 @@ export interface SummaryCoverage {
     /** Timestamp of the last exchange the summary covered (diagnostic). */
     lastExchange?: string;
     schema: number;
+    /** Present only after a re-summary has failed; absent on a healthy summary. */
+    resummary?: FailureState;
 }
 /** Serialize a real summary with its coverage header as the first line. */
 export declare function formatSummaryFile(coverage: SummaryCoverage, body: string): string;
@@ -38,8 +53,26 @@ export declare function parseSummaryFile(content: string): {
     coverage: SummaryCoverage | null;
     body: string;
 };
-export declare function formatErrorSentinel(error: unknown): string;
+/**
+ * Serialize an error sentinel: the marker, a JSON failure-state line (attempts +
+ * lastAttempt), then the human-readable error message. The failure state lets
+ * shouldQueueForSummary back off and give up identically to a re-summary failure.
+ */
+export declare function formatErrorSentinel(error: unknown, failure: FailureState): string;
 export declare function isErroredSentinel(content: string): boolean;
+/**
+ * Read the failure state from an error sentinel. Tolerates the legacy
+ * `__ERRORED__\n<ISO timestamp>\n<message>` form (no attempt count): the ISO
+ * time becomes lastAttempt and attempts starts at 0, so an upgraded sentinel
+ * keeps backing off correctly and recordSummaryFailure resumes counting.
+ */
+export declare function parseErrorSentinel(content: string): FailureState;
+/**
+ * Failed summary attempts to make before giving up — keeping whatever good
+ * summary exists (none, for a first-time failure). Bounds cost on a transcript
+ * that never summarizes. Configurable for operators/tests; falls back for garbage.
+ */
+export declare function getMaxSummaryAttempts(): number;
 /**
  * True when the sentinel at `summaryPath` represents a real summary —
  * a file with a non-empty summary body that is not an error marker. Empty
@@ -49,16 +82,24 @@ export declare function isErroredSentinel(content: string): boolean;
  */
 export declare function hasRealSummary(summaryPath: string): boolean;
 /**
- * Best-effort error sentinel, written only when no prior real summary exists so a
- * re-summary failure never discards good content. Swallows its own write errors.
+ * Record a summary failure, incrementing the attempt count. Best-effort —
+ * swallows its own IO errors. Both branches feed the same backoff/give-up policy
+ * (shouldRetryAfterFailure); a successful writeSummary later clears the state.
+ *  - No prior real summary: write an attempt-counted error sentinel (#96).
+ *  - Prior real summary exists: keep the good body but stamp the attempt + time
+ *    into its `resummary` header, so the last good summary survives the failure.
  */
-export declare function writeErrorSentinelIfNew(summaryPath: string, error: unknown): void;
+export declare function recordSummaryFailure(summaryPath: string, error: unknown): void;
 /**
  * True when the conversation at `summaryPath` should be (re-)summarized:
  *  - no summary yet,
  *  - a stale error marker, or
  *  - a real summary whose covered byte size is below the current archive size
  *    (the transcript has grown — append-only, so a size increase means new content).
+ * Both a stale error marker and a grown summary carrying failed-re-summary state
+ * are governed by shouldRetryAfterFailure — held back until the retry floor
+ * elapses, then abandoned once getMaxSummaryAttempts() is spent (keeping any good
+ * summary) so a never-summarizable transcript can't thrash.
  * A legacy header-less summary returns false; callers must call
  * ensureCoverageBaseline first so a baseline exists and future growth is detected.
  */

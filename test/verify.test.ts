@@ -94,7 +94,7 @@ describe('verifyIndex', () => {
       JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hello' }, timestamp: '2024-01-01T00:00:01Z' })
     ];
     fs.writeFileSync(conversationPath, messages.join('\n'));
-    fs.writeFileSync(summaryPath, formatErrorSentinel(new Error('Transient outage')), 'utf-8');
+    fs.writeFileSync(summaryPath, formatErrorSentinel(new Error('Transient outage'), { attempts: 1, lastAttempt: Date.now() }), 'utf-8');
 
     const result = await verifyIndex();
     expect(result.missing.length).toBe(1);

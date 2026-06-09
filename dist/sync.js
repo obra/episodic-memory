@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getExcludedProjects, findJsonlFiles } from './paths.js';
-import { needsSummary, isQuiescent, writeSummary, writeErrorSentinelIfNew, } from './summary-sentinel.js';
+import { needsSummary, isQuiescent, writeSummary, recordSummaryFailure, hasRealSummary, } from './summary-sentinel.js';
 const EXCLUSION_MARKERS = [
     '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
     'Only use NO_INSIGHTS_FOUND',
@@ -47,6 +47,21 @@ export function extractSessionIdFromPath(filePath) {
         return matches[matches.length - 1];
     }
     return null;
+}
+/**
+ * Order a summary queue so never-summarized conversations come before re-summary
+ * retries (a conversation that already has a good summary). A backlog of growing
+ * or failing re-summaries must not starve fresh work out of the per-run
+ * summaryLimit — the #91 head-of-queue failure mode. Stable within each group.
+ */
+export function orderFreshBeforeRetry(files) {
+    const fresh = [];
+    const retries = [];
+    for (const file of files) {
+        const summaryPath = file.path.replace('.jsonl', '-summary.txt');
+        (hasRealSummary(summaryPath) ? retries : fresh).push(file);
+    }
+    return [...fresh, ...retries];
 }
 export async function syncConversations(sourceDir, destDir, options = {}) {
     const result = {
@@ -144,7 +159,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
         const { parseConversation } = await import('./parser.js');
         const { summarizeConversation } = await import('./summarizer.js');
         const summaryLimit = options.summaryLimit ?? 10;
-        const toSummarize = filesToSummarize.slice(0, summaryLimit);
+        const toSummarize = orderFreshBeforeRetry(filesToSummarize).slice(0, summaryLimit);
         const remaining = filesToSummarize.length - toSummarize.length;
         console.log(`Generating summaries for ${toSummarize.length} conversation(s)...`);
         if (remaining > 0) {
@@ -169,7 +184,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                 result.summarized++;
             }
             catch (error) {
-                writeErrorSentinelIfNew(summaryPath, error);
+                recordSummaryFailure(summaryPath, error);
                 result.errors.push({
                     file: filePath,
                     error: `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`,

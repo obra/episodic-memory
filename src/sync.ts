@@ -3,7 +3,7 @@ import path from 'path';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getExcludedProjects, findJsonlFiles } from './paths.js';
 import {
-  needsSummary, isQuiescent, writeSummary, writeErrorSentinelIfNew,
+  needsSummary, isQuiescent, writeSummary, recordSummaryFailure, hasRealSummary,
 } from './summary-sentinel.js';
 
 const EXCLUSION_MARKERS = [
@@ -68,6 +68,22 @@ export function extractSessionIdFromPath(filePath: string): string | null {
     return matches[matches.length - 1];
   }
   return null;
+}
+
+/**
+ * Order a summary queue so never-summarized conversations come before re-summary
+ * retries (a conversation that already has a good summary). A backlog of growing
+ * or failing re-summaries must not starve fresh work out of the per-run
+ * summaryLimit — the #91 head-of-queue failure mode. Stable within each group.
+ */
+export function orderFreshBeforeRetry<T extends { path: string }>(files: T[]): T[] {
+  const fresh: T[] = [];
+  const retries: T[] = [];
+  for (const file of files) {
+    const summaryPath = file.path.replace('.jsonl', '-summary.txt');
+    (hasRealSummary(summaryPath) ? retries : fresh).push(file);
+  }
+  return [...fresh, ...retries];
 }
 
 export async function syncConversations(
@@ -189,7 +205,7 @@ export async function syncConversations(
     const { summarizeConversation } = await import('./summarizer.js');
 
     const summaryLimit = options.summaryLimit ?? 10;
-    const toSummarize = filesToSummarize.slice(0, summaryLimit);
+    const toSummarize = orderFreshBeforeRetry(filesToSummarize).slice(0, summaryLimit);
     const remaining = filesToSummarize.length - toSummarize.length;
 
     console.log(`Generating summaries for ${toSummarize.length} conversation(s)...`);
@@ -217,7 +233,7 @@ export async function syncConversations(
         writeSummary(summaryPath, filePath, exchanges, summary);
         result.summarized++;
       } catch (error) {
-        writeErrorSentinelIfNew(summaryPath, error);
+        recordSummaryFailure(summaryPath, error);
         result.errors.push({
           file: filePath,
           error: `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`,

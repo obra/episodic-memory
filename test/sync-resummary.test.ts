@@ -182,5 +182,9 @@ describe('sync command — self-healing (growth-driven) re-summary', () => {
     const content = readFileSync(summaryPath(), 'utf-8');
     expect(isErroredSentinel(content)).toBe(false);
     expect(parseSummaryFile(content).body).toBe('Good summary.');
+
+    // ...but the failure is recorded so the growth gate can back off and eventually
+    // give up rather than re-attempting on every sync (no-backoff thrash).
+    expect(parseSummaryFile(content).coverage?.resummary?.attempts).toBe(1);
   });
 });
