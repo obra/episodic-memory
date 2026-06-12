@@ -20,6 +20,45 @@ function shouldSkipConversation(filePath: string): boolean {
   }
 }
 
+/**
+ * True when a transcript contains at least one message line in any supported
+ * harness format. Summarizer-spawned Agent SDK sessions materialize as
+ * message-less stub files (a single {"type":"ai-title"} line) that defeat the
+ * marker-based exclusion above and would otherwise re-enter the sync queue on
+ * every run — one new stub per summary generated. A transcript that has no
+ * messages *yet* (a session that just started) is skipped this run and picked
+ * up on a later sync once it has content, since its mtime keeps advancing.
+ */
+function hasConversationContent(filePath: string): boolean {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line);
+        // Claude: {type: "user"|"assistant", message: {...}}
+        if ((parsed.type === 'user' || parsed.type === 'assistant') && parsed.message) {
+          return true;
+        }
+        // Codex: {type: "response_item"|..., payload: {...}}
+        if (parsed.payload) {
+          return true;
+        }
+        // Cursor: {role: "user"|"assistant", message: {...}}
+        if (parsed.role && parsed.message) {
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return false;
+  } catch {
+    // If we can't read the file, let the normal pipeline handle it
+    return true;
+  }
+}
+
 export interface SyncResult {
   copied: number;
   skipped: number;
@@ -121,6 +160,13 @@ export async function syncConversations(
       const destFile = path.join(destDir, project, file);
 
       try {
+        // Skip message-less transcripts (summarizer-spawned stubs, sessions
+        // that haven't produced content yet) before they enter the archive.
+        if (!hasConversationContent(srcFile)) {
+          result.skipped++;
+          continue;
+        }
+
         const wasCopied = copyIfNewer(srcFile, destFile);
         if (wasCopied) {
           result.copied++;
