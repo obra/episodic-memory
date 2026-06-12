@@ -11,9 +11,21 @@ export declare function getClaudeDir(): string;
  */
 export declare function getCodexDir(): string;
 /**
+ * Get the Cursor configuration directory.
+ * Supports CURSOR_HOME for alternate profiles.
+ * Falls back to ~/.cursor when not set.
+ */
+export declare function getCursorDir(): string;
+/**
+ * Get the staging directory where `import-cursor-history` exports legacy
+ * Cursor conversations (extracted from state.vscdb) as JSONL. Scanned as a
+ * conversation source so sync picks the exports up like any other harness.
+ */
+export declare function getCursorLegacyExportDir(): string;
+/**
  * Get all directories where supported harnesses store conversation files.
  * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
- * plus Codex sessions.
+ * Codex sessions, and Cursor agent transcripts (live and legacy exports).
  * Returns only directories that exist.
  */
 export declare function getConversationSourceDirs(): string[];

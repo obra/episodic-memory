@@ -54,6 +54,14 @@ function copyIfNewer(src: string, dest: string): boolean {
   const tempDest = dest + '.tmp.' + process.pid;
   fs.copyFileSync(src, tempDest);
   fs.renameSync(tempDest, dest); // Atomic on same filesystem
+
+  // Preserve source mtime: harnesses without per-message timestamps (Cursor
+  // agent transcripts) fall back to file mtime. Round up to the next whole
+  // millisecond — utimes can't always represent the source's sub-millisecond
+  // precision, and a dest mtime even fractionally older would defeat the
+  // skip-if-current check above on every subsequent sync.
+  const srcStat = fs.statSync(src);
+  fs.utimesSync(dest, srcStat.atimeMs / 1000, Math.ceil(srcStat.mtimeMs) / 1000);
   return true;
 }
 

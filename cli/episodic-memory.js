@@ -31,18 +31,19 @@ function runScript(scriptPath, args) {
 }
 
 function showHelp() {
-  console.log(`episodic-memory - Manage and search Claude Code and Codex conversations
+  console.log(`episodic-memory - Manage and search Claude Code, Codex, and Cursor conversations
 
 USAGE:
   episodic-memory <command> [options]
 
 COMMANDS:
-  sync        Sync conversations from Claude Code and Codex and index them
-  index       Index conversations for search
-  search      Search indexed conversations
-  show        Display a conversation in readable format
-  stats       Show index statistics
-  doctor      Diagnose Claude Code or Codex integration issues
+  sync                   Sync conversations from Claude Code, Codex, and Cursor and index them
+  index                  Index conversations for search
+  search                 Search indexed conversations
+  show                   Display a conversation in readable format
+  stats                  Show index statistics
+  doctor                 Diagnose Claude Code or Codex integration issues
+  import-cursor-history  Export legacy Cursor conversations from state.vscdb for indexing
 
 Run 'episodic-memory <command> --help' for command-specific help.
 
@@ -87,6 +88,10 @@ async function main() {
 
       case 'sync':
         await runScript(join(distDir, 'sync-cli.js'), args);
+        break;
+
+      case 'import-cursor-history':
+        await runScript(join(distDir, 'cursor-import-cli.js'), args);
         break;
 
       case '--help':

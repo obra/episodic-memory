@@ -27,9 +27,25 @@ export function getCodexDir() {
     return process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 }
 /**
+ * Get the Cursor configuration directory.
+ * Supports CURSOR_HOME for alternate profiles.
+ * Falls back to ~/.cursor when not set.
+ */
+export function getCursorDir() {
+    return process.env.CURSOR_HOME || path.join(os.homedir(), '.cursor');
+}
+/**
+ * Get the staging directory where `import-cursor-history` exports legacy
+ * Cursor conversations (extracted from state.vscdb) as JSONL. Scanned as a
+ * conversation source so sync picks the exports up like any other harness.
+ */
+export function getCursorLegacyExportDir() {
+    return path.join(getSuperpowersDir(), 'cursor-legacy-export');
+}
+/**
  * Get all directories where supported harnesses store conversation files.
  * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
- * plus Codex sessions.
+ * Codex sessions, and Cursor agent transcripts (live and legacy exports).
  * Returns only directories that exist.
  */
 export function getConversationSourceDirs() {
@@ -38,10 +54,13 @@ export function getConversationSourceDirs() {
         return [testDir];
     const claudeDir = getClaudeDir();
     const codexDir = getCodexDir();
+    const cursorDir = getCursorDir();
     return [
         path.join(claudeDir, 'projects'),
         path.join(claudeDir, 'transcripts'),
         path.join(codexDir, 'sessions'),
+        path.join(cursorDir, 'projects'),
+        getCursorLegacyExportDir(),
     ].filter(d => fs.existsSync(d));
 }
 /**

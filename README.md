@@ -1,6 +1,6 @@
 # Episodic Memory
 
-Semantic search for Claude Code and Codex conversations. Remember past discussions, decisions, and patterns.
+Semantic search for Claude Code, Codex, and Cursor conversations. Remember past discussions, decisions, and patterns.
 
 ## Testimonial
 
@@ -102,7 +102,7 @@ npm install -g github:obra/episodic-memory
 ### Quick Start
 
 ```bash
-# Sync conversations from Claude Code and Codex and index them
+# Sync conversations from Claude Code, Codex, and Cursor and index them
 episodic-memory sync
 
 # Search your conversation history
@@ -117,6 +117,23 @@ episodic-memory doctor codex
 # Display a conversation
 episodic-memory show path/to/conversation.jsonl
 ```
+
+### Cursor support
+
+Sync automatically indexes Cursor agent transcripts from `~/.cursor/projects`
+(written by Cursor since early 2026). Conversations older than that exist only
+inside Cursor's global SQLite store; backfill them once with:
+
+```bash
+# Export legacy Cursor conversations from state.vscdb (read-only), then index
+episodic-memory import-cursor-history
+episodic-memory sync
+```
+
+The importer skips conversations that already have a live agent transcript,
+recovers each conversation's project from tool-call working directories, and
+embeds original message timestamps. Re-running it only exports new
+conversations; use `--force` to re-export everything.
 
 ### Command Line
 

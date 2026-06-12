@@ -151,6 +151,8 @@ describe('Codex transcript support', () => {
   let testDir: string;
   let originalClaudeConfigDir: string | undefined;
   let originalCodexHome: string | undefined;
+  let originalCursorHome: string | undefined;
+  let originalConfigDir: string | undefined;
   let originalTestProjectsDir: string | undefined;
   let originalTestDbPath: string | undefined;
 
@@ -158,6 +160,8 @@ describe('Codex transcript support', () => {
     testDir = mkdtempSync(join(tmpdir(), 'episodic-memory-codex-test-'));
     originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
     originalCodexHome = process.env.CODEX_HOME;
+    originalCursorHome = process.env.CURSOR_HOME;
+    originalConfigDir = process.env.EPISODIC_MEMORY_CONFIG_DIR;
     originalTestProjectsDir = process.env.TEST_PROJECTS_DIR;
     originalTestDbPath = process.env.TEST_DB_PATH;
   });
@@ -167,6 +171,10 @@ describe('Codex transcript support', () => {
     else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
     if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = originalCodexHome;
+    if (originalCursorHome === undefined) delete process.env.CURSOR_HOME;
+    else process.env.CURSOR_HOME = originalCursorHome;
+    if (originalConfigDir === undefined) delete process.env.EPISODIC_MEMORY_CONFIG_DIR;
+    else process.env.EPISODIC_MEMORY_CONFIG_DIR = originalConfigDir;
     if (originalTestProjectsDir === undefined) delete process.env.TEST_PROJECTS_DIR;
     else process.env.TEST_PROJECTS_DIR = originalTestProjectsDir;
     if (originalTestDbPath === undefined) delete process.env.TEST_DB_PATH;
@@ -178,16 +186,27 @@ describe('Codex transcript support', () => {
   it('discovers Codex sessions alongside Claude transcript directories', () => {
     const claudeDir = join(testDir, 'claude');
     const codexHome = join(testDir, 'codex');
+    const cursorHome = join(testDir, 'cursor');
     mkdirSync(join(claudeDir, 'projects'), { recursive: true });
     mkdirSync(join(codexHome, 'sessions'), { recursive: true });
 
     delete process.env.TEST_PROJECTS_DIR;
     process.env.CLAUDE_CONFIG_DIR = claudeDir;
     process.env.CODEX_HOME = codexHome;
+    process.env.CURSOR_HOME = cursorHome;
+    process.env.EPISODIC_MEMORY_CONFIG_DIR = join(testDir, 'superpowers');
 
     expect(getConversationSourceDirs()).toEqual([
       join(claudeDir, 'projects'),
       join(codexHome, 'sessions')
+    ]);
+
+    // Cursor directories join the scan once they exist
+    mkdirSync(join(cursorHome, 'projects'), { recursive: true });
+    expect(getConversationSourceDirs()).toEqual([
+      join(claudeDir, 'projects'),
+      join(codexHome, 'sessions'),
+      join(cursorHome, 'projects')
     ]);
   });
 
