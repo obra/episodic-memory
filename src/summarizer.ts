@@ -486,7 +486,14 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
 
   // For short conversations (≤15 exchanges), summarize directly
   if (exchanges.length <= 15) {
-    const claudeSessionId = codexSessionId ? undefined : sessionId;
+    // Only Claude Code sessions can be resumed by `claude --resume`; Cursor
+    // sessions carry composer UUIDs Claude Code doesn't know, so resuming
+    // would fail on every one before the no-resume retry kicks in. Treat
+    // missing harness as Claude for backward compatibility with old archives.
+    const isClaudeSession = exchanges.some(
+      e => e.harness === 'claude' || e.harness === undefined
+    );
+    const claudeSessionId = !codexSessionId && isClaudeSession ? sessionId : undefined;
     const cwd = claudeSessionId ? exchanges.find(e => e.cwd)?.cwd : undefined;
     const conversationText = claudeSessionId
       ? '' // When resuming, no need to include conversation text - it's already in context
