@@ -148,6 +148,28 @@ describe('sync command', () => {
     expect(existsSync(join(destDir, 'project-a', 'real.jsonl'))).toBe(true);
   });
 
+  it('queues summaries for transcripts whose filename has no UUID (subagent transcripts)', async () => {
+    // Subagent transcripts are named agent-<hex>.jsonl — no UUID to extract.
+    // Before the fix, the missing-sessionId gate dropped them from the summary
+    // queue entirely. Use a zero-exchange transcript (a lone user message): if
+    // it reaches the summary pipeline it gets an empty sentinel written — which
+    // is observable without any network/CLI call. No sentinel ⇒ it was dropped.
+    mkdirSync(join(sourceDir, 'project-a', 'session-1', 'subagents'), { recursive: true });
+    const subagentFile = join(sourceDir, 'project-a', 'session-1', 'subagents', 'agent-a81c86e504e1e7c14.jsonl');
+    writeFileSync(
+      subagentFile,
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'unanswered subagent prompt' } }),
+      'utf-8'
+    );
+
+    const result = await syncConversations(sourceDir, destDir, { skipIndex: true });
+
+    expect(result.copied).toBe(1);
+    const sentinel = join(destDir, 'project-a', 'session-1', 'subagents', 'agent-a81c86e504e1e7c14-summary.txt');
+    expect(existsSync(sentinel)).toBe(true);
+    expect(statSync(sentinel).size).toBe(0);
+  });
+
   it('should skip indexing conversations with DO NOT INDEX marker', async () => {
     mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
 
