@@ -8,6 +8,9 @@ export function formatConversationAsMarkdown(jsonl, startLine, endLine) {
     if (isCodexRollout(lines)) {
         return formatCodexConversationAsMarkdown(lines);
     }
+    if (isCursorTranscript(lines)) {
+        return formatCursorConversationAsMarkdown(lines);
+    }
     const allMessages = lines.map(line => JSON.parse(line));
     // Filter out system messages and messages with no content
     const messages = allMessages.filter(msg => {
@@ -196,6 +199,9 @@ export function formatConversationAsHTML(jsonl) {
     const lines = jsonl.trim().split('\n').filter(line => line.trim());
     if (isCodexRollout(lines)) {
         return formatMarkdownDocumentAsHTML(formatCodexConversationAsMarkdown(lines));
+    }
+    if (isCursorTranscript(lines)) {
+        return formatMarkdownDocumentAsHTML(formatCursorConversationAsMarkdown(lines));
     }
     const allMessages = lines.map(line => JSON.parse(line));
     // Filter out system messages and messages with no content
@@ -738,6 +744,25 @@ function isCodexRollout(lines) {
     }
     return false;
 }
+// Cursor agent transcripts carry role+message with no top-level `type`.
+// Mirrors detectConversationHarness in parser.ts; skips status/error noise
+// lines so a transcript that opens with one isn't misdetected.
+function isCursorTranscript(lines) {
+    for (const line of lines) {
+        try {
+            const parsed = JSON.parse(line);
+            if (parsed.type === 'status' || parsed.type === 'error')
+                continue;
+            if (parsed.type === undefined && parsed.role && parsed.message)
+                return true;
+            return false;
+        }
+        catch {
+            continue;
+        }
+    }
+    return false;
+}
 function extractCodexText(content) {
     if (typeof content === 'string') {
         return content;
@@ -884,6 +909,66 @@ function formatCodexConversationAsMarkdown(lines) {
                 output += `### **Reasoning Summary** (${timestamp}) {#${anchor}}\n\n`;
                 output += `${text}\n\n`;
             }
+        }
+    }
+    return output;
+}
+function formatCursorConversationAsMarkdown(lines) {
+    const entries = lines
+        .map(line => { try {
+        return JSON.parse(line);
+    }
+    catch {
+        return null;
+    } })
+        .filter(e => e && e.role && e.message);
+    // sessionId/cwd are present only on legacy state.vscdb exports, not live
+    // transcripts; show whatever the first message carries.
+    const first = entries[0] || {};
+    let output = '# Conversation\n\n';
+    output += '## Metadata\n\n';
+    output += '**Harness:** Cursor\n\n';
+    if (first.sessionId)
+        output += `**Session ID:** ${first.sessionId}\n\n`;
+    if (first.cwd)
+        output += `**Working Directory:** ${first.cwd}\n\n`;
+    output += '---\n\n';
+    output += '## Messages\n\n';
+    for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+        const anchor = `msg-${i}`;
+        const content = entry.message.content;
+        let text = '';
+        const toolUses = [];
+        if (typeof content === 'string') {
+            text = content;
+        }
+        else if (Array.isArray(content)) {
+            text = content
+                .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+                .map(b => b.text)
+                .join('\n');
+            for (const b of content) {
+                if (b && b.type === 'tool_use') {
+                    toolUses.push({ name: b.name || 'unknown', input: b.input });
+                }
+            }
+        }
+        if (entry.role === 'user') {
+            // Strip Cursor's <user_query> wrapper, consistent with the parser.
+            text = text.replace(/<\/?user_query>/g, '').trim();
+        }
+        if (!text.trim() && toolUses.length === 0)
+            continue;
+        const roleLabel = entry.role === 'user' ? 'User' : 'Agent';
+        output += `### **${roleLabel}** (${timestamp}) {#${anchor}}\n\n`;
+        if (text.trim()) {
+            output += `${text}\n\n`;
+        }
+        for (const tool of toolUses) {
+            output += `**Tool Use:** \`${tool.name}\`\n\n`;
+            output += formatCodexToolInputMarkdown(tool.input);
         }
     }
     return output;

@@ -26485,6 +26485,9 @@ function formatConversationAsMarkdown(jsonl, startLine, endLine) {
   if (isCodexRollout(lines)) {
     return formatCodexConversationAsMarkdown(lines);
   }
+  if (isCursorTranscript(lines)) {
+    return formatCursorConversationAsMarkdown(lines);
+  }
   const allMessages = lines.map((line) => JSON.parse(line));
   const messages = allMessages.filter((msg) => {
     if (msg.type !== "user" && msg.type !== "assistant") return false;
@@ -26691,6 +26694,19 @@ function isCodexRollout(lines) {
   }
   return false;
 }
+function isCursorTranscript(lines) {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === "status" || parsed.type === "error") continue;
+      if (parsed.type === void 0 && parsed.role && parsed.message) return true;
+      return false;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
 function extractCodexText(content) {
   if (typeof content === "string") {
     return content;
@@ -26859,6 +26875,65 @@ ${result}
 
 `;
       }
+    }
+  }
+  return output;
+}
+function formatCursorConversationAsMarkdown(lines) {
+  const entries = lines.map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  }).filter((e) => e && e.role && e.message);
+  const first = entries[0] || {};
+  let output = "# Conversation\n\n";
+  output += "## Metadata\n\n";
+  output += "**Harness:** Cursor\n\n";
+  if (first.sessionId) output += `**Session ID:** ${first.sessionId}
+
+`;
+  if (first.cwd) output += `**Working Directory:** ${first.cwd}
+
+`;
+  output += "---\n\n";
+  output += "## Messages\n\n";
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "";
+    const anchor = `msg-${i}`;
+    const content = entry.message.content;
+    let text = "";
+    const toolUses = [];
+    if (typeof content === "string") {
+      text = content;
+    } else if (Array.isArray(content)) {
+      text = content.filter((b2) => b2 && b2.type === "text" && typeof b2.text === "string").map((b2) => b2.text).join("\n");
+      for (const b2 of content) {
+        if (b2 && b2.type === "tool_use") {
+          toolUses.push({ name: b2.name || "unknown", input: b2.input });
+        }
+      }
+    }
+    if (entry.role === "user") {
+      text = text.replace(/<\/?user_query>/g, "").trim();
+    }
+    if (!text.trim() && toolUses.length === 0) continue;
+    const roleLabel = entry.role === "user" ? "User" : "Agent";
+    output += `### **${roleLabel}** (${timestamp}) {#${anchor}}
+
+`;
+    if (text.trim()) {
+      output += `${text}
+
+`;
+    }
+    for (const tool of toolUses) {
+      output += `**Tool Use:** \`${tool.name}\`
+
+`;
+      output += formatCodexToolInputMarkdown(tool.input);
     }
   }
   return output;

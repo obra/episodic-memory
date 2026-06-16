@@ -269,6 +269,56 @@ describe('show command - markdown formatting', () => {
     expect(markdown).toContain('Exit code: 0');
     expect(markdown).toContain('local shell');
   });
+
+  it('should format a live Cursor transcript (role/message, no timestamps)', () => {
+    const jsonl = [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nMake all addresses clickable\n</user_query>' }] } }),
+      JSON.stringify({ role: 'assistant', message: { content: [
+        { type: 'text', text: "I'll update the address cells." },
+        { type: 'tool_use', name: 'Shell', input: { command: 'grep -rn address src/', working_directory: '/repo' } },
+      ] } }),
+      // status/error noise lines must be ignored, not crash the renderer
+      JSON.stringify({ type: 'status', status: 'completed' }),
+      JSON.stringify({ role: 'assistant', message: { content: [{ type: 'text', text: 'Done — addresses are clickable now.' }] } }),
+    ].join('\n');
+
+    const markdown = formatConversationAsMarkdown(jsonl);
+
+    expect(markdown).toContain('**Harness:** Cursor');
+    expect(markdown).toContain('Make all addresses clickable');
+    expect(markdown).not.toContain('<user_query>');
+    expect(markdown).toContain("I'll update the address cells.");
+    expect(markdown).toContain('**Tool Use:** `Shell`');
+    expect(markdown).toContain('Done — addresses are clickable now.');
+  });
+
+  it('should format a legacy Cursor export (embedded timestamp/sessionId/cwd)', () => {
+    const jsonl = [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: 'Search git history' }] }, timestamp: '2025-10-24T08:14:39.904Z', sessionId: '1f512764-8211-4582-88f7-251df5e43bc9', cwd: '/repo' }),
+      JSON.stringify({ role: 'assistant', message: { content: [{ type: 'text', text: 'Searching now.' }] }, timestamp: '2025-10-24T08:15:02.000Z' }),
+    ].join('\n');
+
+    const markdown = formatConversationAsMarkdown(jsonl);
+
+    expect(markdown).toContain('**Harness:** Cursor');
+    expect(markdown).toContain('**Session ID:** 1f512764-8211-4582-88f7-251df5e43bc9');
+    expect(markdown).toContain('**Working Directory:** /repo');
+    expect(markdown).toContain('Search git history');
+    expect(markdown).toContain('Searching now.');
+  });
+
+  it('should not misroute a Cursor transcript that opens with a noise line', () => {
+    const jsonl = [
+      JSON.stringify({ type: 'status', status: 'started' }),
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: 'hello cursor' }] } }),
+      JSON.stringify({ role: 'assistant', message: { content: [{ type: 'text', text: 'hi there' }] } }),
+    ].join('\n');
+
+    const markdown = formatConversationAsMarkdown(jsonl);
+
+    expect(markdown).toContain('**Harness:** Cursor');
+    expect(markdown).toContain('hello cursor');
+  });
 });
 
 describe('show command - HTML formatting', () => {
