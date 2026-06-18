@@ -117,6 +117,7 @@ export function buildSummarizerQueryOptions(args: {
     env: getApiEnv(),
     resume: sessionId,
     persistSession: false,
+    settingSources: [],
     // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
     ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
     // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.
