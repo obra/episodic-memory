@@ -25111,7 +25111,7 @@ async function searchConversations(query, options = {}) {
   if (mode === "vector" || mode === "both") {
     await initEmbeddings();
     const queryEmbedding = await generateQueryEmbedding(query);
-    const k2 = hasMetadataFilters(options) ? limit * 3 : limit;
+    const k2 = Math.max(hasMetadataFilters(options) ? limit * 3 : limit, limit + 100);
     const stmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},

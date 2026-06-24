@@ -123,11 +123,17 @@ export async function searchConversations(query, options = {}) {
     const { sql: filterClause, params: filterParams } = buildSearchFilters(options);
     if (mode === 'vector' || mode === 'both') {
         // Vector similarity search.
-        // vec0 applies KNN before WHERE, so when extra metadata filters are
-        // active we ask for more candidates than `limit` and trim afterwards.
+        // vec0 applies the KNN `k` cutoff BEFORE the WHERE clause, so every
+        // post-filter can shrink the result set below `limit`. The `is_sidechain = 0`
+        // filter is always applied, and subagent (sidechain) exchanges frequently
+        // crowd the nearest neighbours, so requesting exactly `limit` candidates
+        // returns far fewer than `limit` real hits (often zero at small limits).
+        // Over-fetch candidates (with extra headroom for the always-on sidechain
+        // filter plus any metadata filters) and trim to `limit` after filtering.
+        // See #42, which introduced the sidechain filter.
         await initEmbeddings();
         const queryEmbedding = await generateQueryEmbedding(query);
-        const k = hasMetadataFilters(options) ? limit * 3 : limit;
+        const k = Math.max(hasMetadataFilters(options) ? limit * 3 : limit, limit + 100);
         const stmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},
