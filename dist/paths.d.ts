@@ -11,12 +11,26 @@ export declare function getClaudeDir(): string;
  */
 export declare function getCodexDir(): string;
 /**
+ * Get the opencode data directory.
+ * opencode stores its SQLite database under XDG data by default.
+ */
+export declare function getOpencodeDataDir(): string;
+/**
+ * Get the opencode SQLite database path.
+ */
+export declare function getOpencodeDbPath(): string;
+/**
+ * Get the generated opencode transcript directory used as a sync source.
+ */
+export declare function getOpencodeTranscriptDir(): string;
+export type ConversationSourceHarness = 'claude' | 'codex' | 'opencode';
+/**
  * Get all directories where supported harnesses store conversation files.
  * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
- * plus Codex sessions.
+ * Codex sessions, and generated opencode transcripts.
  * Returns only directories that exist.
  */
-export declare function getConversationSourceDirs(): string[];
+export declare function getConversationSourceDirs(only?: ConversationSourceHarness[]): string[];
 /**
  * Recursively find all .jsonl files under a directory.
  * Returns paths relative to the given directory.

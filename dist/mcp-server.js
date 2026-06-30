@@ -3837,7 +3837,7 @@ var require_fast_uri = __commonJS({
         if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport)) {
           if (parsed.host && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
             try {
-              parsed.host = URL.domainToASCII(parsed.host.toLowerCase());
+              parsed.host = new URL("http://" + parsed.host).hostname;
             } catch (e) {
               parsed.error = parsed.error || "Host's domain name can not be converted to ASCII: " + e;
             }
@@ -26485,6 +26485,9 @@ function formatConversationAsMarkdown(jsonl, startLine, endLine) {
   if (isCodexRollout(lines)) {
     return formatCodexConversationAsMarkdown(lines);
   }
+  if (isOpencodeTranscript(lines)) {
+    return formatOpencodeConversationAsMarkdown(lines);
+  }
   const allMessages = lines.map((line) => JSON.parse(line));
   const messages = allMessages.filter((msg) => {
     if (msg.type !== "user" && msg.type !== "assistant") return false;
@@ -26691,6 +26694,17 @@ function isCodexRollout(lines) {
   }
   return false;
 }
+function isOpencodeTranscript(lines) {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      return parsed.type === "opencode_session" || parsed.type === "opencode_message";
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
 function extractCodexText(content) {
   if (typeof content === "string") {
     return content;
@@ -26699,6 +26713,104 @@ function extractCodexText(content) {
     return "";
   }
   return content.filter((block) => block && typeof block === "object" && typeof block.text === "string").map((block) => block.text).join("\n");
+}
+function opencodeTimestamp(message) {
+  const millis = message?.time?.completed || message?.time?.created || message?.timeUpdated || message?.timeCreated;
+  if (typeof millis !== "number") {
+    return "";
+  }
+  const date5 = new Date(millis);
+  return Number.isNaN(date5.getTime()) ? "" : date5.toLocaleString();
+}
+function extractOpencodeText(parts) {
+  if (!Array.isArray(parts)) {
+    return "";
+  }
+  return parts.filter((part) => part?.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
+}
+function formatOpencodeConversationAsMarkdown(lines) {
+  const entries = lines.map((line) => JSON.parse(line));
+  const metadata = {};
+  for (const entry of entries) {
+    if (entry.type !== "opencode_session" || !entry.session) {
+      continue;
+    }
+    metadata.sessionId = entry.session.id || metadata.sessionId;
+    metadata.cwd = entry.session.directory || entry.project?.worktree || metadata.cwd;
+    metadata.version = entry.session.version || metadata.version;
+    metadata.model = entry.session.model?.id || entry.session.model?.modelID || metadata.model;
+    metadata.modelProvider = entry.session.model?.providerID || metadata.modelProvider;
+  }
+  let output = "# Conversation\n\n";
+  output += "## Metadata\n\n";
+  output += "**Harness:** opencode\n\n";
+  if (metadata.sessionId) output += `**Session ID:** ${metadata.sessionId}
+
+`;
+  if (metadata.cwd) output += `**Working Directory:** ${metadata.cwd}
+
+`;
+  if (metadata.version) output += `**opencode Version:** ${metadata.version}
+
+`;
+  if (metadata.model) output += `**Model:** ${metadata.model}
+
+`;
+  if (metadata.modelProvider) output += `**Model Provider:** ${metadata.modelProvider}
+
+`;
+  output += "---\n\n";
+  output += "## Messages\n\n";
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.type !== "opencode_message" || !entry.message) {
+      continue;
+    }
+    const timestamp = opencodeTimestamp(entry.message);
+    const anchor = entry.message.id || `msg-${i}`;
+    const role = entry.message.role === "user" ? "User" : "Agent";
+    const text = extractOpencodeText(entry.parts);
+    if (text.trim()) {
+      output += `### **${role}** (${timestamp}) {#${anchor}}
+
+`;
+      output += `${text}
+
+`;
+    }
+    if (!Array.isArray(entry.parts)) {
+      continue;
+    }
+    for (const part of entry.parts) {
+      if (part?.type !== "tool") {
+        continue;
+      }
+      const state = part.state || {};
+      output += `### **Tool Use** (${timestamp}) {#${part.callID || part.id || `${anchor}-tool`}}
+
+`;
+      output += `**Tool Use:** \`${part.tool || "unknown"}\`
+
+`;
+      output += formatCodexToolInputMarkdown(state.input);
+      if (state.output !== void 0 && state.output !== null) {
+        const result = typeof state.output === "string" ? state.output : JSON.stringify(state.output, null, 2);
+        output += "**Result:**\n";
+        if (result.includes("\n") || result.length > 100) {
+          output += `\`\`\`
+${result}
+\`\`\`
+
+`;
+        } else {
+          output += `${result}
+
+`;
+        }
+      }
+    }
+  }
+  return output;
 }
 function safeParseJson(value) {
   try {
@@ -26865,7 +26977,7 @@ ${result}
 }
 
 // src/version.ts
-var VERSION = "1.4.1";
+var VERSION = "1.4.2";
 
 // src/mcp-server.ts
 import fs4 from "fs";
@@ -26918,7 +27030,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "search",
-        description: `Gives you memory across sessions. You don't automatically remember past Claude Code and Codex conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past Claude Code, Codex, and opencode conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
         inputSchema: {
           type: "object",
           properties: {

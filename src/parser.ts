@@ -32,6 +32,15 @@ interface CodexRolloutLine {
   payload?: any;
 }
 
+interface OpencodeJsonlLine {
+  type?: string;
+  session?: any;
+  project?: any;
+  sessionID?: string;
+  message?: any;
+  parts?: any[];
+}
+
 interface ExchangeBuilder {
   project: string;
   userMessage: string;
@@ -67,6 +76,12 @@ async function detectConversationHarness(filePath: string): Promise<Conversation
     try {
       const parsed = JSON.parse(line) as CodexRolloutLine;
       if (
+        parsed.type === 'opencode_session' ||
+        parsed.type === 'opencode_message'
+      ) {
+        return 'opencode';
+      }
+      if (
         parsed.payload &&
         (parsed.type === 'session_meta' ||
           parsed.type === 'turn_context' ||
@@ -93,6 +108,9 @@ export async function parseConversation(
   const harness = await detectConversationHarness(filePath);
   if (harness === 'codex') {
     return parseCodexConversation(filePath, projectName, archivePath);
+  }
+  if (harness === 'opencode') {
+    return parseOpencodeConversation(filePath, projectName, archivePath);
   }
   return parseClaudeConversation(filePath, projectName, archivePath);
 }
@@ -324,6 +342,250 @@ function projectFromCwd(cwd?: string): string | undefined {
   }
   const project = path.basename(cwd);
   return project || undefined;
+}
+
+function isoFromMillis(value: unknown): string | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function opencodeModelId(model: unknown): string | undefined {
+  if (!model || typeof model !== 'object') {
+    return undefined;
+  }
+  const value = model as any;
+  return value.id || value.modelID;
+}
+
+function opencodeModelProvider(model: unknown): string | undefined {
+  if (!model || typeof model !== 'object') {
+    return undefined;
+  }
+  const value = model as any;
+  return value.providerID;
+}
+
+function extractOpencodeText(parts: any[] | undefined): string {
+  if (!Array.isArray(parts)) {
+    return '';
+  }
+  return parts
+    .filter(part => part?.type === 'text' && typeof part.text === 'string')
+    .map(part => part.text)
+    .join('\n');
+}
+
+function timestampFromOpencodeMessage(message: any, fallback?: string): string {
+  return isoFromMillis(message?.time?.completed) ||
+    isoFromMillis(message?.time?.created) ||
+    isoFromMillis(message?.timeUpdated) ||
+    isoFromMillis(message?.timeCreated) ||
+    fallback ||
+    new Date().toISOString();
+}
+
+function extractOpencodeToolCalls(parts: any[] | undefined, fallbackTimestamp: string): ToolCall[] {
+  if (!Array.isArray(parts)) {
+    return [];
+  }
+
+  const toolCalls: ToolCall[] = [];
+  for (const part of parts) {
+    if (!part || part.type !== 'tool') {
+      continue;
+    }
+
+    const state = part.state || {};
+    const timestamp = isoFromMillis(state.time?.start) ||
+      isoFromMillis(part.time?.start) ||
+      isoFromMillis(part.timeCreated) ||
+      fallbackTimestamp;
+    const status = typeof state.status === 'string' ? state.status.toLowerCase() : '';
+
+    toolCalls.push({
+      id: part.callID || part.id || crypto.randomUUID(),
+      exchangeId: '',
+      toolName: part.tool || 'unknown',
+      toolInput: state.input,
+      toolResult: stringifyToolOutput(state.output),
+      isError: Boolean(status && status !== 'completed'),
+      timestamp,
+    });
+  }
+
+  return toolCalls;
+}
+
+async function parseOpencodeConversation(
+  filePath: string,
+  projectName: string,
+  archivePath: string
+): Promise<ConversationExchange[]> {
+  const exchanges: ConversationExchange[] = [];
+  const fileStream = fs.createReadStream(filePath);
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity
+  });
+
+  let lineNumber = 0;
+  let sessionId: string | undefined;
+  let cwd: string | undefined;
+  let agentVersion: string | undefined;
+  let agent: string | undefined;
+  let model: string | undefined;
+  let modelProvider: string | undefined;
+  let currentExchange: ExchangeBuilder | null = null;
+
+  const currentProject = () => projectFromCwd(cwd) || projectName;
+
+  const applyMetadataToCurrentExchange = () => {
+    if (!currentExchange) {
+      return;
+    }
+    currentExchange.project = currentProject();
+    currentExchange.sessionId = sessionId;
+    currentExchange.cwd = cwd;
+    currentExchange.agentVersion = agentVersion;
+    currentExchange.model = model;
+    currentExchange.modelProvider = modelProvider;
+  };
+
+  const finalizeExchange = () => {
+    if (currentExchange && currentExchange.assistantMessages.length > 0) {
+      applyMetadataToCurrentExchange();
+      const exchangeId = crypto
+        .createHash('md5')
+        .update(`${archivePath}:${currentExchange.userLine}-${currentExchange.lastAssistantLine}`)
+        .digest('hex');
+
+      const toolCalls = currentExchange.toolCalls.map(tc => ({
+        ...tc,
+        exchangeId
+      }));
+
+      exchanges.push({
+        id: exchangeId,
+        project: currentExchange.project,
+        timestamp: currentExchange.timestamp,
+        userMessage: currentExchange.userMessage,
+        assistantMessage: currentExchange.assistantMessages.join('\n\n'),
+        archivePath,
+        lineStart: currentExchange.userLine,
+        lineEnd: currentExchange.lastAssistantLine,
+        harness: 'opencode',
+        sessionId: currentExchange.sessionId,
+        cwd: currentExchange.cwd,
+        agentVersion: currentExchange.agentVersion,
+        model: currentExchange.model,
+        modelProvider: currentExchange.modelProvider,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+      });
+    }
+    currentExchange = null;
+  };
+
+  const startExchange = (text: string, timestamp: string) => {
+    finalizeExchange();
+    currentExchange = {
+      project: currentProject(),
+      userMessage: text,
+      userLine: lineNumber,
+      assistantMessages: [],
+      lastAssistantLine: lineNumber,
+      timestamp,
+      harness: 'opencode',
+      sessionId,
+      cwd,
+      agentVersion,
+      model,
+      modelProvider,
+      toolCalls: []
+    };
+  };
+
+  for await (const line of rl) {
+    lineNumber++;
+    if (!line.trim()) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(line) as OpencodeJsonlLine;
+
+      if (parsed.type === 'opencode_session' && parsed.session) {
+        sessionId = parsed.session.id || sessionId;
+        cwd = parsed.session.directory || parsed.project?.worktree || cwd;
+        agentVersion = parsed.session.version || agentVersion;
+        agent = parsed.session.agent || agent;
+        model = opencodeModelId(parsed.session.model) || model;
+        modelProvider = opencodeModelProvider(parsed.session.model) || modelProvider;
+        applyMetadataToCurrentExchange();
+        continue;
+      }
+
+      if (parsed.type !== 'opencode_message' || !parsed.message) {
+        continue;
+      }
+
+      const message = parsed.message;
+      const timestamp = timestampFromOpencodeMessage(message);
+      if (message.sessionID || parsed.sessionID) {
+        sessionId = message.sessionID || parsed.sessionID;
+      }
+      if (message.agent) {
+        agent = message.agent;
+      }
+      if (message.path?.cwd) {
+        cwd = message.path.cwd;
+      }
+      if (message.modelID) {
+        model = message.modelID;
+      } else if (message.model) {
+        model = opencodeModelId(message.model) || model;
+      }
+      if (message.providerID) {
+        modelProvider = message.providerID;
+      } else if (message.model) {
+        modelProvider = opencodeModelProvider(message.model) || modelProvider;
+      }
+
+      const text = extractOpencodeText(parsed.parts);
+      if (message.role === 'user') {
+        if (!text.trim()) {
+          continue;
+        }
+        startExchange(text, timestamp);
+      } else if (message.role === 'assistant') {
+        const exchange = currentExchange as ExchangeBuilder | null;
+        if (exchange) {
+          if (text.trim()) {
+            exchange.assistantMessages.push(text);
+          }
+          exchange.lastAssistantLine = lineNumber;
+          exchange.timestamp = timestamp;
+          applyMetadataToCurrentExchange();
+          const toolCalls = extractOpencodeToolCalls(parsed.parts, timestamp);
+          if (toolCalls.length > 0) {
+            exchange.toolCalls.push(...toolCalls);
+          }
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  finalizeExchange();
+
+  // Keep TypeScript aware that this intentionally tracks opencode's agent
+  // name only as future metadata; the current DB schema stores version/model.
+  void agent;
+
+  return exchanges;
 }
 
 async function parseCodexConversation(

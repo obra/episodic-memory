@@ -37,6 +37,9 @@ export function formatConversationAsMarkdown(jsonl: string, startLine?: number, 
   if (isCodexRollout(lines)) {
     return formatCodexConversationAsMarkdown(lines);
   }
+  if (isOpencodeTranscript(lines)) {
+    return formatOpencodeConversationAsMarkdown(lines);
+  }
 
   const allMessages: ConversationMessage[] = lines.map(line => JSON.parse(line));
 
@@ -228,6 +231,9 @@ export function formatConversationAsHTML(jsonl: string): string {
   const lines = jsonl.trim().split('\n').filter(line => line.trim());
   if (isCodexRollout(lines)) {
     return formatMarkdownDocumentAsHTML(formatCodexConversationAsMarkdown(lines));
+  }
+  if (isOpencodeTranscript(lines)) {
+    return formatMarkdownDocumentAsHTML(formatOpencodeConversationAsMarkdown(lines));
   }
 
   const allMessages: ConversationMessage[] = lines.map(line => JSON.parse(line));
@@ -780,6 +786,18 @@ function isCodexRollout(lines: string[]): boolean {
   return false;
 }
 
+function isOpencodeTranscript(lines: string[]): boolean {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      return parsed.type === 'opencode_session' || parsed.type === 'opencode_message';
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
 function extractCodexText(content: unknown): string {
   if (typeof content === 'string') {
     return content;
@@ -791,6 +809,100 @@ function extractCodexText(content: unknown): string {
     .filter(block => block && typeof block === 'object' && typeof (block as any).text === 'string')
     .map(block => (block as any).text)
     .join('\n');
+}
+
+function opencodeTimestamp(message: any): string {
+  const millis = message?.time?.completed || message?.time?.created || message?.timeUpdated || message?.timeCreated;
+  if (typeof millis !== 'number') {
+    return '';
+  }
+  const date = new Date(millis);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+}
+
+function extractOpencodeText(parts: any[] | undefined): string {
+  if (!Array.isArray(parts)) {
+    return '';
+  }
+  return parts
+    .filter(part => part?.type === 'text' && typeof part.text === 'string')
+    .map(part => part.text)
+    .join('\n');
+}
+
+function formatOpencodeConversationAsMarkdown(lines: string[]): string {
+  const entries = lines.map(line => JSON.parse(line));
+  const metadata: {
+    sessionId?: string;
+    cwd?: string;
+    version?: string;
+    model?: string;
+    modelProvider?: string;
+  } = {};
+
+  for (const entry of entries) {
+    if (entry.type !== 'opencode_session' || !entry.session) {
+      continue;
+    }
+    metadata.sessionId = entry.session.id || metadata.sessionId;
+    metadata.cwd = entry.session.directory || entry.project?.worktree || metadata.cwd;
+    metadata.version = entry.session.version || metadata.version;
+    metadata.model = entry.session.model?.id || entry.session.model?.modelID || metadata.model;
+    metadata.modelProvider = entry.session.model?.providerID || metadata.modelProvider;
+  }
+
+  let output = '# Conversation\n\n';
+  output += '## Metadata\n\n';
+  output += '**Harness:** opencode\n\n';
+  if (metadata.sessionId) output += `**Session ID:** ${metadata.sessionId}\n\n`;
+  if (metadata.cwd) output += `**Working Directory:** ${metadata.cwd}\n\n`;
+  if (metadata.version) output += `**opencode Version:** ${metadata.version}\n\n`;
+  if (metadata.model) output += `**Model:** ${metadata.model}\n\n`;
+  if (metadata.modelProvider) output += `**Model Provider:** ${metadata.modelProvider}\n\n`;
+
+  output += '---\n\n';
+  output += '## Messages\n\n';
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.type !== 'opencode_message' || !entry.message) {
+      continue;
+    }
+
+    const timestamp = opencodeTimestamp(entry.message);
+    const anchor = entry.message.id || `msg-${i}`;
+    const role = entry.message.role === 'user' ? 'User' : 'Agent';
+    const text = extractOpencodeText(entry.parts);
+    if (text.trim()) {
+      output += `### **${role}** (${timestamp}) {#${anchor}}\n\n`;
+      output += `${text}\n\n`;
+    }
+
+    if (!Array.isArray(entry.parts)) {
+      continue;
+    }
+
+    for (const part of entry.parts) {
+      if (part?.type !== 'tool') {
+        continue;
+      }
+      const state = part.state || {};
+      output += `### **Tool Use** (${timestamp}) {#${part.callID || part.id || `${anchor}-tool`}}\n\n`;
+      output += `**Tool Use:** \`${part.tool || 'unknown'}\`\n\n`;
+      output += formatCodexToolInputMarkdown(state.input);
+      if (state.output !== undefined && state.output !== null) {
+        const result = typeof state.output === 'string' ? state.output : JSON.stringify(state.output, null, 2);
+        output += '**Result:**\n';
+        if (result.includes('\n') || result.length > 100) {
+          output += `\`\`\`\n${result}\n\`\`\`\n\n`;
+        } else {
+          output += `${result}\n\n`;
+        }
+      }
+    }
+  }
+
+  return output;
 }
 
 function safeParseJson(value: string): unknown {

@@ -2,8 +2,8 @@
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { buildCodexDoctorReport } from './doctor.js';
-import { getCodexDir } from './paths.js';
+import { buildCodexDoctorReport, buildOpencodeDoctorReport } from './doctor.js';
+import { getCodexDir, getOpencodeDbPath, getOpencodeTranscriptDir } from './paths.js';
 import { getDbPath } from './paths.js';
 import { getSyncLogPath } from './logging.js';
 import { detectCodexHookTrustState } from './codex-hook-trust.js';
@@ -17,16 +17,33 @@ function capture(command: string, args: string[]): string {
 }
 
 function showHelp(): void {
-  console.log(`Usage: episodic-memory doctor codex
+  console.log(`Usage: episodic-memory doctor <codex|opencode>
 
-Diagnose the local Codex plugin, hook, MCP, archive, and index setup.`);
+Diagnose local plugin, hook, MCP, archive, and index setup.`);
 }
 
 async function main(): Promise<void> {
   const target = process.argv[2];
-  if (target !== 'codex') {
+  if (target !== 'codex' && target !== 'opencode') {
     showHelp();
     process.exit(target ? 1 : 0);
+  }
+
+  if (target === 'opencode') {
+    const dbPath = getOpencodeDbPath();
+    const transcriptDir = getOpencodeTranscriptDir();
+    const report = buildOpencodeDoctorReport({
+      opencodeVersionOutput: capture('opencode', ['--version']),
+      debugConfigOutput: capture('opencode', ['debug', 'config']),
+      dbPath,
+      dbExists: fs.existsSync(dbPath),
+      transcriptDir,
+      transcriptDirExists: fs.existsSync(transcriptDir),
+      logPath: getSyncLogPath(),
+    });
+
+    process.stdout.write(report.text);
+    process.exit(report.ok ? 0 : 1);
   }
 
   const codexHome = getCodexDir();

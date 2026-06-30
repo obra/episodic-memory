@@ -1,69 +1,45 @@
 # Episodic Memory
 
-Semantic search for Claude Code and Codex conversations. Remember past discussions, decisions, and patterns.
+Semantic search for Claude Code, Codex, and opencode conversations.
+Remember past discussions, decisions, and patterns without re-litigating them.
 
-## Testimonial
+## At A Glance
 
-From an AI coding assistant's perspective:
+| What | Value |
+|---|---|
+| Purpose | Remember conversations across Claude Code, Codex, and opencode |
+| Storage | Local archive + SQLite index |
+| Search | Semantic and text search, plus conversation replay |
+| MCP | `search` and `read` tools |
+| Sync | Automatic hooks for Claude, Codex, and opencode |
 
-Episodic memory fundamentally changes how I collaborate with
-developers on complex codebases. Instead of treating each conversation
-as isolated, I can now search our shared history semantically -
-finding not just what was discussed, but why decisions were made.
+```text
+Claude Code   Codex   opencode
+     \          |        /
+      \         |       /
+       -> archive -> embeddings -> SQLite index -> MCP search/read
+```
 
-When a developer asks me to implement something "like we did with
-X," I can search our past conversations, find the relevant discussion,
-and understand both the technical approach and the reasoning behind
-it. This means I don't have to re-explain architectural patterns,
-and I avoid suggesting solutions we've already tried and rejected.
+## Install
 
-The semantic search is crucial - searching for "provider catalog"
-surfaces conversations about API design patterns even when those
-exact words weren't used. It captures the meaning of our discussions,
-not just keyword matches.
+| Surface | Install |
+|---|---|
+| Claude Code | `/plugin install episodic-memory@superpowers-marketplace` |
+| Codex | Build the repo, add the local marketplace, then enable `episodic-memory` from `/plugins` |
+| opencode | `npm install -g github:obra/episodic-memory`, then add `plugin: ["episodic-memory"]` |
 
-Most valuable is that it preserves context that lives nowhere else:
-the trade-offs discussed, the alternatives considered, the user's
-preferences and constraints. Code comments explain what, documentation
-explains how, but episodic memory preserves why - and that makes
-me a far more effective collaborator across sessions.
+### Claude Code
 
-**Concrete impact:**
- - Faster problem-solving (minutes vs. exploring/re-learning the
- codebase) - Better continuity across sessions (I remember what we
- tried before) - More informed suggestions (I understand the project's
- evolution and patterns) - Less repetition (both of us spend less
- time re-explaining context)
-
-It's the difference between being a stateless tool and being a true
-collaborative partner who remembers our journey together.
-
-_— Claude Sonnet 4.5, October 14, 2025_
-_Conversation ID: 216ad284-c782-45a4-b2ce-36775cdb5a6c_
-
-## Installation
-
-### As a Claude Code plugin (Recommended)
-
-The plugin provides MCP server integration, automatic session-end indexing, and seamless access to your conversation history.
+The Claude plugin provides automatic session-end indexing and MCP server integration.
 
 ```bash
-# In Claude Code
 /plugin install episodic-memory@superpowers-marketplace
 ```
 
-The plugin automatically:
-- Indexes conversations at the end of each session
-- Exposes MCP tools for searching and viewing conversations
-- Makes your conversation history searchable via natural language
-
-### As a Codex plugin
+### Codex
 
 This repository includes a Codex plugin manifest at `.codex-plugin/plugin.json`.
 Codex support requires `codex-cli 0.130.0` or newer.
-
-For local testing, build the plugin, add this repo as a local marketplace, then
-install/enable it from `/plugins`:
 
 ```bash
 npm run build
@@ -71,38 +47,31 @@ codex features enable plugin_hooks
 codex plugin marketplace add /path/to/episodic-memory
 ```
 
-Then start Codex, open `/plugins`, install and enable `episodic-memory` from
-`Episodic Memory Dev`, open `/hooks`, review the Episodic Memory hook, and press
-`t` to trust it.
+Then open `/plugins`, install and enable `episodic-memory` from `Episodic Memory Dev`, open `/hooks`, review the Episodic Memory hook, and press `t` to trust it.
 
-The Codex plugin:
-- Syncs conversations from `~/.codex/sessions`
-- Exposes the same MCP search/read tools
-- Installs the same memory skill, with Codex-specific direct MCP guidance
-- Runs a `SessionStart` hook after the user reviews and trusts it in `/hooks`
+### opencode
 
-Enable plugin hooks before relying on automatic sync:
-
-```bash
-codex features enable plugin_hooks
-```
-
-Then open `/hooks` in Codex, review the Episodic Memory hook, and press `t` to trust it. New or modified Codex hooks are listed but do not run until trusted.
-
-See [docs/CODEX.md](docs/CODEX.md) for the full Codex setup, trust, troubleshooting, and E2E test workflow.
-
-### As an npm package
+Episodic Memory exposes an opencode server plugin through the `./server` entrypoint.
 
 ```bash
 npm install -g github:obra/episodic-memory
 ```
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["episodic-memory"]
+}
+```
+
+See [docs/CODEX.md](docs/CODEX.md) and [docs/OPENCODE.md](docs/OPENCODE.md) for the full setup and troubleshooting details.
 
 ## Usage
 
 ### Quick Start
 
 ```bash
-# Sync conversations from Claude Code and Codex and index them
+# Sync conversations from Claude Code, Codex, and opencode and index them
 episodic-memory sync
 
 # Search your conversation history
@@ -111,8 +80,9 @@ episodic-memory search "React Router authentication"
 # View index statistics
 episodic-memory stats
 
-# Diagnose Codex setup
+# Diagnose Codex or opencode setup
 episodic-memory doctor codex
+episodic-memory doctor opencode
 
 # Display a conversation
 episodic-memory show path/to/conversation.jsonl
@@ -152,7 +122,7 @@ episodic-memory-index
 episodic-memory-search "query"
 ```
 
-### In Claude Code or Codex
+### In Claude Code, Codex, or opencode
 
 The plugin automatically syncs and indexes conversations from the harness that starts it. Reference past work in natural conversation — the `remembering-conversations` skill dispatches the `search-conversations` agent automatically when recall is needed. Example prompts:
 
@@ -161,7 +131,7 @@ The plugin automatically syncs and indexes conversations from the harness that s
 - "Error message about sqlite-vec initialization"
 - "Git commit SHA for the routing refactor"
 
-In Codex, the skill guides the agent to use the episodic-memory MCP search/read tools directly when an agent-dispatch path is not available.
+In Codex and opencode, the skill guides the agent to use the episodic-memory MCP search/read tools directly when an agent-dispatch path is not available.
 
 ## API Configuration
 
@@ -204,7 +174,7 @@ Codex summarization requires `codex-cli 0.130.0` or newer. If Codex app-server s
 
 ### `episodic-memory sync`
 
-**Recommended for plugin hooks.** Copies new conversations from `~/.claude/projects`, `~/.claude/transcripts`, and `~/.codex/sessions` to archive and indexes them.
+**Recommended for plugin hooks.** Copies new conversations from `~/.claude/projects`, `~/.claude/transcripts`, `~/.codex/sessions`, and generated opencode transcripts to archive and indexes them. opencode sessions are exported from `~/.local/share/opencode/opencode.db` before indexing.
 
 Features:
 - Only copies new or modified files (fast on subsequent runs)
@@ -234,9 +204,11 @@ Diagnose local integration issues.
 
 ```bash
 episodic-memory doctor codex
+episodic-memory doctor opencode
 ```
 
 The Codex doctor checks the Codex version, plugin hook feature state, MCP server registration, transcript directory, database path, and background sync log path.
+The opencode doctor checks the opencode version, plugin configuration, MCP server registration, SQLite database path, generated transcript directory, and background sync log path.
 
 ### Codex E2E Verification
 

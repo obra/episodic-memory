@@ -21,6 +21,16 @@ export interface DoctorReport {
   text: string;
 }
 
+export interface OpencodeDoctorInputs {
+  opencodeVersionOutput: string;
+  debugConfigOutput: string;
+  dbPath: string;
+  dbExists: boolean;
+  transcriptDir: string;
+  transcriptDirExists: boolean;
+  logPath: string;
+}
+
 function parseFeatureState(featuresOutput: string, feature: string): boolean | undefined {
   const line = featuresOutput
     .split(/\r?\n/)
@@ -106,6 +116,95 @@ export function buildCodexDoctorReport(inputs: CodexDoctorInputs): DoctorReport 
     `Hook/background sync log: ${inputs.logPath}`,
     '',
     `Hook trust: ${formatHookTrustState(inputs.hookTrustState)}`,
+  ];
+
+  if (issues.length > 0) {
+    lines.push('', 'Issues:');
+    for (const issue of issues) {
+      lines.push(`- ${issue}`);
+    }
+  }
+
+  return {
+    ok: issues.length === 0,
+    text: `${lines.join('\n')}\n`,
+  };
+}
+
+function parseJsonConfig(output: string): any | undefined {
+  try {
+    return JSON.parse(output);
+  } catch {
+    return undefined;
+  }
+}
+
+function opencodePluginState(config: any): 'configured' | 'missing' | 'unknown' {
+  if (!config || typeof config !== 'object') {
+    return 'unknown';
+  }
+  const plugins = Array.isArray(config.plugin) ? config.plugin : [];
+  const configured = plugins.some((entry: unknown) => {
+    if (typeof entry === 'string') {
+      return entry === 'episodic-memory' || entry === 'episodic-memory/server';
+    }
+    if (Array.isArray(entry) && typeof entry[0] === 'string') {
+      return entry[0] === 'episodic-memory' || entry[0] === 'episodic-memory/server';
+    }
+    return false;
+  });
+  return configured ? 'configured' : 'missing';
+}
+
+function opencodeMcpState(config: any): 'enabled' | 'disabled' | 'missing' | 'unknown' {
+  if (!config || typeof config !== 'object') {
+    return 'unknown';
+  }
+  const mcp = config.mcp;
+  if (!mcp || typeof mcp !== 'object') {
+    return 'missing';
+  }
+  const entry = mcp['episodic-memory'];
+  if (!entry || typeof entry !== 'object') {
+    return 'missing';
+  }
+  if (entry.enabled === false || entry.disabled === true) {
+    return 'disabled';
+  }
+  return 'enabled';
+}
+
+export function buildOpencodeDoctorReport(inputs: OpencodeDoctorInputs): DoctorReport {
+  const version = parseCodexCliVersion(inputs.opencodeVersionOutput);
+  const versionOk = version !== undefined;
+  const config = parseJsonConfig(inputs.debugConfigOutput);
+  const pluginState = opencodePluginState(config);
+  const mcpState = opencodeMcpState(config);
+
+  const issues: string[] = [];
+  if (!versionOk) {
+    issues.push('opencode was not found or did not report a version.');
+  }
+  if (pluginState !== 'configured') {
+    issues.push('Episodic Memory opencode plugin is not configured; add "episodic-memory" to the opencode plugin array.');
+  }
+  if (!inputs.dbExists) {
+    issues.push('opencode database does not exist yet; start at least one opencode session.');
+  }
+  if (mcpState !== 'enabled') {
+    issues.push('Episodic Memory MCP server is not enabled in opencode config.');
+  }
+
+  const lines = [
+    'Episodic Memory opencode Doctor',
+    '=================================',
+    '',
+    `opencode version: ${inputs.opencodeVersionOutput.trim() || '(not found)'} ${versionOk ? '(found)' : '(missing)'}`,
+    `opencode database: ${inputs.dbExists ? 'found' : 'missing'} (${inputs.dbPath})`,
+    `Generated transcripts: ${inputs.transcriptDirExists ? 'found' : 'missing until first sync'} (${inputs.transcriptDir})`,
+    `opencode plugin: ${pluginState}`,
+    `Episodic Memory MCP: ${mcpState}`,
+    `Hook/background sync log: ${inputs.logPath}`,
   ];
 
   if (issues.length > 0) {

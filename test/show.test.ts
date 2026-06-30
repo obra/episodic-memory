@@ -167,6 +167,54 @@ function codexJsonlWithLocalShellOutput(): string {
   ].map(line => JSON.stringify(line)).join('\n');
 }
 
+function opencodeJsonl(): string {
+  return [
+    {
+      type: 'opencode_session',
+      session: {
+        id: 'ses_opencode123',
+        directory: '/Users/jesse/Documents/GitHub/example-project',
+        version: '1.17.8',
+        model: { id: 'claude-sonnet-4-5', providerID: 'anthropic' },
+        time: { created: 1700000000000, updated: 1700000004000 },
+      },
+    },
+    {
+      type: 'opencode_message',
+      message: {
+        id: 'msg_user',
+        role: 'user',
+        time: { created: 1700000001000 },
+      },
+      parts: [
+        { id: 'prt_user', type: 'text', text: 'Please inspect opencode sync.' },
+      ],
+    },
+    {
+      type: 'opencode_message',
+      message: {
+        id: 'msg_assistant',
+        role: 'assistant',
+        time: { created: 1700000002000, completed: 1700000003000 },
+      },
+      parts: [
+        {
+          id: 'prt_tool',
+          type: 'tool',
+          callID: 'call_echo',
+          tool: 'bash',
+          state: {
+            status: 'completed',
+            input: { command: 'echo opencode' },
+            output: 'opencode\n',
+          },
+        },
+        { id: 'prt_assistant', type: 'text', text: 'opencode sync exports SQLite sessions.' },
+      ],
+    },
+  ].map(line => JSON.stringify(line)).join('\n');
+}
+
 describe('show command - markdown formatting', () => {
   const fixturesDir = join(import.meta.dirname, 'fixtures');
 
@@ -269,6 +317,18 @@ describe('show command - markdown formatting', () => {
     expect(markdown).toContain('Exit code: 0');
     expect(markdown).toContain('local shell');
   });
+
+  it('should format opencode generated JSONL', () => {
+    const markdown = formatConversationAsMarkdown(opencodeJsonl());
+
+    expect(markdown).toContain('**Harness:** opencode');
+    expect(markdown).toContain('ses_opencode123');
+    expect(markdown).toContain('**opencode Version:** 1.17.8');
+    expect(markdown).toContain('Please inspect opencode sync.');
+    expect(markdown).toContain('**Tool Use:** `bash`');
+    expect(markdown).toContain('**Result:**');
+    expect(markdown).toContain('opencode sync exports SQLite sessions.');
+  });
 });
 
 describe('show command - HTML formatting', () => {
@@ -349,5 +409,16 @@ describe('show command - HTML formatting', () => {
     expect(html).toContain('&lt;script&gt;alert(');
     expect(html).toContain('&lt;/script&gt;');
     expect(html).toContain('&lt;b&gt;literal markup&lt;/b&gt;');
+  });
+
+  it('should format opencode generated JSONL as HTML', () => {
+    const html = formatConversationAsHTML(opencodeJsonl());
+
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('opencode');
+    expect(html).toContain('Please inspect opencode sync.');
+    expect(html).toContain('Tool Use');
+    expect(html).toContain('bash');
+    expect(html).toContain('opencode sync exports SQLite sessions.');
   });
 });

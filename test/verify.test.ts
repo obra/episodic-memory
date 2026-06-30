@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { verifyIndex, repairIndex, VerificationResult } from '../src/verify.js';
 import { suppressConsole } from './test-utils.js';
 import fs from 'fs';
@@ -6,6 +6,15 @@ import path from 'path';
 import os from 'os';
 import { initDatabase, insertExchange } from '../src/db.js';
 import { ConversationExchange } from '../src/types.js';
+
+vi.mock('../src/embeddings.js', () => ({
+  initEmbeddings: vi.fn(async () => {}),
+  generateExchangeEmbedding: vi.fn(async () => new Array(384).fill(0.1))
+}));
+
+vi.mock('../src/summarizer.js', () => ({
+  summarizeConversation: vi.fn(async () => 'Mock summary')
+}));
 
 // Suppress console output for clean test runs
 const restoreConsole = suppressConsole();
