@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- The embedding model and its task prefixes are now configurable via
+  `EPISODIC_MEMORY_EMBEDDING_MODEL`, `EPISODIC_MEMORY_EMBEDDING_QUERY_PREFIX`,
+  and `EPISODIC_MEMORY_EMBEDDING_PASSAGE_PREFIX`. The default behavior is
+  unchanged (`Xenova/bge-small-en-v1.5`, BGE query prefix, no passage prefix).
+  This unblocks non-English corpora: on a Korean-language corpus the default
+  English-only model placed the right conversation in the top-3 for 1/3 test
+  queries, while `Xenova/multilingual-e5-small` (same 384 dimensions) scored
+  3/3 on identical data. Models must stay 384-dim, and switching requires a
+  reindex (docs added to README).
+
 ## [1.4.2] - 2026-05-21
 
 ### Fixed

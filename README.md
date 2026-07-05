@@ -189,6 +189,31 @@ export EPISODIC_MEMORY_CODEX_BIN=/path/to/codex
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
+## Embedding Model Configuration
+
+The default embedding model (`Xenova/bge-small-en-v1.5`) is English-only. If your
+conversations are mostly in another language, semantic search quality degrades
+sharply — in an A/B on a Korean-language corpus (same conversations, same queries),
+the default model placed the right conversation in the top-3 for 1/3 queries, while
+`Xenova/multilingual-e5-small` (also 384-dim) scored 3/3.
+
+```bash
+# Any Transformers.js-compatible model id. MUST be 384-dim (schema is fixed).
+export EPISODIC_MEMORY_EMBEDDING_MODEL=Xenova/multilingual-e5-small
+
+# Task prefixes are model-specific. e5-family models expect these:
+export EPISODIC_MEMORY_EMBEDDING_QUERY_PREFIX="query: "
+export EPISODIC_MEMORY_EMBEDDING_PASSAGE_PREFIX="passage: "
+```
+
+Caveats:
+
+- The model must produce **384-dimensional** embeddings (the `vec_exchanges` schema is fixed).
+- Switching models does not bump `EMBEDDING_VERSION`, so existing rows are not
+  auto-migrated. Reindex after switching, and never mix two models in one index.
+- Set the same values for every process that touches the index (sync hook, MCP
+  server, CLI) — e.g. in your shell profile or the hook environment.
+
 Codex summarization requires `codex-cli 0.130.0` or newer. If Codex app-server summarization is unavailable, sync logs the reason and falls back to transcript-text summarization.
 
 ### What's Affected
