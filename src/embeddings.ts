@@ -16,10 +16,24 @@ env.useBrowserCache = false;
  * BGE models recommend prepending a task prefix to QUERY embeddings only
  * (passages/documents go through unmodified). See `withQueryPrefix` and
  * `generateQueryEmbedding` below.
+ *
+ * Env overrides (for non-English corpora — the default model is English-only):
+ * - EPISODIC_MEMORY_EMBEDDING_MODEL: any Transformers.js-compatible model id.
+ *   MUST produce 384-dim embeddings (the vec_exchanges schema is fixed at 384).
+ * - EPISODIC_MEMORY_EMBEDDING_QUERY_PREFIX: query-side task prefix. Defaults to
+ *   the BGE sentence prefix; e5-family models want "query: " instead.
+ * - EPISODIC_MEMORY_EMBEDDING_PASSAGE_PREFIX: passage-side prefix, prepended
+ *   before the 2000-char truncation. Defaults to "" (BGE passages go through
+ *   unmodified); e5-family models want "passage: ".
+ * Switching models does not bump EMBEDDING_VERSION — reindex after switching,
+ * and never mix models in one index.
  */
-const MODEL_ID = 'Xenova/bge-small-en-v1.5';
+const MODEL_ID = process.env.EPISODIC_MEMORY_EMBEDDING_MODEL || 'Xenova/bge-small-en-v1.5';
 const MODEL_DTYPE = 'q8';
-export const BGE_QUERY_PREFIX = 'Represent this sentence for searching relevant passages: ';
+export const BGE_QUERY_PREFIX =
+  process.env.EPISODIC_MEMORY_EMBEDDING_QUERY_PREFIX ??
+  'Represent this sentence for searching relevant passages: ';
+const PASSAGE_PREFIX = process.env.EPISODIC_MEMORY_EMBEDDING_PASSAGE_PREFIX ?? '';
 
 let embeddingPipeline: FeatureExtractionPipeline | null = null;
 
@@ -84,5 +98,5 @@ export async function generateExchangeEmbedding(
     combined += `\n\nTools: ${toolNames.join(', ')}`;
   }
 
-  return generateEmbedding(combined);
+  return generateEmbedding(PASSAGE_PREFIX + combined);
 }
