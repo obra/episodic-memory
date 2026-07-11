@@ -21,6 +21,16 @@ describe('buildSummarizerQueryOptions', () => {
     expect(opts.persistSession).toBe(false);
   });
 
+  it('sets settingSources: [] so the subprocess does not load ~/.claude hooks/settings that overflow the model context', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku' });
+    expect(opts.settingSources).toEqual([]);
+  });
+
+  it('sets settingSources: [] on the resume path too', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku', sessionId: 'abc-123' });
+    expect(opts.settingSources).toEqual([]);
+  });
+
   it('passes through the model and max_tokens', () => {
     const opts = buildSummarizerQueryOptions({ model: 'haiku' });
     expect(opts.model).toBe('haiku');

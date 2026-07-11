@@ -104,6 +104,17 @@ function extractSummary(text: string): string {
  * ~/.claude/projects/ (#83). Without it, every summarization spawns a fake
  * session JSONL that pollutes the IDE session sidebar. The option is honored
  * by claude-agent-sdk >= 0.2.0.
+ *
+ * settingSources: [] runs the summarizer subprocess in SDK isolation mode so it
+ * does NOT load the user's ~/.claude filesystem settings. Without it, the spawned
+ * subprocess fires every SessionStart/UserPromptSubmit hook the user has configured,
+ * and those hooks can inject large context (rules files, CLAUDE.md, memory) that
+ * overflows the summarizer model's context window BEFORE the conversation is added.
+ * The API then returns HTTP 400 "Prompt is too long" as a result message with
+ * is_error:true / subtype:'success', which callClaude() throws as the opaque
+ * SummarizerSdkError('success') — so EVERY summary fails for users with heavy
+ * ~/.claude hook configs. Isolation drops the prompt to the conversation text alone.
+ * (Settings default to loaded — CLI parity — when settingSources is omitted.)
  */
 export function buildSummarizerQueryOptions(args: {
   model: string;
@@ -117,6 +128,7 @@ export function buildSummarizerQueryOptions(args: {
     env: getApiEnv(),
     resume: sessionId,
     persistSession: false,
+    settingSources: [],
     // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
     ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
     // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.
