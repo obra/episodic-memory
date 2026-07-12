@@ -3837,7 +3837,7 @@ var require_fast_uri = __commonJS({
         if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport)) {
           if (parsed.host && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
             try {
-              parsed.host = URL.domainToASCII(parsed.host.toLowerCase());
+              parsed.host = new URL("http://" + parsed.host).hostname;
             } catch (e) {
               parsed.error = parsed.error || "Host's domain name can not be converted to ASCII: " + e;
             }
@@ -24966,16 +24966,34 @@ env.useBrowserCache = false;
 var MODEL_ID = "Xenova/bge-small-en-v1.5";
 var MODEL_DTYPE = "q8";
 var BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: ";
+function resolveIntraOpThreads() {
+  const override = process.env.EPISODIC_MEMORY_EMBED_THREADS;
+  if (override !== void 0) {
+    const n = Number.parseInt(override, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return 2;
+  }
+  return null;
+}
 var embeddingPipeline = null;
 async function initEmbeddings() {
   if (!embeddingPipeline) {
     console.error("Loading embedding model (first run may take time)...");
-    embeddingPipeline = await pipeline(
-      "feature-extraction",
-      MODEL_ID,
-      { dtype: MODEL_DTYPE, progress_callback: () => {
-      } }
-    );
+    const options = {
+      dtype: MODEL_DTYPE,
+      progress_callback: () => {
+      }
+    };
+    const intraOpThreads = resolveIntraOpThreads();
+    if (intraOpThreads !== null) {
+      options.session_options = {
+        intraOpNumThreads: intraOpThreads,
+        interOpNumThreads: 1
+      };
+    }
+    embeddingPipeline = await pipeline("feature-extraction", MODEL_ID, options);
     console.error("Embedding model loaded");
   }
 }
@@ -26865,7 +26883,7 @@ ${result}
 }
 
 // src/version.ts
-var VERSION = "1.4.1";
+var VERSION = "1.4.2";
 
 // src/mcp-server.ts
 import fs4 from "fs";
