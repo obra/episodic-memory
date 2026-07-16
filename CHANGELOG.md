@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Search now finds conversations whose real work happened inside subagents or `Workflow` runs. Every search previously hid these "sidechain" exchanges — in orchestration-heavy sessions that is the majority of the content (across one measured index, 9,968 of 17,599 indexed exchanges, ~57%, were categorically unreachable; in a single design-then-review session it was 578 of 647, ~89%). A semantic search for a feature would return the thin main-thread shell and miss the panel findings, implementation steps, and decisions that actually lived in the subagents. Sidechain exchanges are now searched by default and ranked just below equally-relevant main-thread matches, so the main thread still surfaces first but the substance is reachable. Pass `include_sidechains: false` (or `--exclude-sidechains` on the CLI) to restore the old main-thread-only behavior.
+
+### Added
+- Documented the `text` search contract: the whole query is matched as one contiguous, case-insensitive substring — there is no word splitting — so `text` mode is for exact strings (git SHAs, error codes) and `vector`/`both` are for natural-language queries. This behavior is unchanged; it is now stated in the tool and CLI help and pinned by tests.
+
 ## [1.4.2] - 2026-05-21
 
 ### Fixed

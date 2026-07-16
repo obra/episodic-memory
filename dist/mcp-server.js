@@ -3837,7 +3837,7 @@ var require_fast_uri = __commonJS({
         if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport)) {
           if (parsed.host && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
             try {
-              parsed.host = URL.domainToASCII(parsed.host.toLowerCase());
+              parsed.host = new URL("http://" + parsed.host).hostname;
             } catch (e) {
               parsed.error = parsed.error || "Host's domain name can not be converted to ASCII: " + e;
             }
@@ -25009,6 +25009,7 @@ function isErroredSentinel(content) {
 // src/search.ts
 import fs3 from "fs";
 import readline from "readline";
+var SIDECHAIN_DISTANCE_PENALTY = 0.05;
 function buildSearchFilters(options) {
   const parts = [];
   const params = [];
@@ -25036,9 +25037,6 @@ function buildSearchFilters(options) {
     sql: parts.length ? `AND ${parts.join(" AND ")}` : "",
     params
   };
-}
-function hasMetadataFilters(options) {
-  return Boolean(options.project || options.session_id || options.git_branch);
 }
 var EXCHANGE_SELECT_COLUMNS = `
         e.id,
@@ -25103,6 +25101,8 @@ function validateISODate(dateStr, paramName) {
 }
 async function searchConversations(query, options = {}) {
   const { limit = 10, mode = "both", after, before } = options;
+  const includeSidechains = options.include_sidechains !== false;
+  const sidechainClause = includeSidechains ? "" : "AND e.is_sidechain = 0";
   if (after) validateISODate(after, "--after");
   if (before) validateISODate(before, "--before");
   const db = initDatabase();
@@ -25111,7 +25111,7 @@ async function searchConversations(query, options = {}) {
   if (mode === "vector" || mode === "both") {
     await initEmbeddings();
     const queryEmbedding = await generateQueryEmbedding(query);
-    const k2 = hasMetadataFilters(options) ? limit * 3 : limit;
+    const k2 = limit * 3;
     const stmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},
@@ -25120,14 +25120,15 @@ async function searchConversations(query, options = {}) {
       JOIN exchanges AS e ON vec.id = e.id
       WHERE vec.embedding MATCH ?
         AND k = ?
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY vec.distance ASC
+      ORDER BY (vec.distance + e.is_sidechain * ?) ASC
     `);
     results = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
       k2,
-      ...filterParams
+      ...filterParams,
+      SIDECHAIN_DISTANCE_PENALTY
     );
     if (results.length > limit) {
       results = results.slice(0, limit);
@@ -25140,9 +25141,9 @@ async function searchConversations(query, options = {}) {
         0 as distance
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY e.timestamp DESC
+      ORDER BY e.is_sidechain ASC, e.timestamp DESC
       LIMIT ?
     `);
     const textResults = textStmt.all(`%${query}%`, `%${query}%`, ...filterParams, limit);
@@ -26865,7 +26866,7 @@ ${result}
 }
 
 // src/version.ts
-var VERSION = "1.4.1";
+var VERSION = "1.4.2";
 
 // src/mcp-server.ts
 import fs4 from "fs";
@@ -26887,6 +26888,9 @@ var SearchInputSchema = external_exports.object({
   project: external_exports.string().min(1).optional().describe("Filter by project name (exact match)"),
   session_id: external_exports.string().min(1).optional().describe("Filter by session ID (exact match)"),
   git_branch: external_exports.string().min(1).optional().describe("Filter by git branch name (exact match)"),
+  include_sidechains: external_exports.boolean().default(true).describe(
+    "Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: true). Set false to search only the main thread."
+  ),
   response_format: ResponseFormatEnum.default("markdown").describe(
     'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
   )
@@ -26918,7 +26922,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "search",
-        description: `Gives you memory across sessions. You don't automatically remember past Claude Code and Codex conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past Claude Code and Codex conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Subagent and workflow (sidechain) conversations are searched by default, de-ranked below main-thread matches; pass include_sidechains=false to search only the main thread. Note: "text" mode matches the whole query as one contiguous substring (no word splitting), so prefer "vector" or "both" for natural-language queries and reserve "text" for exact strings like SHAs or error codes. Returns ranked results with project, date, snippets, and file paths.`,
         inputSchema: {
           type: "object",
           properties: {
@@ -26935,6 +26939,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             project: { type: "string", minLength: 1, description: "Filter by project name (exact match)" },
             session_id: { type: "string", minLength: 1, description: "Filter by session ID (exact match)" },
             git_branch: { type: "string", minLength: 1, description: "Filter by git branch name (exact match)" },
+            include_sidechains: { type: "boolean", default: true, description: "Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: true)" },
             response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" }
           },
           required: ["query"],
@@ -26985,7 +26990,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           before: params.before,
           project: params.project,
           session_id: params.session_id,
-          git_branch: params.git_branch
+          git_branch: params.git_branch,
+          include_sidechains: params.include_sidechains
         };
         const results = await searchMultipleConcepts(params.query, options);
         if (params.response_format === "json") {
@@ -27009,7 +27015,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           before: params.before,
           project: params.project,
           session_id: params.session_id,
-          git_branch: params.git_branch
+          git_branch: params.git_branch,
+          include_sidechains: params.include_sidechains
         };
         const results = await searchConversations(params.query, options);
         if (params.response_format === "json") {

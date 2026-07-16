@@ -14,7 +14,20 @@ export interface SearchOptions {
   project?: string;     // exact match against e.project
   session_id?: string;  // exact match against e.session_id
   git_branch?: string;  // exact match against e.git_branch
+  include_sidechains?: boolean; // include subagent/workflow rows (default true)
 }
+
+/**
+ * Distance penalty (L2, in the same units as vec.distance) added to a
+ * sidechain row's score so that an equally-relevant main-thread exchange
+ * ranks ahead of it. Sidechains (subagent and `Workflow` transcripts) carry
+ * the substance of orchestrated sessions, so they must stay reachable; this
+ * only de-prioritizes them on ties and near-ties, letting a clearly-more-
+ * relevant sidechain still outrank a weaker main-thread match. Chosen small:
+ * ~0.05 in L2 distance is a few points of cosine similarity for typical
+ * normalized embeddings.
+ */
+const SIDECHAIN_DISTANCE_PENALTY = 0.05;
 
 /**
  * Build the AND-clause and bound-parameter list that constrains a search
@@ -48,10 +61,6 @@ function buildSearchFilters(options: SearchOptions): { sql: string; params: unkn
     sql: parts.length ? `AND ${parts.join(' AND ')}` : '',
     params,
   };
-}
-
-function hasMetadataFilters(options: SearchOptions): boolean {
-  return Boolean(options.project || options.session_id || options.git_branch);
 }
 
 const EXCHANGE_SELECT_COLUMNS = `
@@ -135,6 +144,8 @@ export async function searchConversations(
   options: SearchOptions = {}
 ): Promise<SearchResult[]> {
   const { limit = 10, mode = 'both', after, before } = options;
+  const includeSidechains = options.include_sidechains !== false;
+  const sidechainClause = includeSidechains ? '' : 'AND e.is_sidechain = 0';
 
   // Validate date parameters
   if (after) validateISODate(after, '--after');
@@ -148,11 +159,11 @@ export async function searchConversations(
 
   if (mode === 'vector' || mode === 'both') {
     // Vector similarity search.
-    // vec0 applies KNN before WHERE, so when extra metadata filters are
-    // active we ask for more candidates than `limit` and trim afterwards.
+    // vec0 applies KNN before the WHERE clause and before our sidechain
+    // de-rank, so we over-fetch candidates and trim after the final ordering.
     await initEmbeddings();
     const queryEmbedding = await generateQueryEmbedding(query);
-    const k = hasMetadataFilters(options) ? limit * 3 : limit;
+    const k = limit * 3;
 
     const stmt = db.prepare(`
       SELECT
@@ -162,15 +173,16 @@ export async function searchConversations(
       JOIN exchanges AS e ON vec.id = e.id
       WHERE vec.embedding MATCH ?
         AND k = ?
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY vec.distance ASC
+      ORDER BY (vec.distance + e.is_sidechain * ?) ASC
     `);
 
     results = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
       k,
-      ...filterParams
+      ...filterParams,
+      SIDECHAIN_DISTANCE_PENALTY
     );
     if (results.length > limit) {
       results = results.slice(0, limit);
@@ -178,16 +190,20 @@ export async function searchConversations(
   }
 
   if (mode === 'text' || mode === 'both') {
-    // Text search
+    // Text search. The whole query is matched as one contiguous, case-
+    // insensitive substring (via LIKE `%query%`); there is no tokenization,
+    // so a query only matches when it appears verbatim in a single message.
+    // Sidechain rows are ordered after main-thread rows (same de-rank intent
+    // as the vector path) rather than excluded.
     const textStmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},
         0 as distance
       FROM exchanges AS e
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY e.timestamp DESC
+      ORDER BY e.is_sidechain ASC, e.timestamp DESC
       LIMIT ?
     `);
 

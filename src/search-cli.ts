@@ -9,6 +9,7 @@ let before: string | undefined;
 let project: string | undefined;
 let sessionId: string | undefined;
 let gitBranch: string | undefined;
+let includeSidechains = true;
 let limit = 10;
 const queries: string[] = [];
 
@@ -24,7 +25,8 @@ Search indexed conversations using semantic similarity or exact text matching.
 MODES:
   (default)      Combined vector + text search
   --vector       Vector similarity only (semantic)
-  --text         Exact string matching only (for git SHAs, error codes)
+  --text         Exact substring matching only (whole query matched verbatim;
+                 best for git SHAs, error codes — not natural language)
 
 OPTIONS:
   --after DATE          Only conversations after YYYY-MM-DD
@@ -32,6 +34,8 @@ OPTIONS:
   --project NAME        Filter by project name (exact match)
   --session-id ID       Filter by session ID (exact match)
   --git-branch BRANCH   Filter by git branch name (exact match)
+  --exclude-sidechains  Search only the main thread; omit subagent/workflow
+                        conversations (included and de-ranked by default)
   --limit N             Max results (default: 10)
   --help, -h            Show this help
 
@@ -72,6 +76,8 @@ EXAMPLES:
     sessionId = args[++i];
   } else if (arg === '--git-branch') {
     gitBranch = args[++i];
+  } else if (arg === '--exclude-sidechains') {
+    includeSidechains = false;
   } else if (arg === '--limit') {
     limit = parseInt(args[++i]);
   } else {
@@ -88,7 +94,7 @@ if (queries.length === 0) {
 
 // Multi-concept search if multiple queries provided
 if (queries.length > 1) {
-  const options = { limit, after, before, project, session_id: sessionId, git_branch: gitBranch };
+  const options = { limit, after, before, project, session_id: sessionId, git_branch: gitBranch, include_sidechains: includeSidechains };
 
   searchMultipleConcepts(queries, options)
     .then(async results => {
@@ -108,6 +114,7 @@ if (queries.length > 1) {
     project,
     session_id: sessionId,
     git_branch: gitBranch,
+    include_sidechains: includeSidechains,
   };
 
   searchConversations(queries[0], options)

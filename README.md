@@ -358,7 +358,21 @@ Search indexed conversations using semantic similarity or exact text matching.
 - `limit` (number): Max results, 1-50 (default: 10)
 - `after` (string, optional): Only show conversations after YYYY-MM-DD
 - `before` (string, optional): Only show conversations before YYYY-MM-DD
+- `include_sidechains` (boolean): Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: `true`; set `false` to search only the main thread)
 - `response_format` ('markdown' | 'json'): Output format (default: 'markdown')
+
+**Text-match behavior:** In `text` mode (and the text half of `both`), the *whole
+query* is matched as a single case-insensitive substring — there is no word
+splitting, stemming, or per-term AND/OR. A `text` search only matches an exchange
+when the entire query appears verbatim and contiguous in one message, so it is
+best for exact strings (git SHAs, error codes) rather than natural-language
+phrases. Use `vector` or `both` for descriptive queries.
+
+**Sidechain conversations:** Work that happens inside subagents or `Workflow`
+runs is recorded as *sidechain* exchanges. These are searched by default and
+ranked just below equally-relevant main-thread matches, so orchestrated sessions
+(where most substance lives in sidechains) remain findable. Pass
+`include_sidechains: false` to restore main-thread-only search.
 
 #### `read`
 
