@@ -182,8 +182,8 @@ describe('show command - markdown formatting', () => {
     expect(markdown).toMatch(/\*\*Agent\*\*/);
     expect(markdown).toContain('Looking at your instructions');
 
-    // Should show timestamps
-    expect(markdown).toMatch(/9\/19\/2025|2025-09-19/);
+    // Should show timestamps (pinned en-US/UTC in show.ts — see #120)
+    expect(markdown).toMatch(/9\/19\/2025/);
   });
 
   it('should include tool calls in the output', () => {

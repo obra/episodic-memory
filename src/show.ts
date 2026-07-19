@@ -84,7 +84,7 @@ export function formatConversationAsMarkdown(jsonl: string, startLine?: number, 
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    const timestamp = new Date(msg.timestamp).toLocaleString();
+    const timestamp = new Date(msg.timestamp).toLocaleString('en-US', { timeZone: 'UTC' });
     const messageId = msg.uuid || `msg-${i}`;
 
     // Skip user messages that are just tool results
@@ -299,7 +299,7 @@ export function formatConversationAsHTML(jsonl: string): string {
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    const timestamp = new Date(msg.timestamp).toLocaleString();
+    const timestamp = new Date(msg.timestamp).toLocaleString('en-US', { timeZone: 'UTC' });
     const messageId = `msg-${msg.uuid || i}`;
 
     // Skip user messages that are just tool results - they'll be rendered with their tool use
@@ -895,7 +895,7 @@ function formatCodexConversationAsMarkdown(lines: string[]): string {
       continue;
     }
 
-    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-US', { timeZone: 'UTC' }) : '';
     const anchor = payload.call_id || `msg-${i}`;
 
     if (payload.type === 'message') {
