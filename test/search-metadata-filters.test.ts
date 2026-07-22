@@ -176,4 +176,18 @@ describe('search metadata filters', () => {
     expect(projects.has('project-a')).toBe(true);
     expect(projects.has('project-b')).toBe(true);
   });
+
+  it('filters by after and before date filters in vector search mode (#126)', async () => {
+    const resultsAfter = await searchConversations('authentication', { after: '2026-01-02', mode: 'vector', limit: 10 });
+    expect(resultsAfter.length).toBeGreaterThan(0);
+    for (const r of resultsAfter) {
+      expect(new Date(r.exchange.timestamp) >= new Date('2026-01-02T00:00:00.000Z')).toBe(true);
+    }
+
+    const resultsBefore = await searchConversations('authentication', { before: '2026-01-02', mode: 'vector', limit: 10 });
+    expect(resultsBefore.length).toBeGreaterThan(0);
+    for (const r of resultsBefore) {
+      expect(new Date(r.exchange.timestamp) <= new Date('2026-01-02T23:59:59.999Z')).toBe(true);
+    }
+  });
 });

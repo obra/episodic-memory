@@ -51,7 +51,7 @@ function buildSearchFilters(options: SearchOptions): { sql: string; params: unkn
 }
 
 function hasMetadataFilters(options: SearchOptions): boolean {
-  return Boolean(options.project || options.session_id || options.git_branch);
+  return Boolean(options.project || options.session_id || options.git_branch || options.after || options.before);
 }
 
 const EXCHANGE_SELECT_COLUMNS = `
