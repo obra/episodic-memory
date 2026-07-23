@@ -144,43 +144,68 @@ export async function syncConversations(
 
   // Index copied files (unless skipIndex is set)
   if (!options.skipIndex && filesToIndex.length > 0) {
-    const { initDatabase, insertExchange } = await import('./db.js');
-    const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
     const { parseConversation } = await import('./parser.js');
 
-    const db = initDatabase();
-    await initEmbeddings();
-
-    for (const file of filesToIndex) {
-      try {
-        // Check for DO NOT INDEX marker
-        if (shouldSkipConversation(file)) {
-          continue; // Skip indexing but file is already copied
-        }
-
-        const project = path.basename(path.dirname(file));
-        const exchanges = await parseConversation(file, project, file);
-
-        for (const exchange of exchanges) {
-          const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-          const embedding = await generateExchangeEmbedding(
-            exchange.userMessage,
-            exchange.assistantMessage,
-            toolNames
-          );
-          insertExchange(db, exchange, embedding, toolNames);
-        }
-
-        result.indexed++;
-      } catch (error) {
-        result.errors.push({
-          file,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
+    // Load the embedding backend first. It can fail on hosts where sharp's
+    // native binding (pulled in transitively by @huggingface/transformers)
+    // can't dlopen libvips (#135). That must not abort the whole sync — copying
+    // has already happened and summaries still need to run — so surface a
+    // clear, actionable error and skip semantic indexing for this run instead
+    // of throwing out of syncConversations (which would crash the SessionStart
+    // hook that invokes it).
+    let embeddings: typeof import('./embeddings.js') | null = null;
+    try {
+      embeddings = await import('./embeddings.js');
+      await embeddings.initEmbeddings();
+    } catch (error) {
+      embeddings = null;
+      result.errors.push({
+        file: '(embeddings)',
+        error: `Semantic indexing skipped — embedding backend unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      console.error(
+        'episodic-memory: embedding backend failed to load; skipping semantic ' +
+        'indexing this run (copying and summaries still run). See the error above.'
+      );
     }
 
-    db.close();
+    if (embeddings) {
+      const { initDatabase, insertExchange } = await import('./db.js');
+      const { generateExchangeEmbedding } = embeddings;
+
+      const db = initDatabase();
+
+      for (const file of filesToIndex) {
+        try {
+          // Check for DO NOT INDEX marker
+          if (shouldSkipConversation(file)) {
+            continue; // Skip indexing but file is already copied
+          }
+
+          const project = path.basename(path.dirname(file));
+          const exchanges = await parseConversation(file, project, file);
+
+          for (const exchange of exchanges) {
+            const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
+            const embedding = await generateExchangeEmbedding(
+              exchange.userMessage,
+              exchange.assistantMessage,
+              toolNames
+            );
+            insertExchange(db, exchange, embedding, toolNames);
+          }
+
+          result.indexed++;
+        } catch (error) {
+          result.errors.push({
+            file,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      db.close();
+    }
   }
 
   // Generate summaries for files that need them
