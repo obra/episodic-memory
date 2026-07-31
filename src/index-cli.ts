@@ -2,7 +2,7 @@
 import { verifyIndex, repairIndex } from './verify.js';
 import { indexSession, indexUnprocessed, indexConversations } from './indexer.js';
 import { initDatabase } from './db.js';
-import { getDbPath, getArchiveDir } from './paths.js';
+import { getDbPath, getArchiveDir, statIfExists } from './paths.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -92,7 +92,7 @@ async function main() {
           const projects = fs.readdirSync(archiveDir);
           for (const project of projects) {
             const projectPath = path.join(archiveDir, project);
-            if (!fs.statSync(projectPath).isDirectory()) continue;
+            if (!statIfExists(projectPath)?.isDirectory()) continue;
 
             const summaries = fs.readdirSync(projectPath).filter(f => f.endsWith('-summary.txt'));
             for (const summary of summaries) {
