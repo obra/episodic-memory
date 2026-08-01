@@ -8,10 +8,12 @@ import {
   buildSummarizerQueryOptions,
   getApiEnv,
   getCodexModel,
+  isAuthFailure,
   isResumeFailure,
   runCodexCommand,
   shouldSkipReentrantSync,
-  SummarizerSdkError
+  SummarizerSdkError,
+  truncateSdkErrorDetail,
 } from '../src/summarizer.js';
 import { ConversationExchange } from '../src/types.js';
 
@@ -82,6 +84,58 @@ describe('isResumeFailure', () => {
     expect(isResumeFailure('No conversation found')).toBe(false);
     expect(isResumeFailure(undefined)).toBe(false);
     expect(isResumeFailure(null)).toBe(false);
+  });
+});
+
+describe('SummarizerSdkError detail (#138)', () => {
+  it('includes truncated result text in the message alongside subtype', () => {
+    const err = new SummarizerSdkError(
+      'success',
+      'sess-1',
+      'Failed to authenticate. API Error: 401 OAuth access token has expired.',
+    );
+    expect(err.subtype).toBe('success');
+    expect(err.sessionId).toBe('sess-1');
+    expect(err.detail).toMatch(/OAuth access token has expired/);
+    expect(err.message).toBe(
+      'Summarizer SDK error: success (session sess-1): Failed to authenticate. API Error: 401 OAuth access token has expired.',
+    );
+  });
+
+  it('omits the detail clause when no result text is available', () => {
+    const err = new SummarizerSdkError('rate_limit', 'sess-2');
+    expect(err.detail).toBeUndefined();
+    expect(err.message).toBe('Summarizer SDK error: rate_limit (session sess-2)');
+  });
+
+  it('truncateSdkErrorDetail caps long detail for logs', () => {
+    const long = 'x'.repeat(500);
+    const out = truncateSdkErrorDetail(long, 50);
+    expect(out.length).toBe(50);
+    expect(out.endsWith('…')).toBe(true);
+  });
+});
+
+describe('isAuthFailure (#138)', () => {
+  it('detects CLI OAuth 401 detail on SummarizerSdkError even when subtype is success', () => {
+    const err = new SummarizerSdkError(
+      'success',
+      'sess',
+      'Failed to authenticate. API Error: 401 authentication_error OAuth access token has expired.',
+    );
+    expect(isAuthFailure(err)).toBe(true);
+  });
+
+  it('detects plain Error messages that mention auth failure patterns', () => {
+    expect(isAuthFailure(new Error('Failed to authenticate. API Error: 401'))).toBe(true);
+    expect(isAuthFailure(new Error('authentication_error: invalid token'))).toBe(true);
+  });
+
+  it('does not treat unrelated summarizer failures as auth', () => {
+    expect(isAuthFailure(new SummarizerSdkError('error_during_execution'))).toBe(false);
+    expect(isAuthFailure(new SummarizerSdkError('rate_limit'))).toBe(false);
+    expect(isAuthFailure(new Error('Network unreachable'))).toBe(false);
+    expect(isAuthFailure(undefined)).toBe(false);
   });
 });
 

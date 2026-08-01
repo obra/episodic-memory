@@ -15,7 +15,7 @@ vi.mock('../src/summarizer.js', async () => {
 });
 
 import { syncConversations } from '../src/sync.js';
-import { summarizeConversation } from '../src/summarizer.js';
+import { summarizeConversation, SummarizerSdkError } from '../src/summarizer.js';
 import { ERROR_MARKER, isErroredSentinel, shouldQueueForSummary, formatErrorSentinel } from '../src/summary-sentinel.js';
 
 function makeNonEmptyJsonl(sessionId: string): string {
@@ -189,6 +189,64 @@ describe('sync command — error-sentinel + retry behavior (#96)', () => {
     expect(s).toContain('boom');
     expect(isErroredSentinel('Real summary content.')).toBe(false);
     expect(isErroredSentinel('')).toBe(false);
+  });
+
+  it('fail-fasts the summary batch after a global auth failure and marks skipped files with error sentinels (#138)', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+
+    const fileCount = 5;
+    const ids: string[] = [];
+    for (let i = 0; i < fileCount; i++) {
+      const id = `2222bbbb-2222-2222-2222-${String(i).padStart(12, '0')}`;
+      ids.push(id);
+      writeFileSync(join(sourceDir, 'project-a', `${id}.jsonl`), makeNonEmptyJsonl(id), 'utf-8');
+    }
+
+    // First call is a real auth failure; subsequent ones must not be invoked.
+    vi.mocked(summarizeConversation).mockRejectedValue(
+      new SummarizerSdkError(
+        'success',
+        ids[0],
+        'Failed to authenticate. API Error: 401 OAuth access token has expired.',
+      ),
+    );
+
+    const r = await syncConversations(sourceDir, destDir, { skipIndex: true, summaryLimit: fileCount });
+
+    expect(vi.mocked(summarizeConversation).mock.calls.length).toBe(1);
+    expect(r.summarized).toBe(0);
+    expect(r.errors.length).toBe(fileCount);
+
+    const projectDest = join(destDir, 'project-a');
+    for (const id of ids) {
+      const summaryPath = join(projectDest, `${id}-summary.txt`);
+      expect(existsSync(summaryPath)).toBe(true);
+      const content = readFileSync(summaryPath, 'utf-8');
+      expect(isErroredSentinel(content)).toBe(true);
+    }
+
+    // First file carries the real auth error; remaining files were skipped.
+    expect(r.errors[0].error).toMatch(/OAuth access token has expired|Failed to authenticate/);
+    for (let i = 1; i < fileCount; i++) {
+      expect(r.errors[i].error).toMatch(/Summary generation skipped/i);
+      expect(r.errors[i].error).toMatch(/re-authenticate/i);
+    }
+  });
+
+  it('does not fail-fast the batch on non-auth summarizer errors', async () => {
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+
+    const fileCount = 3;
+    for (let i = 0; i < fileCount; i++) {
+      const id = `3333cccc-3333-3333-3333-${String(i).padStart(12, '0')}`;
+      writeFileSync(join(sourceDir, 'project-a', `${id}.jsonl`), makeNonEmptyJsonl(id), 'utf-8');
+    }
+
+    vi.mocked(summarizeConversation).mockRejectedValue(new Error('Simulated API outage'));
+    const r = await syncConversations(sourceDir, destDir, { skipIndex: true, summaryLimit: fileCount });
+
+    expect(vi.mocked(summarizeConversation).mock.calls.length).toBe(fileCount);
+    expect(r.errors.length).toBe(fileCount);
   });
 });
 

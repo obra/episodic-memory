@@ -1,19 +1,33 @@
 import { ConversationExchange } from './types.js';
 /**
+ * Truncate SDK error detail for log/error messages without dropping the lead.
+ */
+export declare function truncateSdkErrorDetail(detail: string, max?: number): string;
+/**
  * Thrown by callClaude when the SDK yields an `is_error: true` result message.
  * Carries the SDK's `subtype` and `session_id` as typed fields so callers can
  * dispatch on structural metadata rather than parsing error message text.
+ * Optional `detail` is the SDK result message's `result` string (auth text,
+ * API errors) — subtype alone is often useless (`subtype: "success"` with
+ * `is_error: true` on CLI OAuth expiry; #138).
  */
 export declare class SummarizerSdkError extends Error {
     readonly subtype: string;
     readonly sessionId?: string | undefined;
-    constructor(subtype: string, sessionId?: string | undefined);
+    readonly detail?: string;
+    constructor(subtype: string, sessionId?: string | undefined, detail?: string);
 }
 /**
  * True when the SDK's reported failure subtype indicates resume couldn't find
  * the session — the trigger for the non-resume fallback in summarizeConversation.
  */
 export declare function isResumeFailure(error: unknown): boolean;
+/**
+ * True when a summarizer failure looks like a global auth problem (expired
+ * Claude CLI OAuth, 401, authentication_error). Auth is not per-conversation,
+ * so sync should fail-fast the rest of the summary batch (#138).
+ */
+export declare function isAuthFailure(error: unknown): boolean;
 export interface CodexSummarizerCommand {
     command: string;
     args: string[];

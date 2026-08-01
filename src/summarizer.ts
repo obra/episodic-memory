@@ -11,15 +11,43 @@ import {
   versionMeetsMinimum,
 } from './codex-support.js';
 
+/** Max chars of SDK `result` text kept on SummarizerSdkError (see #138). */
+const SDK_ERROR_DETAIL_MAX = 300;
+
+/**
+ * Truncate SDK error detail for log/error messages without dropping the lead.
+ */
+export function truncateSdkErrorDetail(detail: string, max = SDK_ERROR_DETAIL_MAX): string {
+  const collapsed = detail.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= max) return collapsed;
+  return `${collapsed.slice(0, max - 1)}…`;
+}
+
 /**
  * Thrown by callClaude when the SDK yields an `is_error: true` result message.
  * Carries the SDK's `subtype` and `session_id` as typed fields so callers can
  * dispatch on structural metadata rather than parsing error message text.
+ * Optional `detail` is the SDK result message's `result` string (auth text,
+ * API errors) — subtype alone is often useless (`subtype: "success"` with
+ * `is_error: true` on CLI OAuth expiry; #138).
  */
 export class SummarizerSdkError extends Error {
-  constructor(public readonly subtype: string, public readonly sessionId?: string) {
-    super(`Summarizer SDK error: ${subtype}${sessionId ? ` (session ${sessionId})` : ''}`);
+  public readonly detail?: string;
+
+  constructor(
+    public readonly subtype: string,
+    public readonly sessionId?: string,
+    detail?: string,
+  ) {
+    const trimmed = typeof detail === 'string' ? detail.trim() : '';
+    const kept = trimmed ? truncateSdkErrorDetail(trimmed) : undefined;
+    super(
+      `Summarizer SDK error: ${subtype}` +
+        (sessionId ? ` (session ${sessionId})` : '') +
+        (kept ? `: ${kept}` : ''),
+    );
     this.name = 'SummarizerSdkError';
+    this.detail = kept;
   }
 }
 
@@ -29,6 +57,31 @@ export class SummarizerSdkError extends Error {
  */
 export function isResumeFailure(error: unknown): boolean {
   return error instanceof SummarizerSdkError && error.subtype === 'error_during_execution';
+}
+
+/**
+ * True when a summarizer failure looks like a global auth problem (expired
+ * Claude CLI OAuth, 401, authentication_error). Auth is not per-conversation,
+ * so sync should fail-fast the rest of the summary batch (#138).
+ */
+export function isAuthFailure(error: unknown): boolean {
+  const chunks: string[] = [];
+  if (error instanceof SummarizerSdkError) {
+    chunks.push(error.subtype, error.detail ?? '', error.message);
+  } else if (error instanceof Error) {
+    chunks.push(error.message);
+  } else if (error != null) {
+    chunks.push(String(error));
+  }
+  const text = chunks.join(' ').toLowerCase();
+  if (!text.trim()) return false;
+  return (
+    text.includes('failed to authenticate') ||
+    text.includes('authentication_error') ||
+    text.includes('oauth access token') ||
+    text.includes('unauthorized') ||
+    /\b401\b/.test(text)
+  );
 }
 
 export interface CodexSummarizerCommand {
@@ -180,8 +233,15 @@ async function callClaude(prompt: string, sessionId?: string, useFallback = fals
   })) {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
       // Throw on is_error — otherwise we return `message.result` (undefined) and the SDK's later iterator throw never fires.
+      // Keep `result` text on the error: subtype alone is often "success" while the real failure
+      // (401 / OAuth expired / etc.) only appears in result (#138).
       if ((message as any).is_error) {
-        throw new SummarizerSdkError((message as any).subtype || 'unknown', (message as any).session_id);
+        const detail = typeof (message as any).result === 'string' ? (message as any).result : undefined;
+        throw new SummarizerSdkError(
+          (message as any).subtype || 'unknown',
+          (message as any).session_id,
+          detail,
+        );
       }
       const result = (message as any).result;
 

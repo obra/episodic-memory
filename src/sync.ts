@@ -186,7 +186,7 @@ export async function syncConversations(
   // Generate summaries for files that need them
   if (!options.skipSummaries && filesToSummarize.length > 0) {
     const { parseConversation } = await import('./parser.js');
-    const { summarizeConversation } = await import('./summarizer.js');
+    const { summarizeConversation, isAuthFailure } = await import('./summarizer.js');
 
     const summaryLimit = options.summaryLimit ?? 10;
     const toSummarize = filesToSummarize.slice(0, summaryLimit);
@@ -197,7 +197,26 @@ export async function syncConversations(
       console.log(`  (${remaining} more need summaries - will process on next sync)`);
     }
 
+    // Auth failures are global (expired Claude CLI OAuth, etc.), not per-file.
+    // After the first one, skip the rest of this batch with error sentinels so
+    // we don't burn ~3 minutes per doomed call (#138).
+    let skipRemainingForAuth = false;
+    const authSkipMessage =
+      'Claude CLI authentication failed — run `claude` and re-authenticate; summaries will retry on the next sync.';
+
     for (const { path: filePath, sessionId } of toSummarize) {
+      if (skipRemainingForAuth) {
+        try {
+          const summaryPath = filePath.replace('.jsonl', '-summary.txt');
+          fs.writeFileSync(summaryPath, formatErrorSentinel(new Error(authSkipMessage)), 'utf-8');
+        } catch {}
+        result.errors.push({
+          file: filePath,
+          error: `Summary generation skipped: ${authSkipMessage}`,
+        });
+        continue;
+      }
+
       try {
         const project = path.basename(path.dirname(filePath));
         const exchanges = await parseConversation(filePath, project, filePath);
@@ -229,6 +248,11 @@ export async function syncConversations(
           file: filePath,
           error: `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`
         });
+
+        if (isAuthFailure(error)) {
+          skipRemainingForAuth = true;
+          console.error(`  ${authSkipMessage}`);
+        }
       }
     }
   }

@@ -78,6 +78,38 @@ describe('summarizeConversation — Claude resume fallback (cwd-mismatch recover
     expect((caught as SummarizerSdkError).sessionId).toBe('sdk-session-id-xyz');
   });
 
+  it('includes the SDK result text when is_error is true with subtype success (CLI OAuth 401; #138)', async () => {
+    // Claude CLI auth failures look like this: subtype "success" + is_error +
+    // the real explanation only in `result`. Without detail, logs said
+    // "Summarizer SDK error: success" and sent users to the wrong config path.
+    const authResult =
+      'Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token has expired."}}';
+    vi.mocked(query).mockReturnValueOnce(asyncIterableFor([
+      {
+        type: 'result',
+        is_error: true,
+        subtype: 'success',
+        session_id: '3beec7df-2ec4-45af-bb65-a96b4bddf734',
+        result: authResult,
+      },
+    ]) as any);
+
+    let caught: unknown;
+    try {
+      await summarizeConversation([makeExchange()], 'abc-123');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(SummarizerSdkError);
+    const err = caught as SummarizerSdkError;
+    expect(err.subtype).toBe('success');
+    expect(err.sessionId).toBe('3beec7df-2ec4-45af-bb65-a96b4bddf734');
+    expect(err.detail).toMatch(/OAuth access token has expired/);
+    expect(err.message).toMatch(/Summarizer SDK error: success/);
+    expect(err.message).toMatch(/OAuth access token has expired/);
+    expect(err.message).toMatch(/401/);
+  });
+
   it('retries without resume when the first call fails with is_error, returning the second call\'s summary', async () => {
     vi.mocked(query)
       .mockReturnValueOnce(asyncIterableFor([
