@@ -9,6 +9,25 @@ export interface SearchOptions {
     git_branch?: string;
 }
 /**
+ * Escape LIKE wildcards so user input is treated as a literal substring.
+ * Callers must use `ESCAPE '\\'` on the LIKE expression.
+ */
+export declare function escapeLikePattern(term: string): string;
+/**
+ * Split a text-search query into whitespace-separated terms.
+ * Multi-word queries match when every term appears somewhere in the exchange
+ * (user or assistant message), in any order — not only as one contiguous phrase.
+ */
+export declare function tokenizeTextQuery(query: string): string[];
+/**
+ * Build the text-match WHERE fragment and bound params for LIKE search.
+ * One AND-ed clause per token; each token may hit user_message or assistant_message.
+ */
+export declare function buildTextMatchClause(query: string): {
+    sql: string;
+    params: string[];
+};
+/**
  * Convert an L2 (Euclidean) distance between two unit-normalized vectors
  * into a cosine similarity in [-1, 1].
  *

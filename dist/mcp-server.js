@@ -25040,6 +25040,26 @@ function buildSearchFilters(options) {
 function hasMetadataFilters(options) {
   return Boolean(options.project || options.session_id || options.git_branch);
 }
+function escapeLikePattern(term) {
+  return term.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+function tokenizeTextQuery(query) {
+  return query.trim().split(/\s+/).filter((t) => t.length > 0);
+}
+function buildTextMatchClause(query) {
+  const tokens = tokenizeTextQuery(query);
+  const terms = tokens.length > 0 ? tokens : [""];
+  const parts = [];
+  const params = [];
+  for (const term of terms) {
+    parts.push(
+      `(e.user_message LIKE ? ESCAPE '\\' OR e.assistant_message LIKE ? ESCAPE '\\')`
+    );
+    const pattern = `%${escapeLikePattern(term)}%`;
+    params.push(pattern, pattern);
+  }
+  return { sql: parts.join(" AND "), params };
+}
 var EXCHANGE_SELECT_COLUMNS = `
         e.id,
         e.project,
@@ -25134,18 +25154,19 @@ async function searchConversations(query, options = {}) {
     }
   }
   if (mode === "text" || mode === "both") {
+    const { sql: textMatchSql, params: textMatchParams } = buildTextMatchClause(query);
     const textStmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},
         0 as distance
       FROM exchanges AS e
-      WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+      WHERE ${textMatchSql}
         AND e.is_sidechain = 0
         ${filterClause}
       ORDER BY e.timestamp DESC
       LIMIT ?
     `);
-    const textResults = textStmt.all(`%${query}%`, `%${query}%`, ...filterParams, limit);
+    const textResults = textStmt.all(...textMatchParams, ...filterParams, limit);
     if (mode === "both") {
       const seenIds = new Set(results.map((r) => r.id));
       for (const textResult of textResults) {
@@ -26865,7 +26886,7 @@ ${result}
 }
 
 // src/version.ts
-var VERSION = "1.4.1";
+var VERSION = "1.4.2";
 
 // src/mcp-server.ts
 import fs4 from "fs";

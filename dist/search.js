@@ -39,6 +39,38 @@ function buildSearchFilters(options) {
 function hasMetadataFilters(options) {
     return Boolean(options.project || options.session_id || options.git_branch);
 }
+/**
+ * Escape LIKE wildcards so user input is treated as a literal substring.
+ * Callers must use `ESCAPE '\\'` on the LIKE expression.
+ */
+export function escapeLikePattern(term) {
+    return term.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+/**
+ * Split a text-search query into whitespace-separated terms.
+ * Multi-word queries match when every term appears somewhere in the exchange
+ * (user or assistant message), in any order — not only as one contiguous phrase.
+ */
+export function tokenizeTextQuery(query) {
+    return query.trim().split(/\s+/).filter(t => t.length > 0);
+}
+/**
+ * Build the text-match WHERE fragment and bound params for LIKE search.
+ * One AND-ed clause per token; each token may hit user_message or assistant_message.
+ */
+export function buildTextMatchClause(query) {
+    const tokens = tokenizeTextQuery(query);
+    // Empty / whitespace-only: keep previous %% semantics (match all messages).
+    const terms = tokens.length > 0 ? tokens : [''];
+    const parts = [];
+    const params = [];
+    for (const term of terms) {
+        parts.push(`(e.user_message LIKE ? ESCAPE '\\' OR e.assistant_message LIKE ? ESCAPE '\\')`);
+        const pattern = `%${escapeLikePattern(term)}%`;
+        params.push(pattern, pattern);
+    }
+    return { sql: parts.join(' AND '), params };
+}
 const EXCHANGE_SELECT_COLUMNS = `
         e.id,
         e.project,
@@ -146,19 +178,23 @@ export async function searchConversations(query, options = {}) {
         }
     }
     if (mode === 'text' || mode === 'both') {
-        // Text search
+        // Text search: AND of per-token LIKE patterns so multi-word queries match
+        // when every term appears somewhere in the exchange (any order, either field).
+        // See #127 — whole-query contiguous substring matching returned empty for
+        // typical multi-word searches that are not verbatim phrases.
+        const { sql: textMatchSql, params: textMatchParams } = buildTextMatchClause(query);
         const textStmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},
         0 as distance
       FROM exchanges AS e
-      WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+      WHERE ${textMatchSql}
         AND e.is_sidechain = 0
         ${filterClause}
       ORDER BY e.timestamp DESC
       LIMIT ?
     `);
-        const textResults = textStmt.all(`%${query}%`, `%${query}%`, ...filterParams, limit);
+        const textResults = textStmt.all(...textMatchParams, ...filterParams, limit);
         if (mode === 'both') {
             // Merge and deduplicate by ID
             const seenIds = new Set(results.map(r => r.id));
