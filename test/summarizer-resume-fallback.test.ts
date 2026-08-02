@@ -132,6 +132,49 @@ describe('summarizeConversation — Claude resume fallback (cwd-mismatch recover
     expect(opts.resume).toBe('abc-123');
   });
 
+  it('retries without resume when the subprocess exits nonzero (e.g. bg-agent session refuses --resume)', async () => {
+    // `claude --resume` exits 1 for sessions registered as background agents
+    // ("add --fork-session to branch off a copy"). The SDK surfaces that as a
+    // plain Error, not an is_error result — the fallback must still fire.
+    vi.mocked(query)
+      .mockImplementationOnce(() => {
+        throw new Error('Claude Code process exited with code 1');
+      })
+      .mockReturnValueOnce(asyncIterableFor([
+        { type: 'result', is_error: false, result: '<summary>Recovered from bg-agent refusal.</summary>' },
+      ]) as any);
+
+    const result = await summarizeConversation([makeExchange()], 'abc-123');
+    expect(result).toBe('Recovered from bg-agent refusal.');
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
+
+    const secondCallOptions = vi.mocked(query).mock.calls[1][0].options as any;
+    expect(secondCallOptions.resume).toBeUndefined();
+    const secondPrompt = vi.mocked(query).mock.calls[1][0].prompt as string;
+    expect(secondPrompt).toContain('How do I rebase against origin/main?');
+  });
+
+  it('appends the subprocess stderr to process-exit errors so sentinels record the real cause', async () => {
+    const stderrText = 'Error: Session abc-123 is currently running as a background agent (bg).';
+    const failWithStderr = (args: any) => {
+      (args.options as any).stderr?.(stderrText);
+      return {
+        [Symbol.asyncIterator]() {
+          return { next: () => Promise.reject(new Error('Claude Code process exited with code 1')) };
+        },
+      };
+    };
+    // Both the resume attempt and the fallback die, so the surfaced error is
+    // the fallback's — which must carry the captured stderr.
+    vi.mocked(query)
+      .mockImplementationOnce(failWithStderr as any)
+      .mockImplementationOnce(failWithStderr as any);
+
+    await expect(summarizeConversation([makeExchange()], 'abc-123'))
+      .rejects.toThrow(/background agent/);
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
+  });
+
   it('does not retry when the SDK throws a non-resume error', async () => {
     vi.mocked(query).mockImplementationOnce(() => {
       throw new Error('Network unreachable');

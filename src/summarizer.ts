@@ -31,6 +31,17 @@ export function isResumeFailure(error: unknown): boolean {
   return error instanceof SummarizerSdkError && error.subtype === 'error_during_execution';
 }
 
+/**
+ * True when the SDK's spawned Claude Code subprocess died before returning a
+ * result (e.g. `--resume` exiting 1 because the session is a background agent
+ * that can't be resumed without --fork-session). The SDK throws these as plain
+ * Errors, not SummarizerSdkError, so isResumeFailure never matches them —
+ * callers that resumed a session should fall back to the non-resume path.
+ */
+export function isProcessExitFailure(error: unknown): boolean {
+  return error instanceof Error && /exited with code|terminated by signal/.test(error.message);
+}
+
 export interface CodexSummarizerCommand {
   command: string;
   args: string[];
@@ -174,29 +185,42 @@ async function callClaude(prompt: string, sessionId?: string, useFallback = fals
   const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
   const model = useFallback ? fallbackModel : primaryModel;
 
-  for await (const message of query({
-    prompt,
-    options: buildSummarizerQueryOptions({ model, sessionId, cwd }) as any,
-  })) {
-    if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
-      // Throw on is_error — otherwise we return `message.result` (undefined) and the SDK's later iterator throw never fires.
-      if ((message as any).is_error) {
-        throw new SummarizerSdkError((message as any).subtype || 'unknown', (message as any).session_id);
-      }
-      const result = (message as any).result;
-
-      // Check if result is an API error (SDK returns errors as result strings)
-      if (typeof result === 'string' && result.includes('API Error') && result.includes('thinking.budget_tokens')) {
-        if (!useFallback) {
-          console.log(`    ${primaryModel} hit thinking budget error, retrying with ${fallbackModel}`);
-          return await callClaude(prompt, sessionId, true, cwd);
+  // Buffer the subprocess's stderr — without it a crash surfaces only as
+  // "exited with code 1" and the real cause (e.g. bg-agent resume refusal) is lost.
+  let stderrTail = '';
+  try {
+    for await (const message of query({
+      prompt,
+      options: {
+        ...buildSummarizerQueryOptions({ model, sessionId, cwd }),
+        stderr: (data: string) => { stderrTail = (stderrTail + data).slice(-2000); },
+      } as any,
+    })) {
+      if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
+        // Throw on is_error — otherwise we return `message.result` (undefined) and the SDK's later iterator throw never fires.
+        if ((message as any).is_error) {
+          throw new SummarizerSdkError((message as any).subtype || 'unknown', (message as any).session_id);
         }
-        // If fallback also fails, return error message
+        const result = (message as any).result;
+
+        // Check if result is an API error (SDK returns errors as result strings)
+        if (typeof result === 'string' && result.includes('API Error') && result.includes('thinking.budget_tokens')) {
+          if (!useFallback) {
+            console.log(`    ${primaryModel} hit thinking budget error, retrying with ${fallbackModel}`);
+            return await callClaude(prompt, sessionId, true, cwd);
+          }
+          // If fallback also fails, return error message
+          return result;
+        }
+
         return result;
       }
-
-      return result;
     }
+  } catch (error) {
+    if (error instanceof Error && stderrTail.trim() && isProcessExitFailure(error)) {
+      error.message = `${error.message}: ${stderrTail.trim()}`;
+    }
+    throw error;
   }
   return '';
 }
@@ -520,8 +544,11 @@ ${conversationText}`;
       const result = await callClaude(prompt, claudeSessionId, false, cwd);
       return extractSummary(result);
     } catch (error) {
-      // Resume fails when the session's cwd doesn't exist on disk — retry without resume and feed the conversation text directly.
-      if (claudeSessionId && isResumeFailure(error)) {
+      // Resume can fail for reasons the transcript path doesn't care about: the
+      // session's cwd no longer exists, or the subprocess refuses to resume
+      // (bg-agent sessions exit 1 without --fork-session). Retry without resume
+      // and feed the conversation text directly.
+      if (claudeSessionId && (isResumeFailure(error) || isProcessExitFailure(error))) {
         console.log(`    resume failed for ${claudeSessionId} (${(error as Error).message}); retrying without resume`);
         const fullPrompt = prompt + '\n\n' + formatConversationText(exchanges);
         const result = await callClaude(fullPrompt);
