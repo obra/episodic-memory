@@ -94,6 +94,15 @@ export function buildSummarizerQueryOptions(args) {
         env: getApiEnv(),
         resume: sessionId,
         persistSession: false,
+        // Summarizers never call tools, so skip the user's MCP config entirely.
+        // Without this, every summarization subprocess launches all configured MCP
+        // servers; with concurrent summarizations that fans out to hundreds of
+        // processes on MCP-heavy installs.
+        strictMcpConfig: true,
+        // strictMcpConfig only blocks ~/.claude.json MCP servers; user settings
+        // still load every enabled plugin (each with its own MCP server) into the
+        // subprocess. Summarizers need no plugins, hooks, or user settings at all.
+        settingSources: [],
         // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
         ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
         // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.

@@ -21,6 +21,18 @@ describe('buildSummarizerQueryOptions', () => {
     expect(opts.persistSession).toBe(false);
   });
 
+  it('sets strictMcpConfig: true so summarizer subprocesses do not launch the user\'s MCP servers', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku' });
+    expect(opts.strictMcpConfig).toBe(true);
+    const resumeOpts = buildSummarizerQueryOptions({ model: 'haiku', sessionId: 'abc-123' });
+    expect(resumeOpts.strictMcpConfig).toBe(true);
+  });
+
+  it('sets settingSources: [] so summarizer subprocesses load no user settings, plugins, or hooks', () => {
+    const opts = buildSummarizerQueryOptions({ model: 'haiku' });
+    expect(opts.settingSources).toEqual([]);
+  });
+
   it('passes through the model and max_tokens', () => {
     const opts = buildSummarizerQueryOptions({ model: 'haiku' });
     expect(opts.model).toBe('haiku');
