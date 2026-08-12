@@ -70,6 +70,41 @@ describe('findMissingDeps — wrapper install-health probe (#95 Bug 1)', () => {
     expect(missing).not.toContain('sqlite-vec');
   });
 
+  it('treats a package npm nested under its dependent as installed, not missing (#105)', () => {
+    const nodeModules = join(testDir, 'node_modules');
+    mkdirSync(nodeModules, { recursive: true });
+    for (const pkg of REQUIRED_PACKAGES) {
+      stagePackage(nodeModules, pkg);
+    }
+    // Reproduce the real layout: a version conflict stops npm hoisting
+    // onnxruntime-node, so it lands under @huggingface/transformers instead.
+    rmSync(join(nodeModules, 'onnxruntime-node'), { recursive: true, force: true });
+    stagePackage(
+      join(nodeModules, '@huggingface', 'transformers', 'node_modules'),
+      'onnxruntime-node'
+    );
+
+    // Node's resolver finds it there, so the wrapper must not reinstall on
+    // every launch — that reinstall is what trips the 30s MCP connect timeout.
+    expect(findMissingDeps(testDir)).toEqual([]);
+  });
+
+  it('still flags a nested package whose manifest is missing (partial extraction, one level down)', () => {
+    const nodeModules = join(testDir, 'node_modules');
+    mkdirSync(nodeModules, { recursive: true });
+    for (const pkg of REQUIRED_PACKAGES) {
+      stagePackage(nodeModules, pkg);
+    }
+    rmSync(join(nodeModules, 'onnxruntime-node'), { recursive: true, force: true });
+    // Directory exists nested, but no package.json — same damage as #95.
+    mkdirSync(
+      join(nodeModules, '@huggingface', 'transformers', 'node_modules', 'onnxruntime-node'),
+      { recursive: true }
+    );
+
+    expect(findMissingDeps(testDir)).toEqual(['onnxruntime-node']);
+  });
+
   it('does not require optional / OS-specific deps (sharp, fsevents) — those are excluded by design', () => {
     const nodeModules = join(testDir, 'node_modules');
     mkdirSync(nodeModules, { recursive: true });

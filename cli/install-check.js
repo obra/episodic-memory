@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 /**
@@ -21,8 +21,70 @@ export const REQUIRED_PACKAGES = [
   'sqlite-vec',
 ];
 
+function safeReaddir(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Return the list of required packages whose package.json is missing under
+ * True when `pkg` is installed somewhere Node's resolver will find it from the
+ * plugin root: either hoisted to the top of `node_modules` (the common case)
+ * or nested one level down under the dependent that pinned it.
+ *
+ * npm nests instead of hoisting whenever a version conflict blocks the flat
+ * layout — the same mechanism behind #105 and #135. episodic-memory hits it
+ * with onnxruntime-node, which @huggingface/transformers pins to its own range
+ * and which therefore lands at
+ * `node_modules/@huggingface/transformers/node_modules/onnxruntime-node`.
+ *
+ * A top-level-only probe calls that "missing" on every single launch, so
+ * mcp-server-wrapper reruns `npm install` every time the server starts (~20s).
+ * That routinely exceeds the client's 30s MCP connect timeout, so the server
+ * the user is waiting on never becomes available.
+ *
+ * The reinstall cannot fix what the probe detects: npm already considers the
+ * tree complete and leaves the package nested, so every launch pays the cost
+ * and nothing changes. Worse, when the connect timeout kills the wrapper
+ * mid-install it can interrupt the postinstall rebuild, which is how a broken
+ * native binding (#100) survives across restarts that were supposed to repair
+ * it.
+ *
+ * The search stays inside the plugin's own node_modules on purpose: resolving
+ * via `createRequire` would also walk parent directories and Node's global
+ * folders, which could report a package as present that the plugin cannot
+ * actually load.
+ */
+function isResolvable(nodeModules, pkg) {
+  if (existsSync(join(nodeModules, pkg, 'package.json'))) {
+    return true;
+  }
+
+  for (const entry of safeReaddir(nodeModules)) {
+    if (!entry.isDirectory()) continue;
+    const entryPath = join(nodeModules, entry.name);
+
+    // Scope directories (@foo) hold packages one level deeper.
+    const dependents = entry.name.startsWith('@')
+      ? safeReaddir(entryPath)
+          .filter(d => d.isDirectory())
+          .map(d => join(entryPath, d.name))
+      : [entryPath];
+
+    for (const dependent of dependents) {
+      if (existsSync(join(dependent, 'node_modules', pkg, 'package.json'))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Return the list of required packages that are not installed under
  * `<pluginRoot>/node_modules`. An empty array means the install looks complete;
  * a non-empty array is the diagnostic to print before re-running `npm install`.
  *
@@ -36,5 +98,5 @@ export function findMissingDeps(pluginRoot) {
   if (!existsSync(nodeModules)) {
     return REQUIRED_PACKAGES.slice();
   }
-  return REQUIRED_PACKAGES.filter(pkg => !existsSync(join(nodeModules, pkg, 'package.json')));
+  return REQUIRED_PACKAGES.filter(pkg => !isResolvable(nodeModules, pkg));
 }
