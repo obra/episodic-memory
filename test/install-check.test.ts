@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { findMissingDeps, REQUIRED_PACKAGES } from '../cli/install-check.js';
@@ -80,5 +80,16 @@ describe('findMissingDeps — wrapper install-health probe (#95 Bug 1)', () => {
     expect(findMissingDeps(testDir)).toEqual([]);
     expect(REQUIRED_PACKAGES).not.toContain('sharp');
     expect(REQUIRED_PACKAGES).not.toContain('fsevents');
+  });
+});
+
+describe('production dependency security floors', () => {
+  it('forces patched transitive versions required by Transformers 4.2.0', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+    expect(manifest.overrides).toEqual({
+      'adm-zip': '^0.6.0',
+      'fast-uri': '^3.1.5',
+      sharp: '^0.35.3',
+    });
   });
 });
