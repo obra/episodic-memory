@@ -30,18 +30,12 @@ export async function getIndexStats(dbPath) {
         }
         // Total conversations
         const totalConversations = db.prepare('SELECT COUNT(DISTINCT archive_path) as count FROM exchanges').get();
-        // Check for summaries (these are files, not DB fields). Only count
-        // conversations with a real summary — skip empty zero-exchange sentinels
-        // (#91) and error sentinels (#96) so stats reflect actual coverage.
-        const { hasRealSummary } = await import('./summary-sentinel.js');
-        const conversationPaths = db.prepare('SELECT DISTINCT archive_path FROM exchanges').all();
-        let withSummariesCount = 0;
-        for (const { archive_path } of conversationPaths) {
-            const summaryPath = archive_path.replace('.jsonl', '-summary.txt');
-            if (hasRealSummary(summaryPath)) {
-                withSummariesCount++;
-            }
-        }
+        const hasLedger = tables.some(t => t.name === 'archive_objects');
+        const hasObjectColumn = db.prepare(`SELECT name FROM pragma_table_info('exchanges')`).all().some(c => c.name === 'archive_object_id');
+        const withSummariesCount = hasLedger && hasObjectColumn
+            ? db.prepare(`SELECT COUNT(DISTINCT e.archive_path) AS count FROM exchanges e
+          JOIN archive_objects ao ON e.archive_object_id = ao.id WHERE ao.summary_state = 'ready'`).get().count
+            : 0;
         // Total exchanges
         const totalExchanges = db.prepare('SELECT COUNT(*) as count FROM exchanges').get();
         // Date range

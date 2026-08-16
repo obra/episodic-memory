@@ -1,25 +1,21 @@
+import fs from 'fs';
+import path from 'path';
+import { spawn } from 'child_process';
 import { syncConversations } from './sync.js';
-import { getArchiveDir, getConversationSourceDirs, getIndexDir } from './paths.js';
+import { syncBoundedSourceDirs } from './bounded-sync.js';
+import { getArchiveDir, getConversationSourceDirs, getIndexDir, getSuperpowersDir } from './paths.js';
 import { shouldSkipReentrantSync } from './summarizer.js';
 import { initDatabase } from './db.js';
 import { generateExchangeEmbedding, initEmbeddings } from './embeddings.js';
 import { runMigrationBatch, countStale } from './embedding-migration.js';
-import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
 import { formatLogLine, getSyncLogPath } from './logging.js';
-import { acquireFileLock, readLockHolder, releaseFileLock } from './file-lock.js';
+import { authorizeWorkerFromSupervisor, runSyncSupervisor } from './sync-supervisor.js';
 
 const args = process.argv.slice(2);
+const isWorker = args.includes('--worker');
+const isBackground = args.includes('--background');
 
-// Reentrancy guard (#87): if this sync was triggered by a SessionStart hook
-// inside a Claude subprocess that the summarizer just spawned, exit silently.
-// Without this, summarization spawns a Claude subprocess which fires
-// SessionStart which runs sync which spawns more summarization — cascading
-// fanout that pegs CPU and burns API quota.
 if (shouldSkipReentrantSync()) {
-  // stderr keeps the message out of any stdout consumers (e.g., MCP)
-  // while still being visible in hook logs.
   console.error('episodic-memory: skipping sync inside summarizer-spawned subprocess (#87)');
   process.exit(0);
 }
@@ -28,157 +24,97 @@ if (args.includes('--help') || args.includes('-h')) {
   console.log(`
 Usage: episodic-memory sync [--background]
 
-Sync conversations from Claude Code and Codex transcript directories to archive and index them.
-
-This command:
-1. Copies new or updated .jsonl files to conversation archive
-2. Generates embeddings for semantic search
-3. Updates the search index
-
-Only processes files that are new or have been modified since last sync.
-Safe to run multiple times - subsequent runs are fast no-ops.
+Sync and index conversations through a single lock-supervised worker.
+When EPISODIC_MEMORY_ARCHIVE_REMOTE is set, transcripts use the bounded rclone
+transport (4 GiB cache, 8 GiB free reserve, 1 GiB/200 files/15 minutes per run).
 
 OPTIONS:
-  --background    Run sync in background (for hooks, returns immediately)
-
-EXAMPLES:
-  # Sync all new conversations
-  episodic-memory sync
-
-  # Sync in background (for hooks)
-  episodic-memory sync --background
-
-  # Use in Claude Code hook
-  # In .claude/hooks/session-end:
-  episodic-memory sync --background
+  --background    Start the lock supervisor in background and return
 `);
   process.exit(0);
 }
 
-// Check if running in background mode
-const isBackground = args.includes('--background');
-
-// If background mode, fork the process and exit immediately
-if (isBackground) {
-  const filteredArgs = args.filter(arg => arg !== '--background');
+if (isBackground && !isWorker) {
   const logPath = getSyncLogPath();
   const logFd = fs.openSync(logPath, 'a');
-  fs.writeSync(logFd, formatLogLine('info', `Starting background sync from pid ${process.pid}`));
-
-  // Spawn a detached process
-  const child = spawn(process.execPath, [
-    process.argv[1], // This script
-    ...filteredArgs
-  ], {
+  fs.writeSync(logFd, formatLogLine('info', `Starting background sync supervisor from pid ${process.pid}`));
+  const child = spawn(process.execPath, [process.argv[1], '--supervisor'], {
     detached: true,
-    stdio: ['ignore', logFd, logFd]
+    stdio: ['ignore', logFd, logFd],
   });
-
-  child.unref(); // Allow parent to exit
-  console.log(`Sync started in background. Log: ${logPath}`);
+  child.unref();
+  console.log(`Sync supervisor started in background. Log: ${logPath}`);
   process.exit(0);
 }
 
-const sourceDirs = getConversationSourceDirs();
-const destDir = getArchiveDir();
-
-if (sourceDirs.length === 0) {
-  console.log('⚠️  No conversation source directories found.');
-  console.log('  Checked: ~/.claude/projects, ~/.claude/transcripts, and ~/.codex/sessions');
-  if (process.env.CLAUDE_CONFIG_DIR) {
-    console.log(`  CLAUDE_CONFIG_DIR is set to: ${process.env.CLAUDE_CONFIG_DIR}`);
-  }
-  process.exit(0);
-}
-
-// Single-instance lock (#97). Independent SessionStart events from multiple
-// Claude Code sessions each fire `sync --background`; without a lock they race
-// the SQLite write path and pile up Claude subprocesses for summarization. On
-// Windows the latter exhausts the desktop heap and crashes the workers with
-// STATUS_DLL_INIT_FAILED. Acquire after the source-dir check so help/version
-// paths don't touch the filesystem unnecessarily, and release on every exit.
-const syncLockPath = path.join(path.dirname(getSyncLogPath()), 'episodic-memory-sync.lock');
-const syncLock = acquireFileLock(syncLockPath);
-if (!syncLock) {
-  const holder = readLockHolder(syncLockPath);
-  const holderLabel = holder !== null ? `pid ${holder}` : 'another process';
-  console.error(`episodic-memory: sync already running (${holderLabel}); skipping`);
-  process.exit(0);
-}
-const releaseSyncLockOnce = () => {
-  if ((releaseSyncLockOnce as any).done) return;
-  (releaseSyncLockOnce as any).done = true;
-  releaseFileLock(syncLock);
-};
-process.on('exit', releaseSyncLockOnce);
-process.on('SIGINT', () => { releaseSyncLockOnce(); process.exit(130); });
-process.on('SIGTERM', () => { releaseSyncLockOnce(); process.exit(143); });
-process.on('SIGHUP', () => { releaseSyncLockOnce(); process.exit(129); });
-
-console.log('Syncing conversations...');
-console.log(`Sources: ${sourceDirs.join(', ')}`);
-console.log(`Destination: ${destDir}\n`);
-
-async function syncAll() {
-  const totals = { copied: 0, skipped: 0, indexed: 0, summarized: 0, errors: [] as Array<{file: string; error: string}>, sourcesWithSummaryWork: 0, totalNeedingSummaries: 0 };
-
-  for (const sourceDir of sourceDirs) {
-    const result = await syncConversations(sourceDir, destDir);
-    totals.copied += result.copied;
-    totals.skipped += result.skipped;
-    totals.indexed += result.indexed;
-    totals.summarized += result.summarized;
-    totals.errors.push(...result.errors);
+async function main(): Promise<void> {
+  if (isWorker) {
+    await authorizeWorkerFromSupervisor();
+    await runWorker();
+    return;
   }
 
-  console.log(`\n✅ Sync complete!`);
-  console.log(`  Copied: ${totals.copied}`);
-  console.log(`  Skipped: ${totals.skipped}`);
-  console.log(`  Indexed: ${totals.indexed}`);
-  console.log(`  Summarized: ${totals.summarized}`);
+  const lockPath = path.join(path.dirname(getSyncLogPath()), 'episodic-memory-sync.lock');
+  const result = await runSyncSupervisor({
+    lockPath,
+    workerScript: process.argv[1],
+    workerArgs: ['--worker'],
+    workerStdio: 'inherit',
+  });
+  if (result.kind === 'skipped') console.error(`episodic-memory: ${result.reason}`);
+}
 
-  if (totals.errors.length > 0) {
-    console.log(`\n⚠️  Errors: ${totals.errors.length}`);
-    totals.errors.forEach(err => console.log(`  ${err.file}: ${err.error}`));
+async function runWorker(): Promise<void> {
+  const sourceDirs = getConversationSourceDirs();
+  if (sourceDirs.length === 0) {
+    console.log('No conversation source directories found.');
+    return;
+  }
 
-    // Help diagnose silent summarization failures (#70)
-    const summaryErrors = totals.errors.filter(e => e.error.startsWith('Summary generation failed'));
-    if (summaryErrors.length > 0 && totals.summarized === 0) {
-      console.log(`\n💡 All ${summaryErrors.length} summarization attempts failed.`);
-      console.log(`  Check your API configuration (EPISODIC_MEMORY_API_BASE_URL / ANTHROPIC_API_KEY).`);
+  const remoteBase = process.env.EPISODIC_MEMORY_ARCHIVE_REMOTE;
+  if (remoteBase) {
+    const cacheDir = process.env.EPISODIC_MEMORY_CACHE_DIR ?? path.join(getSuperpowersDir(), 'conversation-cache');
+    console.log(`Syncing conversations through bounded rclone transport to ${remoteBase}`);
+    const result = await syncBoundedSourceDirs({ sourceDirs, cacheDir, remoteBase });
+    console.log('Sync complete');
+    console.log(`  Uploaded: ${result.uploaded}`);
+    console.log(`  Indexed: ${result.indexed}`);
+    console.log(`  Skipped: ${result.skipped}`);
+    if (result.boundedStop) console.log(`  Bounded stop: ${result.boundedStop}`);
+    for (const error of result.errors) console.error(`  ${error.file}: ${error.error}`);
+  } else {
+    const destDir = getArchiveDir();
+    const totals = { copied: 0, skipped: 0, indexed: 0, summarized: 0, errors: [] as Array<{file:string;error:string}> };
+    for (const sourceDir of sourceDirs) {
+      const result = await syncConversations(sourceDir, destDir);
+      totals.copied += result.copied; totals.skipped += result.skipped;
+      totals.indexed += result.indexed; totals.summarized += result.summarized;
+      totals.errors.push(...result.errors);
     }
+    console.log('Sync complete');
+    console.log(`  Copied: ${totals.copied}`);
+    console.log(`  Skipped: ${totals.skipped}`);
+    console.log(`  Indexed: ${totals.indexed}`);
+    console.log(`  Summarized: ${totals.summarized}`);
+    for (const error of totals.errors) console.error(`  ${error.file}: ${error.error}`);
   }
-
-  // After regular sync, do a batch of embedding migration if any rows are
-  // still on the old encoder. Lock-protected; if another process is already
-  // migrating, this is a no-op.
   await runEmbeddingMigrationPhase();
 }
-
-const MIGRATION_BATCH_SIZE = parseInt(process.env.EPISODIC_MEMORY_MIGRATION_BATCH || '500', 10);
 
 async function runEmbeddingMigrationPhase(): Promise<void> {
   const db = initDatabase();
   try {
     const stale = countStale(db);
     if (stale === 0) return;
-
-    console.error(`\nepisodic-memory: ${stale} exchange(s) on the old embedding model — migrating up to ${MIGRATION_BATCH_SIZE} this run`);
+    const batchSize = Number.parseInt(process.env.EPISODIC_MEMORY_MIGRATION_BATCH ?? '500', 10);
     await initEmbeddings();
-    const indexDir = getIndexDir();
-    const done = await runMigrationBatch(db, indexDir, MIGRATION_BATCH_SIZE, generateExchangeEmbedding);
-    if (done > 0) {
-      const after = countStale(db);
-      console.error(`episodic-memory: re-embedded ${done} (${after} still stale; will resume on next sync)`);
-    }
-  } catch (err) {
-    console.error('episodic-memory: migration phase error:', err instanceof Error ? err.message : err);
+    await runMigrationBatch(db, getIndexDir(), batchSize, generateExchangeEmbedding);
   } finally {
     db.close();
   }
 }
 
-syncAll().catch(error => {
-  console.error('Error syncing:', error);
+main().catch(error => {
+  console.error(`Error syncing: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });

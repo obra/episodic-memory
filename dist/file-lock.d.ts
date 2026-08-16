@@ -28,7 +28,12 @@ export interface FileLockHandle {
     path: string;
     release: () => void;
 }
-export declare function acquireFileLock(lockPath: string): FileLockHandle | null;
+export interface FileLockOptions {
+    staleMs?: number;
+    updateMs?: number;
+    onCompromised?: (error: Error) => void;
+}
+export declare function acquireFileLock(lockPath: string, options?: FileLockOptions): FileLockHandle | null;
 export declare function releaseFileLock(handle: FileLockHandle): void;
 /**
  * Read the recorded holder PID from a lock file's diagnostic content.

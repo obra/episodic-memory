@@ -5,6 +5,7 @@ import fs from 'fs';
 import * as sqliteVec from 'sqlite-vec';
 import { getDbPath } from './paths.js';
 import { EMBEDDING_VERSION } from './embedding-migration.js';
+import { ensureArchiveLedger } from './archive-ledger.js';
 
 export function migrateSchema(db: Database.Database): void {
   const columns = db.prepare(`SELECT name FROM pragma_table_info('exchanges')`).all() as Array<{ name: string }>;
@@ -26,6 +27,7 @@ export function migrateSchema(db: Database.Database): void {
     { name: 'thinking_disabled', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_disabled BOOLEAN' },
     { name: 'thinking_triggers', sql: 'ALTER TABLE exchanges ADD COLUMN thinking_triggers TEXT' },
     { name: 'embedding_version', sql: 'ALTER TABLE exchanges ADD COLUMN embedding_version INTEGER NOT NULL DEFAULT 0' },
+    { name: 'archive_object_id', sql: 'ALTER TABLE exchanges ADD COLUMN archive_object_id TEXT' },
   ];
 
   let migrated = false;
@@ -104,8 +106,8 @@ export function migrateToolCallsCascade(db: Database.Database): void {
   console.log('  tool_calls migration complete.');
 }
 
-export function initDatabase(): Database.Database {
-  const dbPath = getDbPath();
+export function initDatabase(dbPathOverride?: string): Database.Database {
+  const dbPath = dbPathOverride ?? getDbPath();
 
   // Ensure directory exists
   const dbDir = path.dirname(dbPath);
@@ -147,9 +149,12 @@ export function initDatabase(): Database.Database {
       thinking_level TEXT,
       thinking_disabled BOOLEAN,
       thinking_triggers TEXT,
-      embedding_version INTEGER NOT NULL DEFAULT 0
+      embedding_version INTEGER NOT NULL DEFAULT 0,
+      archive_object_id TEXT
     )
   `);
+
+  ensureArchiveLedger(db);
 
   // Create tool_calls table.
   // ON DELETE CASCADE keeps the table consistent when exchanges go away
@@ -204,6 +209,7 @@ export function initDatabase(): Database.Database {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_tool_exchange ON tool_calls(exchange_id)
   `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_archive_object_id ON exchanges(archive_object_id)`);
 
   return db;
 }
@@ -220,8 +226,8 @@ export function insertExchange(
     INSERT OR REPLACE INTO exchanges
     (id, project, timestamp, user_message, assistant_message, archive_path, line_start, line_end, last_indexed,
      parent_uuid, is_sidechain, harness, session_id, cwd, git_branch, claude_version, agent_version, model, model_provider,
-     thinking_level, thinking_disabled, thinking_triggers, embedding_version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     thinking_level, thinking_disabled, thinking_triggers, embedding_version, archive_object_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -247,7 +253,8 @@ export function insertExchange(
     exchange.thinkingLevel || null,
     exchange.thinkingDisabled ? 1 : 0,
     exchange.thinkingTriggers || null,
-    EMBEDDING_VERSION
+    EMBEDDING_VERSION,
+    exchange.archiveObjectId || null
   );
 
   // Insert into vector table (delete first since virtual tables don't support REPLACE)
@@ -286,6 +293,16 @@ export function insertExchange(
 export function getAllExchanges(db: Database.Database): Array<{ id: string; archivePath: string }> {
   const stmt = db.prepare(`SELECT id, archive_path as archivePath FROM exchanges`);
   return stmt.all() as Array<{ id: string; archivePath: string }>;
+}
+
+export function deleteExchangesForArchiveObject(db: Database.Database, archiveObjectId: string): void {
+  const rows = db.prepare('SELECT id FROM exchanges WHERE archive_object_id = ?').all(archiveObjectId) as Array<{id:string}>;
+  const deleteVector = db.prepare('DELETE FROM vec_exchanges WHERE id = ?');
+  const deleteExchange = db.prepare('DELETE FROM exchanges WHERE id = ?');
+  for (const row of rows) {
+    deleteVector.run(row.id);
+    deleteExchange.run(row.id);
+  }
 }
 
 export function getFileLastIndexed(db: Database.Database, archivePath: string): number | null {

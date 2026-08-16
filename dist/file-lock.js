@@ -34,7 +34,7 @@ import * as lockfile from 'proper-lockfile';
  * embedding migration batch (seconds).
  */
 const DEFAULT_STALE_MS = 10 * 60 * 1000;
-export function acquireFileLock(lockPath) {
+export function acquireFileLock(lockPath, options = {}) {
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
     // proper-lockfile expects the target path to exist. Touch it if missing —
     // 'a' (append, create if missing) leaves any existing PID intact.
@@ -49,7 +49,9 @@ export function acquireFileLock(lockPath) {
         release = lockfile.lockSync(lockPath, {
             realpath: false,
             retries: 0,
-            stale: DEFAULT_STALE_MS,
+            stale: options.staleMs ?? DEFAULT_STALE_MS,
+            update: options.updateMs,
+            onCompromised: options.onCompromised,
         });
     }
     catch (err) {

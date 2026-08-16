@@ -20,9 +20,8 @@ import {
   formatMultiConceptResults,
   SearchOptions,
 } from './search.js';
-import { formatConversationAsMarkdown } from './show.js';
+import { showArchivedConversation } from './archive-show.js';
 import { VERSION } from './version.js';
-import fs from 'fs';
 
 // Zod Schemas for Input Validation
 
@@ -90,7 +89,7 @@ const ShowConversationInputSchema = z
     path: z
       .string()
       .min(1, 'Path is required')
-      .describe('Absolute path to the JSONL conversation file to display'),
+      .describe('Archive object ID or rclone remote key for the conversation'),
     startLine: z
       .number()
       .int()
@@ -174,7 +173,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            path: { type: 'string', minLength: 1 },
+            path: { type: 'string', minLength: 1, description: 'Archive object ID or rclone remote key' },
             startLine: { type: 'number', minimum: 1 },
             endLine: { type: 'number', minimum: 1 },
           },
@@ -276,18 +275,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === 'read') {
       const params = ShowConversationInputSchema.parse(args);
 
-      // Verify file exists
-      if (!fs.existsSync(params.path)) {
-        throw new Error(`File not found: ${params.path}`);
-      }
-
-      // Read and format conversation with optional line range
-      const jsonlContent = fs.readFileSync(params.path, 'utf-8');
-      const markdownContent = formatConversationAsMarkdown(
-        jsonlContent,
-        params.startLine,
-        params.endLine
-      );
+      const markdownContent = await showArchivedConversation(params.path, {
+        format: 'markdown', startLine: params.startLine, endLine: params.endLine,
+      });
 
       return {
         content: [

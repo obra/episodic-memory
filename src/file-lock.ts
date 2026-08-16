@@ -42,7 +42,13 @@ export interface FileLockHandle {
  */
 const DEFAULT_STALE_MS = 10 * 60 * 1000;
 
-export function acquireFileLock(lockPath: string): FileLockHandle | null {
+export interface FileLockOptions {
+  staleMs?: number;
+  updateMs?: number;
+  onCompromised?: (error: Error) => void;
+}
+
+export function acquireFileLock(lockPath: string, options: FileLockOptions = {}): FileLockHandle | null {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 
   // proper-lockfile expects the target path to exist. Touch it if missing —
@@ -58,7 +64,9 @@ export function acquireFileLock(lockPath: string): FileLockHandle | null {
     release = lockfile.lockSync(lockPath, {
       realpath: false,
       retries: 0,
-      stale: DEFAULT_STALE_MS,
+      stale: options.staleMs ?? DEFAULT_STALE_MS,
+      update: options.updateMs,
+      onCompromised: options.onCompromised,
     });
   } catch (err: any) {
     if (err.code === 'ELOCKED') return null;

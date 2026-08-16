@@ -125,9 +125,18 @@ export async function repairIndex(issues) {
             }
             // Generate/update summary
             const summaryPath = conversationPath.replace('.jsonl', '-summary.txt');
-            const summary = await summarizeConversation(exchanges);
-            fs.writeFileSync(summaryPath, summary, 'utf-8');
-            console.log(`  Created summary: ${summary.split(/\s+/).length} words`);
+            try {
+                const summary = await summarizeConversation(exchanges);
+                fs.writeFileSync(summaryPath, summary, 'utf-8');
+                console.log(`  Created summary: ${summary.split(/\s+/).length} words`);
+            }
+            catch (summaryError) {
+                // Summary availability must not prevent the independently useful
+                // SQLite repair. Preserve a retryable sentinel and continue indexing.
+                const { formatErrorSentinel } = await import('./summary-sentinel.js');
+                fs.writeFileSync(summaryPath, formatErrorSentinel(summaryError), 'utf-8');
+                console.error(`  Summary failed; continuing index repair: ${summaryError}`);
+            }
             // Index exchanges
             for (const exchange of exchanges) {
                 const toolNames = exchange.toolCalls?.map(tc => tc.toolName);

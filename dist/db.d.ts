@@ -13,11 +13,12 @@ export declare function migrateSchema(db: Database.Database): void;
  *   3. Recreates the table with ON DELETE CASCADE and copies surviving rows.
  */
 export declare function migrateToolCallsCascade(db: Database.Database): void;
-export declare function initDatabase(): Database.Database;
+export declare function initDatabase(dbPathOverride?: string): Database.Database;
 export declare function insertExchange(db: Database.Database, exchange: ConversationExchange, embedding: number[], toolNames?: string[]): void;
 export declare function getAllExchanges(db: Database.Database): Array<{
     id: string;
     archivePath: string;
 }>;
+export declare function deleteExchangesForArchiveObject(db: Database.Database, archiveObjectId: string): void;
 export declare function getFileLastIndexed(db: Database.Database, archivePath: string): number | null;
 export declare function deleteExchange(db: Database.Database, id: string): void;

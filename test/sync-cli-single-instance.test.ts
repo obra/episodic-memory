@@ -94,6 +94,24 @@ describe('sync-cli single-instance lock (#97)', () => {
     expect(loser.stdout).not.toMatch(/Sync complete/);
   });
 
+  it('routes eight public CLI starts through one worker and seven clean skips', async () => {
+    const results = await Promise.all(Array.from({ length: 8 }, () => collectOutput(spawnWith(envOverrides))));
+    expect(results.every(result => result.status === 0)).toBe(true);
+    expect(results.filter(result => /Sync complete/.test(result.stdout))).toHaveLength(1);
+    expect(results.filter(result => /sync already running.*skipping/.test(result.stderr))).toHaveLength(7);
+  }, 30_000);
+
+  it('rejects direct --worker invocation before opening SQLite', () => {
+    const result = spawnSync(process.execPath, [SYNC_CLI, '--worker'], {
+      env: { ...process.env, ...envOverrides, EPISODIC_MEMORY_WRITER_TOKEN: 'forged' },
+      timeout: 10_000,
+      encoding: 'utf-8',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/requires supervisor IPC/);
+    expect(existsSync(envOverrides.TEST_DB_PATH)).toBe(false);
+  });
+
   it('a single sequential run is unaffected by the lock — runs to completion as before', () => {
     const result = runWith(envOverrides);
     expect(result.status).toBe(0);

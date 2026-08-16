@@ -17,6 +17,9 @@ export interface ConversationExchange {
     archivePath: string;
     lineStart: number;
     lineEnd: number;
+    archiveObjectId?: string;
+    archiveSizeBytes?: number;
+    archiveLineCount?: number;
     parentUuid?: string;
     isSidechain?: boolean;
     harness?: ConversationHarness;

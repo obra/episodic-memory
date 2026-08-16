@@ -1,5 +1,4 @@
-import { readFileSync } from 'fs';
-import { formatConversationAsMarkdown, formatConversationAsHTML } from './show.js';
+import { showArchivedConversation } from './archive-show.js';
 const args = process.argv.slice(2);
 // Parse arguments
 let format = 'markdown';
@@ -13,7 +12,7 @@ for (let i = 0; i < args.length; i++) {
         console.log(`
 Usage: episodic-memory show [OPTIONS] <file>
 
-Display a conversation from a JSONL file in a human-readable format.
+Display a checksum-verified archived conversation by ledger ID or remote key.
 
 OPTIONS:
   --format, -f FORMAT    Output format: markdown or html (default: markdown)
@@ -42,13 +41,7 @@ if (!filePath) {
     process.exit(1);
 }
 try {
-    const jsonl = readFileSync(filePath, 'utf-8');
-    if (format === 'html') {
-        console.log(formatConversationAsHTML(jsonl));
-    }
-    else {
-        console.log(formatConversationAsMarkdown(jsonl));
-    }
+    console.log(await showArchivedConversation(filePath, { format }));
 }
 catch (error) {
     console.error(`Error reading file: ${error instanceof Error ? error.message : String(error)}`);

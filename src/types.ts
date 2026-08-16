@@ -19,6 +19,9 @@ export interface ConversationExchange {
   archivePath: string;
   lineStart: number;
   lineEnd: number;
+  archiveObjectId?: string;
+  archiveSizeBytes?: number;
+  archiveLineCount?: number;
 
   // Conversation structure
   parentUuid?: string;

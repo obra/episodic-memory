@@ -2,9 +2,6 @@ import Database from 'better-sqlite3';
 import { initDatabase } from './db.js';
 import { initEmbeddings, generateQueryEmbedding } from './embeddings.js';
 import { SearchResult, ConversationExchange, MultiConceptResult } from './types.js';
-import { isErroredSentinel } from './summary-sentinel.js';
-import fs from 'fs';
-import readline from 'readline';
 
 export interface SearchOptions {
   limit?: number;
@@ -75,7 +72,11 @@ const EXCHANGE_SELECT_COLUMNS = `
         e.model_provider,
         e.thinking_level,
         e.thinking_disabled,
-        e.thinking_triggers`;
+        e.thinking_triggers,
+        e.archive_object_id,
+        ao.summary_text,
+        ao.size_bytes AS archive_size_bytes,
+        ao.line_count AS archive_line_count`;
 
 function exchangeFromRow(row: any): ConversationExchange {
   return {
@@ -100,6 +101,9 @@ function exchangeFromRow(row: any): ConversationExchange {
     thinkingLevel: row.thinking_level || undefined,
     thinkingDisabled: row.thinking_disabled === null ? undefined : Boolean(row.thinking_disabled),
     thinkingTriggers: row.thinking_triggers || undefined,
+    archiveObjectId: row.archive_object_id || undefined,
+    archiveSizeBytes: row.archive_size_bytes ?? undefined,
+    archiveLineCount: row.archive_line_count ?? undefined,
   };
 }
 
@@ -160,6 +164,7 @@ export async function searchConversations(
         vec.distance
       FROM vec_exchanges AS vec
       JOIN exchanges AS e ON vec.id = e.id
+      LEFT JOIN archive_objects AS ao ON e.archive_object_id = ao.id
       WHERE vec.embedding MATCH ?
         AND k = ?
         AND e.is_sidechain = 0
@@ -184,6 +189,7 @@ export async function searchConversations(
         ${EXCHANGE_SELECT_COLUMNS},
         0 as distance
       FROM exchanges AS e
+      LEFT JOIN archive_objects AS ao ON e.archive_object_id = ao.id
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
         AND e.is_sidechain = 0
         ${filterClause}
@@ -211,16 +217,7 @@ export async function searchConversations(
   return results.map((row: any) => {
     const exchange = exchangeFromRow(row);
 
-    // Try to load summary if available. Skip error sentinels (#96) so failed
-    // summarizations don't surface as the conversation's summary in results.
-    const summaryPath = row.archive_path.replace('.jsonl', '-summary.txt');
-    let summary: string | undefined;
-    if (fs.existsSync(summaryPath)) {
-      const raw = fs.readFileSync(summaryPath, 'utf-8');
-      if (!isErroredSentinel(raw)) {
-        summary = raw.trim();
-      }
-    }
+    const summary = row.summary_text || undefined;
 
     // Create snippet (first 200 chars, collapse newlines)
     const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, ' ').trim();
@@ -235,33 +232,8 @@ export async function searchConversations(
   });
 }
 
-// Helper function to count lines in a file efficiently
-async function countLines(filePath: string): Promise<number> {
-  try {
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-      input: fileStream,
-      crlfDelay: Infinity
-    });
-
-    let count = 0;
-    for await (const line of rl) {
-      if (line.trim()) count++;
-    }
-    return count;
-  } catch (error) {
-    return 0; // Return 0 if file can't be read
-  }
-}
-
-// Helper function to get file size in KB
-function getFileSizeInKB(filePath: string): number {
-  try {
-    const stats = fs.statSync(filePath);
-    return Math.round(stats.size / 1024 * 10) / 10; // Round to 1 decimal place
-  } catch (error) {
-    return 0;
-  }
+function persistedFileSizeInKB(exchange: ConversationExchange): number {
+  return Math.round(((exchange.archiveSizeBytes ?? 0) / 1024) * 10) / 10;
 }
 
 export async function formatResults(results: Array<SearchResult & { summary?: string }>): Promise<string> {
@@ -305,8 +277,8 @@ export async function formatResults(results: Array<SearchResult & { summary?: st
     }
 
     // Get file metadata
-    const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
-    const totalLines = await countLines(result.exchange.archivePath);
+    const fileSizeKB = persistedFileSizeInKB(result.exchange);
+    const totalLines = result.exchange.archiveLineCount ?? 0;
     const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
 
     // File information with metadata (clean format for smart tool selection)
@@ -419,8 +391,8 @@ export async function formatMultiConceptResults(
     }
 
     // Get file metadata
-    const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
-    const totalLines = await countLines(result.exchange.archivePath);
+    const fileSizeKB = persistedFileSizeInKB(result.exchange);
+    const totalLines = result.exchange.archiveLineCount ?? 0;
     const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
 
     // File information with metadata (clean format for smart tool selection)

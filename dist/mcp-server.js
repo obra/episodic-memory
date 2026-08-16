@@ -3225,8 +3225,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path3) {
-      let input = path3;
+    function removeDotSegments(path5) {
+      let input = path5;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3478,8 +3478,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path3, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
+        const [path5, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -7408,10 +7408,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path3) {
-  if (!path3)
+function getElementAtPath(obj, path5) {
+  if (!path5)
     return obj;
-  return path3.reduce((acc, key) => acc?.[key], obj);
+  return path5.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7820,11 +7820,11 @@ function explicitlyAborted(x2, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path3, issues) {
+function prefixIssues(path5, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path3);
+    iss.path.unshift(path5);
     return iss;
   });
 }
@@ -7971,16 +7971,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path3 = []) => {
+  const processError = (error52, path5 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path3, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else {
-        const fullpath = [...path3, ...issue2.path];
+        const fullpath = [...path5, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -8007,17 +8007,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path3 = []) => {
+  const processError = (error52, path5 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path3, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else {
-        const fullpath = [...path3, ...issue2.path];
+        const fullpath = [...path5, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -8049,8 +8049,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path3 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path3) {
+  const path5 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path5) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -21048,13 +21048,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path3 = ref.slice(1).split("/").filter(Boolean);
-  if (path3.length === 0) {
+  const path5 = ref.slice(1).split("/").filter(Boolean);
+  if (path5.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path3[0] === defsKey) {
-    const key = path3[1];
+  if (path5[0] === defsKey) {
+    const key = path5[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -24801,6 +24801,48 @@ function getDbPath() {
 import * as lockfile from "proper-lockfile";
 var DEFAULT_STALE_MS = 10 * 60 * 1e3;
 
+// src/archive-ledger.ts
+function ensureArchiveLedger(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS archive_objects (
+      id TEXT PRIMARY KEY,
+      remote_key TEXT NOT NULL UNIQUE,
+      project TEXT NOT NULL,
+      sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+      size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+      line_count INTEGER NOT NULL CHECK(line_count >= 0),
+      source_mtime_ms INTEGER NOT NULL,
+      summary_text TEXT,
+      summary_state TEXT NOT NULL CHECK(summary_state IN ('missing','ready','empty','error')),
+      upload_state TEXT NOT NULL CHECK(upload_state = 'uploaded'),
+      uploaded_at_ms INTEGER NOT NULL,
+      verified_at_ms INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_archive_objects_remote_key ON archive_objects(remote_key);
+  `);
+}
+function getArchiveObject(db, identity) {
+  const row = db.prepare(`
+    SELECT id, remote_key, project, sha256, size_bytes, line_count, source_mtime_ms,
+           summary_text, summary_state, upload_state, uploaded_at_ms, verified_at_ms
+    FROM archive_objects WHERE id = ? OR remote_key = ? LIMIT 1
+  `).get(identity, identity);
+  return row ? {
+    id: row.id,
+    remoteKey: row.remote_key,
+    project: row.project,
+    sha256: row.sha256,
+    sizeBytes: row.size_bytes,
+    lineCount: row.line_count,
+    sourceMtimeMs: row.source_mtime_ms,
+    summaryText: row.summary_text,
+    summaryState: row.summary_state,
+    uploadState: row.upload_state,
+    uploadedAtMs: row.uploaded_at_ms,
+    verifiedAtMs: row.verified_at_ms
+  } : null;
+}
+
 // src/db.ts
 function migrateSchema(db) {
   const columns = db.prepare(`SELECT name FROM pragma_table_info('exchanges')`).all();
@@ -24820,7 +24862,8 @@ function migrateSchema(db) {
     { name: "thinking_level", sql: "ALTER TABLE exchanges ADD COLUMN thinking_level TEXT" },
     { name: "thinking_disabled", sql: "ALTER TABLE exchanges ADD COLUMN thinking_disabled BOOLEAN" },
     { name: "thinking_triggers", sql: "ALTER TABLE exchanges ADD COLUMN thinking_triggers TEXT" },
-    { name: "embedding_version", sql: "ALTER TABLE exchanges ADD COLUMN embedding_version INTEGER NOT NULL DEFAULT 0" }
+    { name: "embedding_version", sql: "ALTER TABLE exchanges ADD COLUMN embedding_version INTEGER NOT NULL DEFAULT 0" },
+    { name: "archive_object_id", sql: "ALTER TABLE exchanges ADD COLUMN archive_object_id TEXT" }
   ];
   let migrated = false;
   for (const migration of migrations) {
@@ -24876,8 +24919,8 @@ function migrateToolCallsCascade(db) {
   db.pragma("foreign_keys = ON");
   console.log("  tool_calls migration complete.");
 }
-function initDatabase() {
-  const dbPath = getDbPath();
+function initDatabase(dbPathOverride) {
+  const dbPath = dbPathOverride ?? getDbPath();
   const dbDir = path2.dirname(dbPath);
   if (!fs2.existsSync(dbDir)) {
     fs2.mkdirSync(dbDir, { recursive: true });
@@ -24910,9 +24953,11 @@ function initDatabase() {
       thinking_level TEXT,
       thinking_disabled BOOLEAN,
       thinking_triggers TEXT,
-      embedding_version INTEGER NOT NULL DEFAULT 0
+      embedding_version INTEGER NOT NULL DEFAULT 0,
+      archive_object_id TEXT
     )
   `);
+  ensureArchiveLedger(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS tool_calls (
       id TEXT PRIMARY KEY,
@@ -24956,6 +25001,7 @@ function initDatabase() {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_tool_exchange ON tool_calls(exchange_id)
   `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_archive_object_id ON exchanges(archive_object_id)`);
   return db;
 }
 
@@ -24998,17 +25044,7 @@ async function generateQueryEmbedding(query) {
   return generateEmbedding(withQueryPrefix(query));
 }
 
-// src/summary-sentinel.ts
-var ERROR_MARKER = "__ERRORED__";
-var ERROR_MARKER_PREFIX = `${ERROR_MARKER}
-`;
-function isErroredSentinel(content) {
-  return content.startsWith(ERROR_MARKER_PREFIX);
-}
-
 // src/search.ts
-import fs3 from "fs";
-import readline from "readline";
 function buildSearchFilters(options) {
   const parts = [];
   const params = [];
@@ -25061,7 +25097,11 @@ var EXCHANGE_SELECT_COLUMNS = `
         e.model_provider,
         e.thinking_level,
         e.thinking_disabled,
-        e.thinking_triggers`;
+        e.thinking_triggers,
+        e.archive_object_id,
+        ao.summary_text,
+        ao.size_bytes AS archive_size_bytes,
+        ao.line_count AS archive_line_count`;
 function exchangeFromRow(row) {
   return {
     id: row.id,
@@ -25084,7 +25124,10 @@ function exchangeFromRow(row) {
     modelProvider: row.model_provider || void 0,
     thinkingLevel: row.thinking_level || void 0,
     thinkingDisabled: row.thinking_disabled === null ? void 0 : Boolean(row.thinking_disabled),
-    thinkingTriggers: row.thinking_triggers || void 0
+    thinkingTriggers: row.thinking_triggers || void 0,
+    archiveObjectId: row.archive_object_id || void 0,
+    archiveSizeBytes: row.archive_size_bytes ?? void 0,
+    archiveLineCount: row.archive_line_count ?? void 0
   };
 }
 function l2DistanceToCosineSimilarity(distance) {
@@ -25118,6 +25161,7 @@ async function searchConversations(query, options = {}) {
         vec.distance
       FROM vec_exchanges AS vec
       JOIN exchanges AS e ON vec.id = e.id
+      LEFT JOIN archive_objects AS ao ON e.archive_object_id = ao.id
       WHERE vec.embedding MATCH ?
         AND k = ?
         AND e.is_sidechain = 0
@@ -25139,6 +25183,7 @@ async function searchConversations(query, options = {}) {
         ${EXCHANGE_SELECT_COLUMNS},
         0 as distance
       FROM exchanges AS e
+      LEFT JOIN archive_objects AS ao ON e.archive_object_id = ao.id
       WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
         AND e.is_sidechain = 0
         ${filterClause}
@@ -25160,14 +25205,7 @@ async function searchConversations(query, options = {}) {
   db.close();
   return results.map((row) => {
     const exchange = exchangeFromRow(row);
-    const summaryPath = row.archive_path.replace(".jsonl", "-summary.txt");
-    let summary;
-    if (fs3.existsSync(summaryPath)) {
-      const raw = fs3.readFileSync(summaryPath, "utf-8");
-      if (!isErroredSentinel(raw)) {
-        summary = raw.trim();
-      }
-    }
+    const summary = row.summary_text || void 0;
     const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, " ").trim();
     const snippet = snippetText + (exchange.userMessage.length > 200 ? "..." : "");
     return {
@@ -25178,29 +25216,8 @@ async function searchConversations(query, options = {}) {
     };
   });
 }
-async function countLines(filePath) {
-  try {
-    const fileStream = fs3.createReadStream(filePath);
-    const rl = readline.createInterface({
-      input: fileStream,
-      crlfDelay: Infinity
-    });
-    let count = 0;
-    for await (const line of rl) {
-      if (line.trim()) count++;
-    }
-    return count;
-  } catch (error51) {
-    return 0;
-  }
-}
-function getFileSizeInKB(filePath) {
-  try {
-    const stats = fs3.statSync(filePath);
-    return Math.round(stats.size / 1024 * 10) / 10;
-  } catch (error51) {
-    return 0;
-  }
+function persistedFileSizeInKB(exchange) {
+  return Math.round((exchange.archiveSizeBytes ?? 0) / 1024 * 10) / 10;
 }
 async function formatResults(results) {
   if (results.length === 0) {
@@ -25233,8 +25250,8 @@ async function formatResults(results) {
       output += `   Tools: ${toolSummary}
 `;
     }
-    const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
-    const totalLines = await countLines(result.exchange.archivePath);
+    const fileSizeKB = persistedFileSizeInKB(result.exchange);
+    const totalLines = result.exchange.archiveLineCount ?? 0;
     const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
     output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)
 
@@ -25308,14 +25325,135 @@ async function formatMultiConceptResults(results, concepts) {
       output += `   Tools: ${toolSummary}
 `;
     }
-    const fileSizeKB = getFileSizeInKB(result.exchange.archivePath);
-    const totalLines = await countLines(result.exchange.archivePath);
+    const fileSizeKB = persistedFileSizeInKB(result.exchange);
+    const totalLines = result.exchange.archiveLineCount ?? 0;
     const lineRange = `${result.exchange.lineStart}-${result.exchange.lineEnd}`;
     output += `   Lines ${lineRange} in ${result.exchange.archivePath} (${fileSizeKB}KB, ${totalLines} lines)
 
 `;
   }
   return output;
+}
+
+// src/archive-show.ts
+import Database2 from "better-sqlite3";
+import fs4 from "fs";
+import path4 from "path";
+import { randomUUID as randomUUID2 } from "crypto";
+
+// src/rclone-transport.ts
+import { createHash, randomUUID } from "crypto";
+import fs3 from "fs";
+import path3 from "path";
+import { spawn } from "child_process";
+var CACHE_LIMIT_BYTES = 4 * 1024 ** 3;
+var FREE_RESERVE_BYTES = 8 * 1024 ** 3;
+var RUN_LIMIT_BYTES = 1024 ** 3;
+var RUN_LIMIT_MS = 15 * 60 * 1e3;
+function checkCacheCapacity(cacheBytes, nextBytes, freeBytes) {
+  if (cacheBytes + nextBytes > CACHE_LIMIT_BYTES) return { allowed: false, reason: "4 GiB cache limit" };
+  if (freeBytes - nextBytes < FREE_RESERVE_BYTES) return { allowed: false, reason: "8 GiB free-space reserve" };
+  return { allowed: true };
+}
+var RcloneTransport = class {
+  executable;
+  env;
+  timeoutMs;
+  constructor(options = {}) {
+    this.executable = options.executable ?? process.env.EPISODIC_MEMORY_RCLONE_EXECUTABLE ?? "rclone";
+    this.env = { ...process.env, ...options.env };
+    this.timeoutMs = options.timeoutMs ?? RUN_LIMIT_MS;
+  }
+  async copyTo(source, destination) {
+    await this.run(["copyto", source, destination]);
+  }
+  async verifyRemote(localPath, remoteKey) {
+    const expected = await hashFile(localPath);
+    const actual = await this.streamHash(["cat", remoteKey]);
+    if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) {
+      throw new Error(`Remote integrity mismatch for ${remoteKey}`);
+    }
+    return actual;
+  }
+  async uploadVerified(localPath, remoteKey) {
+    if (!remoteKey || !remoteKey.includes(":")) throw new Error("Remote key must include an rclone remote");
+    await this.copyTo(localPath, remoteKey);
+    return this.verifyRemote(localPath, remoteKey);
+  }
+  async downloadVerified(remoteKey, localPath, expected) {
+    const partial2 = `${localPath}.partial.${process.pid}.${randomUUID()}`;
+    fs3.mkdirSync(path3.dirname(localPath), { recursive: true });
+    try {
+      await this.copyTo(remoteKey, partial2);
+      const actual = await hashFile(partial2);
+      if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) {
+        throw new Error(`Downloaded transcript integrity mismatch for ${remoteKey}`);
+      }
+      fs3.renameSync(partial2, localPath);
+    } finally {
+      try {
+        fs3.unlinkSync(partial2);
+      } catch {
+      }
+    }
+  }
+  run(args) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.executable, args, { env: this.env, stdio: ["ignore", "ignore", "pipe"] });
+      let stderr = "";
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      const timer = setTimeout(() => child.kill("SIGTERM"), this.timeoutMs);
+      child.on("error", (error51) => {
+        clearTimeout(timer);
+        reject(new Error(`rclone spawn failed: ${error51.message}`));
+      });
+      child.on("close", (code, signal) => {
+        clearTimeout(timer);
+        if (code === 0) resolve();
+        else reject(new Error(`rclone ${args[0]} failed (${signal ?? code}): ${stderr.trim()}`));
+      });
+    });
+  }
+  streamHash(args) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.executable, args, { env: this.env, stdio: ["ignore", "pipe", "pipe"] });
+      const hash2 = createHash("sha256");
+      let bytes = 0;
+      let stderr = "";
+      child.stdout.on("data", (chunk) => {
+        bytes += chunk.length;
+        hash2.update(chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      const timer = setTimeout(() => child.kill("SIGTERM"), this.timeoutMs);
+      child.on("error", (error51) => {
+        clearTimeout(timer);
+        reject(new Error(`rclone spawn failed: ${error51.message}`));
+      });
+      child.on("close", (code, signal) => {
+        clearTimeout(timer);
+        if (code === 0) resolve({ bytes, sha256: hash2.digest("hex") });
+        else reject(new Error(`rclone ${args[0]} failed (${signal ?? code}): ${stderr.trim()}`));
+      });
+    });
+  }
+};
+async function hashFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash2 = createHash("sha256");
+    let bytes = 0;
+    const stream = fs3.createReadStream(filePath);
+    stream.on("data", (chunk) => {
+      bytes += chunk.length;
+      hash2.update(chunk);
+    });
+    stream.on("error", reject);
+    stream.on("end", () => resolve({ bytes, sha256: hash2.digest("hex") }));
+  });
 }
 
 // node_modules/marked/lib/marked.esm.js
@@ -26680,6 +26818,493 @@ ${JSON.stringify(value, null, 2)}
   }
   return output;
 }
+function formatConversationAsHTML(jsonl) {
+  const lines = jsonl.trim().split("\n").filter((line) => line.trim());
+  if (isCodexRollout(lines)) {
+    return formatMarkdownDocumentAsHTML(formatCodexConversationAsMarkdown(lines));
+  }
+  const allMessages = lines.map((line) => JSON.parse(line));
+  const messages = allMessages.filter((msg) => {
+    if (msg.type !== "user" && msg.type !== "assistant") return false;
+    if (!msg.timestamp) return false;
+    if (!msg.message || !msg.message.content) {
+      if (msg.type === "assistant" && msg.message?.usage) return true;
+      return false;
+    }
+    if (Array.isArray(msg.message.content) && msg.message.content.length === 0) {
+      if (msg.type === "assistant" && msg.message?.usage) return true;
+      return false;
+    }
+    return true;
+  });
+  if (messages.length === 0) {
+    return "";
+  }
+  const firstMessage = messages[0];
+  let bodyContent = "";
+  bodyContent += '<div class="header">';
+  bodyContent += "<h1>Conversation</h1>";
+  bodyContent += '<table class="metadata">';
+  if (firstMessage.sessionId) {
+    bodyContent += `<tr><th>Session ID</th><td>${escapeHtml(firstMessage.sessionId)}</td></tr>`;
+  }
+  if (firstMessage.gitBranch) {
+    bodyContent += `<tr><th>Git Branch</th><td>${escapeHtml(firstMessage.gitBranch)}</td></tr>`;
+  }
+  if (firstMessage.cwd) {
+    bodyContent += `<tr><th>Working Directory</th><td>${escapeHtml(firstMessage.cwd)}</td></tr>`;
+  }
+  if (firstMessage.version) {
+    bodyContent += `<tr><th>Claude Code Version</th><td>${escapeHtml(firstMessage.version)}</td></tr>`;
+  }
+  bodyContent += "</table></div>";
+  bodyContent += '<div class="messages">';
+  const toolUseMap = /* @__PURE__ */ new Map();
+  for (const msg of messages) {
+    if (msg.type === "assistant" && Array.isArray(msg.message.content)) {
+      for (const block of msg.message.content) {
+        if (block.type === "tool_use" && block.id) {
+          toolUseMap.set(block.id, { msg, block });
+        }
+      }
+    }
+  }
+  let inSidechain = false;
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const timestamp = new Date(msg.timestamp).toLocaleString();
+    const messageId = `msg-${msg.uuid || i}`;
+    if (msg.type === "user" && Array.isArray(msg.message.content)) {
+      const hasOnlyToolResults = msg.message.content.every((block) => block.type === "tool_result");
+      if (hasOnlyToolResults) {
+        continue;
+      }
+    }
+    if (msg.isSidechain && !inSidechain) {
+      bodyContent += '<div class="sidechain-group">';
+      inSidechain = true;
+    } else if (!msg.isSidechain && inSidechain) {
+      bodyContent += "</div>";
+      inSidechain = false;
+    }
+    const messageClass = msg.type === "user" ? "message user-message" : "message assistant-message";
+    let roleLabel;
+    if (msg.isSidechain) {
+      roleLabel = msg.type === "user" ? "Agent" : "Subagent";
+    } else {
+      roleLabel = msg.type === "user" ? "User" : "Agent";
+    }
+    bodyContent += `<div class="${messageClass}" id="${messageId}">`;
+    bodyContent += `<div class="message-header">`;
+    bodyContent += `<span class="role">${roleLabel}</span>`;
+    bodyContent += `<a href="#${messageId}" class="timestamp">${escapeHtml(timestamp)}</a>`;
+    bodyContent += `</div>`;
+    bodyContent += `<div class="message-content">`;
+    if (msg.type === "user") {
+      if (msg.toolUseResult) {
+        bodyContent += '<div class="tool-result">';
+        bodyContent += "<strong>Tool Result:</strong>";
+        if (typeof msg.toolUseResult === "string") {
+          bodyContent += `<p>${escapeHtml(msg.toolUseResult)}</p>`;
+        } else if (Array.isArray(msg.toolUseResult)) {
+          for (const result of msg.toolUseResult) {
+            bodyContent += `<p>${escapeHtml(result.text || String(result))}</p>`;
+          }
+        }
+        bodyContent += "</div>";
+      } else if (typeof msg.message.content === "string") {
+        bodyContent += `<p>${escapeHtml(msg.message.content)}</p>`;
+      } else if (Array.isArray(msg.message.content)) {
+        for (const block of msg.message.content) {
+          if (block.type === "text" && block.text) {
+            bodyContent += `<p>${escapeHtml(block.text)}</p>`;
+          } else if (block.type === "tool_result") {
+            bodyContent += '<div class="tool-result">';
+            bodyContent += "<strong>Tool Result:</strong> ";
+            bodyContent += `<code>${escapeHtml(String(block.content || ""))}</code>`;
+            bodyContent += "</div>";
+          }
+        }
+      }
+    } else if (msg.type === "assistant") {
+      const content = msg.message.content;
+      if (typeof content === "string") {
+        bodyContent += `<p>${escapeHtml(content)}</p>`;
+      } else if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === "text" && block.text) {
+            if (isMarkdown(block.text)) {
+              bodyContent += '<div class="markdown-content">';
+              bodyContent += renderMarkdownSafely(block.text);
+              bodyContent += "</div>";
+            } else {
+              bodyContent += `<div class="plain-content">${escapeHtml(block.text)}</div>`;
+            }
+          } else if (block.type === "tool_use") {
+            bodyContent += '<div class="tool-use">';
+            bodyContent += `<div class="tool-name"><strong>Tool Use:</strong> <code>${escapeHtml(block.name || "")}</code></div>`;
+            const input = block.input;
+            if (input && typeof input === "object") {
+              bodyContent += '<div class="tool-params">';
+              for (const [key, value] of Object.entries(input)) {
+                bodyContent += `<div class="tool-param">`;
+                bodyContent += `<strong>${escapeHtml(key)}:</strong> `;
+                if (typeof value === "string") {
+                  if (value.includes("\n") || value.length > 100) {
+                    bodyContent += "<pre>";
+                    bodyContent += escapeHtml(value);
+                    bodyContent += "</pre>";
+                  } else {
+                    bodyContent += escapeHtml(value);
+                  }
+                } else {
+                  bodyContent += "<pre>";
+                  bodyContent += escapeHtml(JSON.stringify(value, null, 2));
+                  bodyContent += "</pre>";
+                }
+                bodyContent += "</div>";
+              }
+              bodyContent += "</div>";
+            }
+            const toolUseId = block.id;
+            if (toolUseId) {
+              let foundResult = false;
+              for (let j2 = i + 1; j2 < Math.min(i + 6, messages.length) && !foundResult; j2++) {
+                const laterMsg = messages[j2];
+                if (laterMsg.type === "user" && Array.isArray(laterMsg.message.content)) {
+                  for (const resultBlock of laterMsg.message.content) {
+                    if (resultBlock.type === "tool_result" && resultBlock.tool_use_id === toolUseId) {
+                      bodyContent += '<div class="tool-result">';
+                      bodyContent += "<strong>Result:</strong> ";
+                      const content2 = resultBlock.content;
+                      if (typeof content2 === "string") {
+                        if (content2.includes("\n") || content2.length > 100) {
+                          bodyContent += "<pre>";
+                          bodyContent += escapeHtml(content2);
+                          bodyContent += "</pre>";
+                        } else {
+                          bodyContent += escapeHtml(content2);
+                        }
+                      } else if (Array.isArray(content2)) {
+                        bodyContent += "<pre>";
+                        bodyContent += escapeHtml(JSON.stringify(content2, null, 2));
+                        bodyContent += "</pre>";
+                      }
+                      bodyContent += "</div>";
+                      foundResult = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            bodyContent += "</div>";
+          }
+        }
+      }
+      if (msg.message.usage) {
+        const usage = msg.message.usage;
+        bodyContent += '<div class="token-usage">';
+        bodyContent += `in: ${(usage.input_tokens || 0).toLocaleString()}`;
+        if (usage.cache_read_input_tokens) {
+          bodyContent += ` | cache read: ${usage.cache_read_input_tokens.toLocaleString()}`;
+        }
+        if (usage.cache_creation_input_tokens) {
+          bodyContent += ` | cache create: ${usage.cache_creation_input_tokens.toLocaleString()}`;
+        }
+        bodyContent += ` | out: ${(usage.output_tokens || 0).toLocaleString()}`;
+        bodyContent += "</div>";
+      }
+    }
+    bodyContent += "</div></div>";
+  }
+  if (inSidechain) {
+    bodyContent += "</div>";
+  }
+  bodyContent += "</div>";
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conversation</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+      line-height: 1.5;
+      color: #1d1d1f;
+      background: #f5f5f7;
+    }
+    .header {
+      margin-bottom: 32px;
+      padding: 24px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .header h1 {
+      margin: 0 0 20px 0;
+      font-size: 28px;
+      font-weight: 600;
+      color: #1d1d1f;
+    }
+    .metadata {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .metadata th {
+      text-align: left;
+      padding: 10px 0;
+      color: #86868b;
+      font-weight: 500;
+      width: 180px;
+      border-bottom: 1px solid #f5f5f7;
+    }
+    .metadata td {
+      padding: 10px 0;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px;
+      color: #1d1d1f;
+      border-bottom: 1px solid #f5f5f7;
+    }
+    .messages {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .message {
+      padding: 20px 24px;
+      background: #ffffff;
+    }
+    .user-message {
+      border-left: 3px solid #007aff;
+    }
+    .assistant-message {
+      border-left: 3px solid #34c759;
+    }
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .role {
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: -0.01em;
+    }
+    .user-message .role {
+      color: #007aff;
+    }
+    .assistant-message .role {
+      color: #34c759;
+    }
+    .plain-content {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      color: #1d1d1f;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .markdown-content {
+      color: #1d1d1f;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .markdown-content p {
+      margin: 0 0 12px 0;
+    }
+    .markdown-content p:last-child {
+      margin-bottom: 0;
+    }
+    .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+      margin: 20px 0 12px 0;
+      font-weight: 600;
+      color: #1d1d1f;
+    }
+    .markdown-content h1 {
+      font-size: 20px;
+      border-bottom: 1px solid #e5e5e7;
+      padding-bottom: 8px;
+    }
+    .markdown-content h2 {
+      font-size: 18px;
+    }
+    .markdown-content h3 {
+      font-size: 16px;
+    }
+    .markdown-content ul, .markdown-content ol {
+      margin: 12px 0;
+      padding-left: 24px;
+    }
+    .markdown-content li {
+      margin: 4px 0;
+    }
+    .markdown-content code {
+      background: #f5f5f7;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 13px;
+      color: #5e5ce6;
+    }
+    .markdown-content pre {
+      margin: 12px 0;
+      background: #1d1d1f;
+      color: #f5f5f7;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+    .markdown-content pre code {
+      background: none;
+      color: #f5f5f7;
+      padding: 0;
+      font-size: 12px;
+    }
+    .markdown-content blockquote {
+      margin: 12px 0;
+      padding-left: 16px;
+      border-left: 3px solid #e5e5e7;
+      color: #6e6e73;
+    }
+    .markdown-content strong {
+      font-weight: 600;
+      color: #1d1d1f;
+    }
+    .markdown-content a {
+      color: #007aff;
+      text-decoration: none;
+    }
+    .markdown-content a:hover {
+      text-decoration: underline;
+    }
+    .timestamp {
+      font-size: 11px;
+      color: #86868b;
+      font-weight: 400;
+      text-decoration: none;
+    }
+    .timestamp:hover {
+      color: #007aff;
+      text-decoration: underline;
+    }
+    .tool-use {
+      margin: 16px 0;
+      background: #f5f5f7;
+      border-radius: 8px;
+      padding: 16px;
+      border: 1px solid #e5e5e7;
+    }
+    .tool-name {
+      margin-bottom: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #8e8e93;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tool-name code {
+      color: #5e5ce6;
+      background: none;
+      padding: 0;
+      font-weight: 600;
+    }
+    .tool-params {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .tool-param {
+      font-size: 12px;
+      font-family: 'SF Mono', Consolas, monospace;
+      line-height: 1.6;
+    }
+    .tool-param strong {
+      color: #5e5ce6;
+      font-weight: 600;
+    }
+    .tool-param pre {
+      margin: 6px 0 0 0;
+      padding: 8px 12px;
+      background: #ffffff;
+      border: 1px solid #e5e5e7;
+      border-radius: 6px;
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      color: #1d1d1f;
+      font-family: 'SF Mono', Consolas, monospace;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+    .tool-result {
+      margin-top: 8px;
+      font-size: 12px;
+      font-family: 'SF Mono', Consolas, monospace;
+      line-height: 1.6;
+    }
+    .tool-result strong {
+      color: #5e5ce6;
+      font-weight: 600;
+    }
+    .tool-result pre {
+      margin: 6px 0 0 0;
+      padding: 8px 12px;
+      background: #ffffff;
+      border: 1px solid #e5e5e7;
+      border-radius: 6px;
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      color: #1d1d1f;
+      font-family: 'SF Mono', Consolas, monospace;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+    .token-usage {
+      margin-top: 12px;
+      font-size: 10px;
+      color: #86868b;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+    .sidechain-group {
+      background: #fffbf0;
+      border-left: 3px solid #ffcc00;
+      border-radius: 8px;
+      padding: 2px;
+      margin: 8px 0;
+    }
+    .sidechain-group .message {
+      background: #ffffff;
+    }
+    @media (max-width: 768px) {
+      body {
+        padding: 12px;
+      }
+      .header {
+        padding: 16px;
+      }
+      .message {
+        padding: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+${bodyContent}
+</body>
+</html>`;
+}
 function isCodexRollout(lines) {
   for (const line of lines) {
     try {
@@ -26863,12 +27488,132 @@ ${result}
   }
   return output;
 }
+function formatMarkdownDocumentAsHTML(markdown) {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conversation</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+      line-height: 1.5;
+      color: #1d1d1f;
+      background: #f5f5f7;
+    }
+    .markdown-content {
+      background: #ffffff;
+      padding: 24px;
+      border-radius: 12px;
+    }
+    pre {
+      overflow-x: auto;
+      background: #f5f5f7;
+      padding: 12px;
+      border-radius: 6px;
+    }
+    code {
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+<div class="markdown-content">
+${renderMarkdownSafely(markdown)}
+</div>
+</body>
+</html>`;
+}
+function escapeHtml(text) {
+  const map2 = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  };
+  return text.replace(/[&<>"']/g, (m2) => map2[m2]);
+}
+function isMarkdown(text) {
+  const markdownPatterns = [
+    /^#{1,6}\s/m,
+    // Headers
+    /\*\*[^*]+\*\*/,
+    // Bold
+    /\*[^*]+\*/,
+    // Italic
+    /`[^`]+`/,
+    // Inline code
+    /```/,
+    // Code blocks
+    /^\s*[-*+]\s/m,
+    // Unordered lists
+    /^\s*\d+\.\s/m,
+    // Ordered lists
+    /^\s*>\s/m,
+    // Blockquotes
+    /\[.+\]\(.+\)/
+    // Links
+  ];
+  const matchCount = markdownPatterns.filter((pattern) => pattern.test(text)).length;
+  return matchCount >= 2;
+}
+function renderMarkdownSafely(text) {
+  try {
+    const renderer = new k.Renderer();
+    renderer.html = ({ text: text2 }) => escapeHtml(text2);
+    return k.parse(text, { async: false, renderer });
+  } catch (error51) {
+    return `<pre>${escapeHtml(text)}</pre>`;
+  }
+}
+
+// src/archive-show.ts
+async function showArchivedConversation(identity, options = {}) {
+  const db = new Database2(options.dbPath ?? getDbPath(), { readonly: true });
+  let record2;
+  try {
+    record2 = getArchiveObject(db, identity);
+  } finally {
+    db.close();
+  }
+  if (!record2) throw new Error(`Conversation is not transported: ${identity}`);
+  const cacheDir = options.cacheDir ?? path4.join(getSuperpowersDir(), "conversation-cache");
+  fs4.mkdirSync(cacheDir, { recursive: true });
+  const statfs = fs4.statfsSync(cacheDir);
+  const capacity = checkCacheCapacity(cacheSize(cacheDir), record2.sizeBytes, Number(statfs.bavail) * Number(statfs.bsize));
+  if (!capacity.allowed) throw new Error(`Cannot download transcript: ${capacity.reason}`);
+  const safeName = record2.id.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const localPath = path4.join(cacheDir, `${safeName}.${randomUUID2()}.jsonl`);
+  const transport = options.transport ?? new RcloneTransport();
+  try {
+    await transport.downloadVerified(record2.remoteKey, localPath, { bytes: record2.sizeBytes, sha256: record2.sha256 });
+    const jsonl = fs4.readFileSync(localPath, "utf-8");
+    return options.format === "html" ? formatConversationAsHTML(jsonl) : formatConversationAsMarkdown(jsonl, options.startLine, options.endLine);
+  } finally {
+    try {
+      fs4.unlinkSync(localPath);
+    } catch {
+    }
+  }
+}
+function cacheSize(dir) {
+  let bytes = 0;
+  for (const entry of fs4.readdirSync(dir, { withFileTypes: true })) {
+    const item = path4.join(dir, entry.name);
+    bytes += entry.isDirectory() ? cacheSize(item) : fs4.statSync(item).size;
+  }
+  return bytes;
+}
 
 // src/version.ts
-var VERSION = "1.4.1";
+var VERSION = "1.4.2";
 
 // src/mcp-server.ts
-import fs4 from "fs";
 var SearchModeEnum = external_exports.enum(["vector", "text", "both"]);
 var ResponseFormatEnum = external_exports.enum(["markdown", "json"]);
 var SearchInputSchema = external_exports.object({
@@ -26892,7 +27637,7 @@ var SearchInputSchema = external_exports.object({
   )
 }).strict();
 var ShowConversationInputSchema = external_exports.object({
-  path: external_exports.string().min(1, "Path is required").describe("Absolute path to the JSONL conversation file to display"),
+  path: external_exports.string().min(1, "Path is required").describe("Archive object ID or rclone remote key for the conversation"),
   startLine: external_exports.number().int().min(1).optional().describe("Starting line number (1-indexed, inclusive). Omit to start from beginning."),
   endLine: external_exports.number().int().min(1).optional().describe("Ending line number (1-indexed, inclusive). Omit to read to end.")
 }).strict();
@@ -26954,7 +27699,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            path: { type: "string", minLength: 1 },
+            path: { type: "string", minLength: 1, description: "Archive object ID or rclone remote key" },
             startLine: { type: "number", minimum: 1 },
             endLine: { type: "number", minimum: 1 }
           },
@@ -27041,15 +27786,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     if (name === "read") {
       const params = ShowConversationInputSchema.parse(args);
-      if (!fs4.existsSync(params.path)) {
-        throw new Error(`File not found: ${params.path}`);
-      }
-      const jsonlContent = fs4.readFileSync(params.path, "utf-8");
-      const markdownContent = formatConversationAsMarkdown(
-        jsonlContent,
-        params.startLine,
-        params.endLine
-      );
+      const markdownContent = await showArchivedConversation(params.path, {
+        format: "markdown",
+        startLine: params.startLine,
+        endLine: params.endLine
+      });
       return {
         content: [
           {

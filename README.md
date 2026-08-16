@@ -135,9 +135,9 @@ episodic-memory search "React Router authentication"
 episodic-memory search --text "exact phrase"
 episodic-memory search --after 2025-09-01 "refactoring"
 
-# Display a conversation in readable format
-episodic-memory show path/to/conversation.jsonl
-episodic-memory show --format html conversation.jsonl > output.html
+# Display a transported conversation by ledger ID or rclone remote key
+episodic-memory show <archive-object-id>
+episodic-memory show --format html 'remote:archive/project/session.jsonl' > output.html
 
 # View statistics
 episodic-memory stats
@@ -273,7 +273,10 @@ Search indexed conversations using semantic similarity or exact text matching. S
 
 ### `episodic-memory show`
 
-Display a conversation from a JSONL file in human-readable format.
+Download one transported conversation by ledger ID or rclone remote key,
+verify its recorded size and SHA-256, render it, and remove the local cache copy.
+Legacy rows without a ledger identity remain searchable but return
+`not transported`; there is no archive-mount fallback.
 
 **Options:**
 - `--format markdown` (default) - Plain text markdown output suitable for terminal or Claude
@@ -282,10 +285,10 @@ Display a conversation from a JSONL file in human-readable format.
 **Examples:**
 ```bash
 # View in terminal
-episodic-memory show conversation.jsonl | less
+episodic-memory show <archive-object-id> | less
 
 # Generate HTML for browser
-episodic-memory show --format html conversation.jsonl > output.html
+episodic-memory show --format html 'remote:archive/project/session.jsonl' > output.html
 open output.html
 ```
 
@@ -299,11 +302,17 @@ open output.html
 
 ## How It Works
 
-1. **Sync** - Copies conversation files from Claude Code and Codex transcript directories to archive
+1. **Sync** - With `EPISODIC_MEMORY_ARCHIVE_REMOTE=remote:path`, stages one transcript at a time and uses rclone `copyto` plus streamed remote SHA-256 verification
 2. **Parse** - Extracts user-agent exchanges from Claude Code JSONL or Codex rollout JSONL
 3. **Embed** - Generates vector embeddings using Transformers.js (local, offline)
 4. **Index** - Stores in SQLite with sqlite-vec for fast similarity search
 5. **Search** - Semantic search using vector similarity or exact text matching
+
+The remote transport keeps at most 4 GiB in its local working cache, preserves
+8 GiB of unrelated free space, and stops before the next transcript after
+1 GiB, 200 files, or 15 minutes. Search and stats use SQLite only. A separate
+lock supervisor owns the heartbeat so concurrent hooks produce one worker and
+clean skips for the remaining contenders.
 
 ## Excluding Conversations
 
@@ -366,12 +375,12 @@ Display a full conversation in readable markdown format.
 
 ```json
 {
-  "path": "/path/to/conversation.jsonl"
+  "path": "remote:archive/project/session.jsonl"
 }
 ```
 
 **Parameters:**
-- `path` (string): Absolute path to the JSONL conversation file
+- `path` (string): Archive object ID or rclone remote key
 
 ### Using the MCP Server Directly
 
