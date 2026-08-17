@@ -31,5 +31,6 @@ export interface BoundedSyncResult {
         error: string;
     }>;
 }
+export declare function requireSuccessfulBoundedSync(result: BoundedSyncResult): void;
 export declare function syncBoundedSourceDirs(options: BoundedSyncOptions): Promise<BoundedSyncResult>;
 export {};

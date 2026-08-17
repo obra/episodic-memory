@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { syncConversations } from './sync.js';
-import { syncBoundedSourceDirs } from './bounded-sync.js';
+import { requireSuccessfulBoundedSync, syncBoundedSourceDirs } from './bounded-sync.js';
 import { getArchiveDir, getConversationSourceDirs, getIndexDir, getSuperpowersDir } from './paths.js';
 import { shouldSkipReentrantSync } from './summarizer.js';
 import { initDatabase } from './db.js';
@@ -77,6 +77,7 @@ async function runWorker() {
             console.log(`  Bounded stop: ${result.boundedStop}`);
         for (const error of result.errors)
             console.error(`  ${error.file}: ${error.error}`);
+        requireSuccessfulBoundedSync(result);
     }
     else {
         const destDir = getArchiveDir();

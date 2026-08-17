@@ -3225,8 +3225,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path5) {
-      let input = path5;
+    function removeDotSegments(path7) {
+      let input = path7;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3478,8 +3478,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path5, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
+        const [path7, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path7 && path7 !== "/" ? path7 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6872,12 +6872,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs5, exportName) {
+    function addFormats(ajv, list, fs7, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs5[f]);
+        ajv.addFormat(f, fs7[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7408,10 +7408,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path7) {
+  if (!path7)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path7.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7820,11 +7820,11 @@ function explicitlyAborted(x2, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path7, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path7);
     return iss;
   });
 }
@@ -7971,16 +7971,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path5 = []) => {
+  const processError = (error52, path7 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path7, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else {
-        const fullpath = [...path5, ...issue2.path];
+        const fullpath = [...path7, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -8007,17 +8007,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path5 = []) => {
+  const processError = (error52, path7 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path7, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else {
-        const fullpath = [...path5, ...issue2.path];
+        const fullpath = [...path7, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -8049,8 +8049,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path5 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path5) {
+  const path7 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path7) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -21048,13 +21048,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path5 = ref.slice(1).split("/").filter(Boolean);
-  if (path5.length === 0) {
+  const path7 = ref.slice(1).split("/").filter(Boolean);
+  if (path7.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path5[0] === defsKey) {
-    const key = path5[1];
+  if (path7[0] === defsKey) {
+    const key = path7[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -24757,8 +24757,8 @@ var StdioServerTransport = class {
 
 // src/db.ts
 import Database from "better-sqlite3";
-import path2 from "path";
-import fs2 from "fs";
+import path3 from "path";
+import fs3 from "fs";
 import * as sqliteVec from "sqlite-vec";
 
 // src/paths.ts
@@ -24798,8 +24798,46 @@ function getDbPath() {
 }
 
 // src/file-lock.ts
+import fs2 from "fs";
+import path2 from "path";
 import * as lockfile from "proper-lockfile";
 var DEFAULT_STALE_MS = 10 * 60 * 1e3;
+function acquireFileLock(lockPath, options = {}) {
+  fs2.mkdirSync(path2.dirname(lockPath), { recursive: true });
+  try {
+    fs2.closeSync(fs2.openSync(lockPath, "a"));
+  } catch (err) {
+    throw err;
+  }
+  let release;
+  try {
+    release = lockfile.lockSync(lockPath, {
+      realpath: false,
+      retries: 0,
+      stale: options.staleMs ?? DEFAULT_STALE_MS,
+      update: options.updateMs,
+      onCompromised: options.onCompromised
+    });
+  } catch (err) {
+    if (err.code === "ELOCKED") return null;
+    throw err;
+  }
+  try {
+    fs2.writeFileSync(lockPath, String(process.pid), "utf-8");
+  } catch {
+  }
+  return { path: lockPath, release };
+}
+function releaseFileLock(handle) {
+  try {
+    handle.release();
+  } catch {
+  }
+  try {
+    fs2.unlinkSync(handle.path);
+  } catch {
+  }
+}
 
 // src/archive-ledger.ts
 function ensureArchiveLedger(db) {
@@ -24921,9 +24959,9 @@ function migrateToolCallsCascade(db) {
 }
 function initDatabase(dbPathOverride) {
   const dbPath = dbPathOverride ?? getDbPath();
-  const dbDir = path2.dirname(dbPath);
-  if (!fs2.existsSync(dbDir)) {
-    fs2.mkdirSync(dbDir, { recursive: true });
+  const dbDir = path3.dirname(dbPath);
+  if (!fs3.existsSync(dbDir)) {
+    fs3.mkdirSync(dbDir, { recursive: true });
   }
   const db = new Database(dbPath);
   sqliteVec.load(db);
@@ -25337,14 +25375,14 @@ async function formatMultiConceptResults(results, concepts) {
 
 // src/archive-show.ts
 import Database2 from "better-sqlite3";
-import fs4 from "fs";
-import path4 from "path";
-import { randomUUID as randomUUID2 } from "crypto";
+import fs6 from "fs";
+import path6 from "path";
+import { randomUUID as randomUUID3 } from "crypto";
 
 // src/rclone-transport.ts
 import { createHash, randomUUID } from "crypto";
-import fs3 from "fs";
-import path3 from "path";
+import fs4 from "fs";
+import path4 from "path";
 import { spawn } from "child_process";
 var CACHE_LIMIT_BYTES = 4 * 1024 ** 3;
 var FREE_RESERVE_BYTES = 8 * 1024 ** 3;
@@ -25382,17 +25420,17 @@ var RcloneTransport = class {
   }
   async downloadVerified(remoteKey, localPath, expected) {
     const partial2 = `${localPath}.partial.${process.pid}.${randomUUID()}`;
-    fs3.mkdirSync(path3.dirname(localPath), { recursive: true });
+    fs4.mkdirSync(path4.dirname(localPath), { recursive: true });
     try {
       await this.copyTo(remoteKey, partial2);
       const actual = await hashFile(partial2);
       if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) {
         throw new Error(`Downloaded transcript integrity mismatch for ${remoteKey}`);
       }
-      fs3.renameSync(partial2, localPath);
+      fs4.renameSync(partial2, localPath);
     } finally {
       try {
-        fs3.unlinkSync(partial2);
+        fs4.unlinkSync(partial2);
       } catch {
       }
     }
@@ -25446,7 +25484,7 @@ async function hashFile(filePath) {
   return new Promise((resolve, reject) => {
     const hash2 = createHash("sha256");
     let bytes = 0;
-    const stream = fs3.createReadStream(filePath);
+    const stream = fs4.createReadStream(filePath);
     stream.on("data", (chunk) => {
       bytes += chunk.length;
       hash2.update(chunk);
@@ -25454,6 +25492,122 @@ async function hashFile(filePath) {
     stream.on("error", reject);
     stream.on("end", () => resolve({ bytes, sha256: hash2.digest("hex") }));
   });
+}
+
+// src/cache-reservation.ts
+import fs5 from "fs";
+import path5 from "path";
+import { randomUUID as randomUUID2 } from "crypto";
+import { setTimeout as delay } from "timers/promises";
+var RESERVATION_DIR = ".episodic-cache-reservations";
+var REGISTRY_LOCK_WAIT_MS = 5e3;
+async function reserveCacheCapacity(cacheDir, localPath, nextBytes, freeBytes = () => {
+  const stat = fs5.statfsSync(cacheDir);
+  return Number(stat.bavail) * Number(stat.bsize);
+}) {
+  fs5.mkdirSync(cacheDir, { recursive: true });
+  const resolvedCache = path5.resolve(cacheDir);
+  const resolvedLocal = path5.resolve(localPath);
+  const relativeLocal = path5.relative(resolvedCache, resolvedLocal);
+  if (relativeLocal.startsWith("..") || path5.isAbsolute(relativeLocal)) {
+    throw new Error("cache reservation path must stay inside the cache directory");
+  }
+  const reservationDir = path5.join(resolvedCache, RESERVATION_DIR);
+  fs5.mkdirSync(reservationDir, { recursive: true, mode: 448 });
+  const lockPath = path5.join(reservationDir, "registry");
+  const deadline = Date.now() + REGISTRY_LOCK_WAIT_MS;
+  let handle = acquireFileLock(lockPath, { staleMs: REGISTRY_LOCK_WAIT_MS, updateMs: 1e3 });
+  while (!handle && Date.now() < deadline) {
+    await delay(10);
+    handle = acquireFileLock(lockPath, { staleMs: REGISTRY_LOCK_WAIT_MS, updateMs: 1e3 });
+  }
+  if (!handle) throw new Error("timed out waiting for cache reservation registry");
+  try {
+    const active = readActiveReservations(reservationDir, resolvedCache);
+    const unmaterializedBytes = active.reduce((total, record3) => {
+      const materialized = fileSize(record3.localPath);
+      return total + Math.max(0, record3.bytes - materialized);
+    }, 0);
+    const capacity = checkCacheCapacity(
+      cacheSize(resolvedCache) + unmaterializedBytes,
+      nextBytes,
+      freeBytes() - unmaterializedBytes
+    );
+    if (!capacity.allowed) return { ...capacity, release: () => {
+    } };
+    const token = `${process.pid}.${randomUUID2()}`;
+    const reservationPath = path5.join(reservationDir, `${token}.json`);
+    const record2 = { token, pid: process.pid, bytes: nextBytes, localPath: resolvedLocal };
+    fs5.writeFileSync(reservationPath, JSON.stringify(record2), { encoding: "utf8", flag: "wx", mode: 384 });
+    return {
+      allowed: true,
+      release: () => {
+        try {
+          fs5.unlinkSync(reservationPath);
+        } catch {
+        }
+        try {
+          fs5.rmdirSync(reservationDir);
+        } catch {
+        }
+      }
+    };
+  } finally {
+    releaseFileLock(handle);
+    try {
+      fs5.rmdirSync(reservationDir);
+    } catch {
+    }
+  }
+}
+function readActiveReservations(reservationDir, cacheDir) {
+  const active = [];
+  for (const name of fs5.readdirSync(reservationDir)) {
+    if (!name.endsWith(".json")) continue;
+    const recordPath = path5.join(reservationDir, name);
+    try {
+      const record2 = JSON.parse(fs5.readFileSync(recordPath, "utf8"));
+      const relative = path5.relative(cacheDir, path5.resolve(record2.localPath));
+      if (!Number.isInteger(record2.pid) || record2.pid <= 0 || record2.bytes < 0 || relative.startsWith("..") || path5.isAbsolute(relative)) {
+        throw new Error("invalid cache reservation");
+      }
+      if (!processIsAlive(record2.pid)) {
+        fs5.unlinkSync(recordPath);
+        continue;
+      }
+      active.push(record2);
+    } catch {
+      try {
+        fs5.unlinkSync(recordPath);
+      } catch {
+      }
+    }
+  }
+  return active;
+}
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error51) {
+    return error51?.code === "EPERM";
+  }
+}
+function fileSize(filePath) {
+  try {
+    return fs5.statSync(filePath).size;
+  } catch {
+    return 0;
+  }
+}
+function cacheSize(dir) {
+  let bytes = 0;
+  for (const entry of fs5.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === RESERVATION_DIR) continue;
+    const item = path5.join(dir, entry.name);
+    bytes += entry.isDirectory() ? cacheSize(item) : fs5.statSync(item).size;
+  }
+  return bytes;
 }
 
 // node_modules/marked/lib/marked.esm.js
@@ -27582,32 +27736,28 @@ async function showArchivedConversation(identity, options = {}) {
     db.close();
   }
   if (!record2) throw new Error(`Conversation is not transported: ${identity}`);
-  const cacheDir = options.cacheDir ?? path4.join(getSuperpowersDir(), "conversation-cache");
-  fs4.mkdirSync(cacheDir, { recursive: true });
-  const statfs = fs4.statfsSync(cacheDir);
-  const capacity = checkCacheCapacity(cacheSize(cacheDir), record2.sizeBytes, Number(statfs.bavail) * Number(statfs.bsize));
-  if (!capacity.allowed) throw new Error(`Cannot download transcript: ${capacity.reason}`);
+  const cacheDir = options.cacheDir ?? path6.join(getSuperpowersDir(), "conversation-cache");
+  fs6.mkdirSync(cacheDir, { recursive: true });
   const safeName = record2.id.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const localPath = path4.join(cacheDir, `${safeName}.${randomUUID2()}.jsonl`);
+  const localPath = path6.join(cacheDir, `${safeName}.${randomUUID3()}.jsonl`);
+  const reservation = await reserveCacheCapacity(cacheDir, localPath, record2.sizeBytes, () => {
+    if (options.freeBytes) return options.freeBytes(cacheDir);
+    const statfs = fs6.statfsSync(cacheDir);
+    return Number(statfs.bavail) * Number(statfs.bsize);
+  });
+  if (!reservation.allowed) throw new Error(`Cannot download transcript: ${reservation.reason}`);
   const transport = options.transport ?? new RcloneTransport();
   try {
     await transport.downloadVerified(record2.remoteKey, localPath, { bytes: record2.sizeBytes, sha256: record2.sha256 });
-    const jsonl = fs4.readFileSync(localPath, "utf-8");
+    const jsonl = fs6.readFileSync(localPath, "utf-8");
     return options.format === "html" ? formatConversationAsHTML(jsonl) : formatConversationAsMarkdown(jsonl, options.startLine, options.endLine);
   } finally {
     try {
-      fs4.unlinkSync(localPath);
+      fs6.unlinkSync(localPath);
     } catch {
     }
+    reservation.release();
   }
-}
-function cacheSize(dir) {
-  let bytes = 0;
-  for (const entry of fs4.readdirSync(dir, { withFileTypes: true })) {
-    const item = path4.join(dir, entry.name);
-    bytes += entry.isDirectory() ? cacheSize(item) : fs4.statSync(item).size;
-  }
-  return bytes;
 }
 
 // src/version.ts

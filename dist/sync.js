@@ -8,13 +8,30 @@ const EXCLUSION_MARKERS = [
     'Only use NO_INSIGHTS_FOUND',
     SUMMARIZER_CONTEXT_MARKER,
 ];
-function shouldSkipConversation(filePath) {
+export function shouldSkipConversation(filePath) {
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
         return EXCLUSION_MARKERS.some(marker => content.includes(marker));
     }
     catch (error) {
         // If we can't read the file, don't skip it
+        return false;
+    }
+}
+export async function shouldSkipConversationStreaming(filePath) {
+    const maxMarkerLength = Math.max(...EXCLUSION_MARKERS.map(marker => marker.length));
+    let tail = '';
+    try {
+        const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
+        for await (const chunk of stream) {
+            const content = tail + chunk;
+            if (EXCLUSION_MARKERS.some(marker => content.includes(marker)))
+                return true;
+            tail = content.slice(-(maxMarkerLength - 1));
+        }
+        return false;
+    }
+    catch {
         return false;
     }
 }

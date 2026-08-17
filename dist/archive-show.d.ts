@@ -6,6 +6,7 @@ interface ArchiveShowOptions {
     format?: 'markdown' | 'html';
     startLine?: number;
     endLine?: number;
+    freeBytes?: (cacheDir: string) => number;
 }
 export declare function showArchivedConversation(identity: string, options?: ArchiveShowOptions): Promise<string>;
 export {};

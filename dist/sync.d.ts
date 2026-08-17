@@ -1,3 +1,5 @@
+export declare function shouldSkipConversation(filePath: string): boolean;
+export declare function shouldSkipConversationStreaming(filePath: string): Promise<boolean>;
 export interface SyncResult {
     copied: number;
     skipped: number;

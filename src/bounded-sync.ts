@@ -5,7 +5,9 @@ import type { ConversationExchange } from './types.js';
 import { findJsonlFiles, getExcludedProjects } from './paths.js';
 import { deleteExchangesForArchiveObject, initDatabase, insertExchange } from './db.js';
 import { getArchiveObject, putArchiveObject, SummaryState } from './archive-ledger.js';
-import { checkCacheCapacity, hashFile, RcloneTransport, RunBudget } from './rclone-transport.js';
+import { hashFile, RcloneTransport, RunBudget } from './rclone-transport.js';
+import { reserveCacheCapacity } from './cache-reservation.js';
+import { shouldSkipConversationStreaming } from './sync.js';
 
 interface PreparedExchange { exchange: ConversationExchange; embedding: number[]; toolNames?: string[] }
 interface PreparedConversation { exchanges: PreparedExchange[]; summaryText: string | null; summaryState: SummaryState }
@@ -29,6 +31,10 @@ export interface BoundedSyncResult {
   errors: Array<{ file: string; error: string }>;
 }
 
+export function requireSuccessfulBoundedSync(result: BoundedSyncResult): void {
+  if (result.errors.length > 0) throw new Error(`bounded sync failed for ${result.errors.length} file(s)`);
+}
+
 export async function syncBoundedSourceDirs(options: BoundedSyncOptions): Promise<BoundedSyncResult> {
   if (!options.remoteBase || !options.remoteBase.includes(':')) throw new Error('remoteBase must be an rclone remote path');
   fs.mkdirSync(options.cacheDir, { recursive: true });
@@ -43,13 +49,14 @@ export async function syncBoundedSourceDirs(options: BoundedSyncOptions): Promis
     const excluded = new Set(getExcludedProjects());
     const files = enumerate(options.sourceDirs, excluded);
     for (const item of files) {
+      if (await shouldSkipConversationStreaming(item.sourcePath)) {
+        result.skipped += 1;
+        continue;
+      }
       const sourceStat = fs.statSync(item.sourcePath);
       const gate = budget.canStart(sourceStat.size);
       if (!gate.allowed) { result.boundedStop = gate.reason; break; }
-      const capacity = checkCacheCapacity(directorySize(options.cacheDir), sourceStat.size, freeBytes(options.cacheDir));
-      if (!capacity.allowed) { result.boundedStop = capacity.reason; break; }
-
-      const remoteKey = `${options.remoteBase.replace(/\/$/, '')}/${item.project}/${item.relativePath.split(path.sep).join('/')}`;
+      const remoteKey = `${options.remoteBase.replace(/\/$/, '')}/${item.sourceNamespace}/${item.project}/${item.relativePath.split(path.sep).join('/')}`;
       const objectId = createHash('sha256').update(remoteKey).digest('hex');
       const existing = getArchiveObject(db, objectId);
       if (existing && existing.sourceMtimeMs === Math.trunc(sourceStat.mtimeMs) && existing.sizeBytes === sourceStat.size) {
@@ -58,8 +65,14 @@ export async function syncBoundedSourceDirs(options: BoundedSyncOptions): Promis
       }
 
       const staged = path.join(options.cacheDir, `${objectId}.jsonl`);
+      const reservation = await reserveCacheCapacity(options.cacheDir, staged, sourceStat.size, () => freeBytes(options.cacheDir));
+      if (!reservation.allowed) { result.boundedStop = reservation.reason; break; }
       try {
         fs.copyFileSync(item.sourcePath, staged);
+        if (await shouldSkipConversationStreaming(staged)) {
+          result.skipped += 1;
+          continue;
+        }
         const localProof = await hashFile(staged);
         const lineCount = await countLines(staged);
         const prepared = await prepare(staged, item.project, remoteKey, objectId);
@@ -67,6 +80,7 @@ export async function syncBoundedSourceDirs(options: BoundedSyncOptions): Promis
         if (localProof.bytes !== remoteProof.bytes || localProof.sha256 !== remoteProof.sha256) {
           throw new Error(`remote integrity mismatch for ${remoteKey}`);
         }
+        budget.record(remoteProof.bytes);
         const now = Date.now();
         const publish = db.transaction(() => {
           deleteExchangesForArchiveObject(db, objectId);
@@ -79,13 +93,13 @@ export async function syncBoundedSourceDirs(options: BoundedSyncOptions): Promis
           for (const entry of prepared.exchanges) insertExchange(db, entry.exchange, entry.embedding, entry.toolNames);
         });
         publish();
-        budget.record(remoteProof.bytes);
         result.uploaded += 1;
         result.indexed += prepared.exchanges.length > 0 ? 1 : 0;
       } catch (error) {
         result.errors.push({ file: item.sourcePath, error: error instanceof Error ? error.message : String(error) });
       } finally {
         try { fs.unlinkSync(staged); } catch {}
+        reservation.release();
       }
     }
   } finally {
@@ -94,29 +108,29 @@ export async function syncBoundedSourceDirs(options: BoundedSyncOptions): Promis
   return result;
 }
 
-function enumerate(sourceDirs: string[], excluded: ReadonlySet<string>): Array<{ sourcePath: string; project: string; relativePath: string }> {
-  const items: Array<{ sourcePath: string; project: string; relativePath: string }> = [];
+function enumerate(sourceDirs: string[], excluded: ReadonlySet<string>): Array<{ sourcePath: string; sourceNamespace: string; project: string; relativePath: string }> {
+  const items: Array<{ sourcePath: string; sourceNamespace: string; project: string; relativePath: string }> = [];
   for (const sourceDir of sourceDirs) {
     if (!fs.existsSync(sourceDir)) continue;
+    const sourceNamespace = namespaceForSourceDir(sourceDir);
     for (const project of fs.readdirSync(sourceDir).sort()) {
       if (excluded.has(project)) continue;
       const projectPath = path.join(sourceDir, project);
       if (!fs.statSync(projectPath).isDirectory()) continue;
       for (const relativePath of findJsonlFiles(projectPath, excluded).sort()) {
-        items.push({ sourcePath: path.join(projectPath, relativePath), project, relativePath });
+        items.push({ sourcePath: path.join(projectPath, relativePath), sourceNamespace, project, relativePath });
       }
     }
   }
   return items;
 }
 
-function directorySize(dir: string): number {
-  let total = 0;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    total += entry.isDirectory() ? directorySize(full) : fs.statSync(full).size;
-  }
-  return total;
+function namespaceForSourceDir(sourceDir: string): string {
+  const base = path.basename(path.resolve(sourceDir));
+  if (base === 'projects') return 'claude-projects';
+  if (base === 'transcripts') return 'claude-transcripts';
+  if (base === 'sessions') return 'codex-sessions';
+  return `source-${createHash('sha256').update(path.resolve(sourceDir)).digest('hex').slice(0, 12)}`;
 }
 
 async function countLines(filePath: string): Promise<number> {
