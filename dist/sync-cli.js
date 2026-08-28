@@ -1,4 +1,4 @@
-import { syncConversations } from './sync.js';
+import { buildSyncOptionsFromEnv, syncConversations } from './sync.js';
 import { getArchiveDir, getConversationSourceDirs, getIndexDir } from './paths.js';
 import { shouldSkipReentrantSync } from './summarizer.js';
 import { initDatabase } from './db.js';
@@ -73,6 +73,7 @@ if (isBackground) {
 }
 const sourceDirs = getConversationSourceDirs();
 const destDir = getArchiveDir();
+const syncOptions = buildSyncOptionsFromEnv(process.env);
 if (sourceDirs.length === 0) {
     console.log('⚠️  No conversation source directories found.');
     console.log('  Checked: ~/.claude/projects, ~/.claude/transcripts, and ~/.codex/sessions');
@@ -111,7 +112,7 @@ console.log(`Destination: ${destDir}\n`);
 async function syncAll() {
     const totals = { copied: 0, skipped: 0, indexed: 0, summarized: 0, errors: [], sourcesWithSummaryWork: 0, totalNeedingSummaries: 0 };
     for (const sourceDir of sourceDirs) {
-        const result = await syncConversations(sourceDir, destDir);
+        const result = await syncConversations(sourceDir, destDir, syncOptions);
         totals.copied += result.copied;
         totals.skipped += result.skipped;
         totals.indexed += result.indexed;
@@ -122,7 +123,12 @@ async function syncAll() {
     console.log(`  Copied: ${totals.copied}`);
     console.log(`  Skipped: ${totals.skipped}`);
     console.log(`  Indexed: ${totals.indexed}`);
-    console.log(`  Summarized: ${totals.summarized}`);
+    if (syncOptions.skipSummaries) {
+        console.log('  Summaries: skipped (EPISODIC_MEMORY_SKIP_SUMMARIES=1)');
+    }
+    else {
+        console.log(`  Summarized: ${totals.summarized}`);
+    }
     if (totals.errors.length > 0) {
         console.log(`\n⚠️  Errors: ${totals.errors.length}`);
         totals.errors.forEach(err => console.log(`  ${err.file}: ${err.error}`));

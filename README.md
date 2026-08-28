@@ -185,7 +185,12 @@ export EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
 
 # Override Codex binary path if needed (default: codex)
 export EPISODIC_MEMORY_CODEX_BIN=/path/to/codex
+
+# Disable the summarization pass entirely (search is unaffected)
+export EPISODIC_MEMORY_SKIP_SUMMARIES=1
 ```
+
+Only the exact value `1` disables summarization; any other value leaves it on.
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
@@ -199,6 +204,8 @@ Codex summarization requires `codex-cli 0.130.0` or newer. If Codex app-server s
 | Embeddings | No (local Transformers.js) |
 | Search | No (local SQLite) |
 | MCP tools | No |
+
+Summaries are display-only: they decorate search results and are never embedded or searched, so `EPISODIC_MEMORY_SKIP_SUMMARIES=1` costs you that line of context and nothing else.
 
 ## Commands
 

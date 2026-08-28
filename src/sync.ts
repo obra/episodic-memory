@@ -34,6 +34,25 @@ export interface SyncOptions {
   summaryLimit?: number; // Max summaries to generate per run (default: 10)
 }
 
+/**
+ * Derive sync options from the process environment.
+ *
+ * `EPISODIC_MEMORY_SKIP_SUMMARIES=1` turns the summarization pass off.
+ * Only the exact string '1' enables the switch — unset, '0', 'true',
+ * and anything else leave summarization on, so a stray value can't
+ * silently disable a feature the user still expects.
+ *
+ * Why anyone wants this: summaries are display-only. search.ts reads
+ * the `-summary.txt` sidecar solely to decorate result output; summary
+ * text is never embedded and never searched, so skipping it leaves
+ * recall untouched. The summarizer, by contrast, resumes each
+ * conversation through the Claude Agent SDK, which spends the user's
+ * Claude quota and can stall on a permission prompt.
+ */
+export function buildSyncOptionsFromEnv(env: NodeJS.ProcessEnv): SyncOptions {
+  return { skipSummaries: env.EPISODIC_MEMORY_SKIP_SUMMARIES === '1' };
+}
+
 function copyIfNewer(src: string, dest: string): boolean {
   // Ensure destination directory exists
   const destDir = path.dirname(dest);
