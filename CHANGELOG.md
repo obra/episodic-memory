@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-09-08
+
+Adds a fifth conversation source, an off switch for automatic syncing, and two fixes for real-world resource problems.
+
+### Added
+
+- Oh My Pi (OMP) conversations are now indexed and searchable, alongside Claude Code, Codex, Cursor, and opencode. Sessions in `~/.omp/agent/sessions` are picked up automatically; the parser follows the active branch of a session's message tree. Built to the format reported in the issue — if your OMP transcripts index oddly, please open an issue. Thanks to @rhlsthrm for the request and format details (#148).
+- `EPISODIC_MEMORY_DISABLE_AUTO_SYNC=1` fully turns off the automatic background sync that runs on session start, for anyone who prefers to sync on a schedule (cron or a scheduled task) or pause indexing entirely. Unlike `EPISODIC_MEMORY_SKIP_SUMMARIES`, this stops the copy and index work too. A manual `sync` you run yourself is unaffected. Thanks to @Nogalj (#163).
+- AWS Bedrock is a supported summarization backend. Set `CLAUDE_CODE_USE_BEDROCK=1` with your AWS credentials and region in the plugin's environment and summaries route through Bedrock; the metered-billing warning correctly stays quiet since no `ANTHROPIC_API_KEY` is involved. The credential passthrough is tested; the live Bedrock call depends on your AWS setup. Thanks to @daniel-butler (#44).
+
+### Fixed
+
+- Syncing no longer re-embeds work it has already indexed. The background sync had its own indexing loop that re-embedded every message of every file it copied, on every run — so a long-lived session's transcript was re-processed in full each time, and the cost grew with the file. It now embeds only new messages, matching the incremental indexer. On large corpora this turns minutes of repeated work per sync into seconds. Thanks to @dkindlund (#152).
+- A `DO NOT INDEX` marker is now honored even in very large transcripts. Files above the ~512 MB string limit were scanned only partially and, on the error path, indexed anyway — so the marker could be silently missed. The check now fails closed: if a large file can't be fully verified as marked, it is not indexed. Thanks to @dkindlund (#152).
+- Foreign summarizer payloads can no longer bloat the index. Some third-party tools embed an entire conversation transcript into a single prompt, which was then stored as one multi-megabyte "message" — in one report, 97% of a 3 GB index. Messages above a size cap (256 KB by default, `EPISODIC_MEMORY_MAX_MESSAGE_BYTES` to change) are now skipped before embedding, with a count logged per run. Normal turns are thousands of times smaller and are unaffected. Thanks to @danielsimonjr (#139).
+- Failed dependency installs no longer pile up. When the MCP server wrapper had to run `npm install` and the connection timed out, the install child was orphaned and kept running, and each retry started another — several could end up competing and starving each other so none finished. The wrapper now kills its install child when it exits and holds a single-install lock so retries can't stack. Thanks to @chernobylx (#161).
+
 ## [1.5.0] - 2026-09-08
 
 This release closes a summarizer security hole, adds two new coding tools to what you can search, makes search itself return the results it used to miss, and hardens install and summarization against a long list of real-world failures.
