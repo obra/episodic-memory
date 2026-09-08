@@ -6,8 +6,7 @@ import { generateExchangeEmbedding, initEmbeddings } from './embeddings.js';
 import { runMigrationBatch, countStale } from './embedding-migration.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
-import path from 'path';
-import { formatLogLine, getSyncLogPath } from './logging.js';
+import { formatLogLine, getSyncLogPath, getSyncLockPath } from './logging.js';
 import { acquireFileLock, readLockHolder, releaseFileLock } from './file-lock.js';
 
 const args = process.argv.slice(2);
@@ -97,7 +96,7 @@ if (sourceDirs.length === 0) {
 // Windows the latter exhausts the desktop heap and crashes the workers with
 // STATUS_DLL_INIT_FAILED. Acquire after the source-dir check so help/version
 // paths don't touch the filesystem unnecessarily, and release on every exit.
-const syncLockPath = path.join(path.dirname(getSyncLogPath()), 'episodic-memory-sync.lock');
+const syncLockPath = getSyncLockPath();
 const syncLock = acquireFileLock(syncLockPath);
 if (!syncLock) {
   const holder = readLockHolder(syncLockPath);

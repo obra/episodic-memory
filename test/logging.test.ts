@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { formatLogLine, getLogDir, getSyncLogPath } from '../src/logging.js';
+import { formatLogLine, getLogDir, getSyncLogPath, getSyncLockPath } from '../src/logging.js';
 
 describe('diagnostic logging paths', () => {
   let testDir: string | undefined;
@@ -15,12 +15,14 @@ describe('diagnostic logging paths', () => {
     testDir = undefined;
   });
 
-  it('stores hook and background sync logs under the memory config directory', () => {
+  it('stores hook logs and the shared sync lock under the memory config directory', () => {
     testDir = mkdtempSync(join(tmpdir(), 'em-logs-'));
     process.env.EPISODIC_MEMORY_CONFIG_DIR = testDir;
 
     expect(getLogDir()).toBe(join(testDir, 'logs'));
     expect(getSyncLogPath()).toBe(join(testDir, 'logs', 'episodic-memory.log'));
+    // Pin the v1.4.2 filename so new clients still contend with installed ones.
+    expect(getSyncLockPath()).toBe(join(testDir, 'logs', 'episodic-memory-sync.lock'));
   });
 
   it('formats log lines with timestamp, level, and message', () => {
