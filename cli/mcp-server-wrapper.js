@@ -9,55 +9,13 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { findMissingDeps } from './install-check.js';
+import { acquireInstallLock, runNpmInstall, waitForInstallLock } from './install-runner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Determine plugin root directory
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || join(__dirname, '..');
-
-// Helper function to run npm install
-function runNpmInstall() {
-  return new Promise((resolve, reject) => {
-    const isWindows = process.platform === 'win32';
-    const npmCommand = isWindows ? 'npm.cmd' : 'npm';
-
-    console.error('Installing episodic-memory dependencies (first run only)...');
-    console.error('This may take 30-60 seconds...');
-
-    // Install dependencies - npm will auto-install optionalDependencies for current platform
-    const child = spawn(npmCommand, ['install', '--no-audit', '--no-fund'], {
-      cwd: PLUGIN_ROOT,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWindows // On Windows, we need shell: true to find npm.cmd
-    });
-
-    child.stdout.on('data', (data) => {
-      // Suppress npm install output to stderr to avoid cluttering MCP logs
-      process.stderr.write(data);
-    });
-
-    child.stderr.on('data', (data) => {
-      process.stderr.write(data);
-    });
-
-    child.on('exit', (code) => {
-      if (code === 0) {
-        console.error('Dependencies installed successfully.');
-        resolve();
-      } else {
-        console.error('ERROR: Failed to install dependencies.');
-        console.error(`Please run manually: cd "${PLUGIN_ROOT}" && npm install`);
-        reject(new Error(`npm install failed with exit code ${code}`));
-      }
-    });
-
-    child.on('error', (err) => {
-      console.error(`ERROR: Failed to run npm install: ${err.message}`);
-      reject(err);
-    });
-  });
-}
 
 async function main() {
   try {
@@ -69,7 +27,24 @@ async function main() {
     const missing = findMissingDeps(PLUGIN_ROOT);
     if (missing.length > 0) {
       console.error(`Missing dependencies under node_modules: ${missing.join(', ')}`);
-      await runNpmInstall();
+
+      // Single-flight: a second wrapper launched while one is already
+      // installing must not start a competing install (#161) — repeated
+      // wrapper launches within the client's connect-timeout window would
+      // otherwise stack unbounded concurrent `npm install`s.
+      const lock = acquireInstallLock(PLUGIN_ROOT);
+      if (lock) {
+        const install = runNpmInstall(PLUGIN_ROOT, { lockHandle: lock });
+        await install.promise;
+      } else {
+        console.error('Another install is already in progress; waiting for it to finish...');
+        await waitForInstallLock(PLUGIN_ROOT);
+        // Re-probe: the other install may have completed the deps by now.
+        const stillMissing = findMissingDeps(PLUGIN_ROOT);
+        if (stillMissing.length > 0) {
+          console.error(`Still missing after waiting: ${stillMissing.join(', ')}. Continuing anyway.`);
+        }
+      }
     }
 
     // Start the MCP server
