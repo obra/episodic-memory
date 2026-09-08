@@ -1,0 +1,62 @@
+# Build and test on every pull request (including from forks) and on pushes to main.
+#
+# Deliberately uses no secrets and requests no write permissions, so a run
+# triggered by a fork PR does exactly what a run on main does. That is the point:
+# most contributions here arrive from outside collaborators, and `pull_request`
+# gives those runs a read-only token and no secret access.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# One in-flight run per PR (or per branch for pushes). A new push supersedes the
+# run it replaces instead of queueing behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: build & test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Report every Node version's result; don't hide one behind another's failure.
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          # No `cache: npm`: that needs a lockfile, and this repo gitignores one.
+          # Measured, caching ~/.npm would buy nothing anyway - install time is
+          # node-gyp compiling better-sqlite3, not downloads (see the PR body).
+          # Installing cold every run also keeps the native-install path that
+          # issues #100/#102/#105/#125/#135/#162 are about under real test.
+
+      # No lockfile is committed, so `npm ci` cannot be used. Dependency ranges
+      # resolve fresh on every run; see the PR body for the caveat this implies.
+      - name: Install dependencies
+        run: npm install
+
+      # `prebuild` generates src/version.ts (gitignored), then `tsc` typechecks
+      # src/ under `strict`, then esbuild produces the bundle. This step IS the
+      # typecheck - a bare `tsc` on a fresh checkout fails on the missing
+      # generated ./version.js.
+      - name: Typecheck and build
+        run: npm run build
+
+      # `pretest` regenerates src/version.ts; `vitest run` runs the unit and
+      # integration suite. The credential-dependent `test:claude-e2e` and
+      # `test:codex-e2e` scripts are intentionally NOT run here.
+      - name: Test
+        run: npm test
