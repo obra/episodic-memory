@@ -1,4 +1,4 @@
-import { syncConversations } from './sync.js';
+import { buildSyncOptionsFromEnv, syncConversations } from './sync.js';
 import { getArchiveDir, getConversationSourceDirs, getIndexDir } from './paths.js';
 import { shouldSkipReentrantSync } from './summarizer.js';
 import { initDatabase } from './db.js';
@@ -6,8 +6,7 @@ import { generateExchangeEmbedding, initEmbeddings } from './embeddings.js';
 import { runMigrationBatch, countStale } from './embedding-migration.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
-import path from 'path';
-import { formatLogLine, getSyncLogPath } from './logging.js';
+import { formatLogLine, getSyncLogPath, getSyncLockPath } from './logging.js';
 import { acquireFileLock, readLockHolder, releaseFileLock } from './file-lock.js';
 const args = process.argv.slice(2);
 // Reentrancy guard (#87): if this sync was triggered by a SessionStart hook
@@ -73,6 +72,7 @@ if (isBackground) {
 }
 const sourceDirs = getConversationSourceDirs();
 const destDir = getArchiveDir();
+const syncOptions = buildSyncOptionsFromEnv(process.env);
 if (sourceDirs.length === 0) {
     console.log('⚠️  No conversation source directories found.');
     console.log('  Checked: ~/.claude/projects, ~/.claude/transcripts, and ~/.codex/sessions');
@@ -87,7 +87,7 @@ if (sourceDirs.length === 0) {
 // Windows the latter exhausts the desktop heap and crashes the workers with
 // STATUS_DLL_INIT_FAILED. Acquire after the source-dir check so help/version
 // paths don't touch the filesystem unnecessarily, and release on every exit.
-const syncLockPath = path.join(path.dirname(getSyncLogPath()), 'episodic-memory-sync.lock');
+const syncLockPath = getSyncLockPath();
 const syncLock = acquireFileLock(syncLockPath);
 if (!syncLock) {
     const holder = readLockHolder(syncLockPath);
@@ -111,7 +111,7 @@ console.log(`Destination: ${destDir}\n`);
 async function syncAll() {
     const totals = { copied: 0, skipped: 0, indexed: 0, summarized: 0, errors: [], sourcesWithSummaryWork: 0, totalNeedingSummaries: 0 };
     for (const sourceDir of sourceDirs) {
-        const result = await syncConversations(sourceDir, destDir);
+        const result = await syncConversations(sourceDir, destDir, syncOptions);
         totals.copied += result.copied;
         totals.skipped += result.skipped;
         totals.indexed += result.indexed;
@@ -122,7 +122,12 @@ async function syncAll() {
     console.log(`  Copied: ${totals.copied}`);
     console.log(`  Skipped: ${totals.skipped}`);
     console.log(`  Indexed: ${totals.indexed}`);
-    console.log(`  Summarized: ${totals.summarized}`);
+    if (syncOptions.skipSummaries) {
+        console.log('  Summaries: skipped (EPISODIC_MEMORY_SKIP_SUMMARIES=1)');
+    }
+    else {
+        console.log(`  Summarized: ${totals.summarized}`);
+    }
     if (totals.errors.length > 0) {
         console.log(`\n⚠️  Errors: ${totals.errors.length}`);
         totals.errors.forEach(err => console.log(`  ${err.file}: ${err.error}`));

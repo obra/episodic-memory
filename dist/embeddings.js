@@ -1,8 +1,3 @@
-import { pipeline, env } from '@huggingface/transformers';
-// Disable progress callbacks to prevent stdout pollution in MCP context
-// In MCP, stdout is reserved for JSON-RPC communication.
-env.allowLocalModels = true;
-env.useBrowserCache = false;
 /**
  * Embedding model configuration.
  *
@@ -18,13 +13,92 @@ env.useBrowserCache = false;
 const MODEL_ID = 'Xenova/bge-small-en-v1.5';
 const MODEL_DTYPE = 'q8';
 export const BGE_QUERY_PREFIX = 'Represent this sentence for searching relevant passages: ';
-let embeddingPipeline = null;
-export async function initEmbeddings() {
-    if (!embeddingPipeline) {
-        console.error('Loading embedding model (first run may take time)...');
-        embeddingPipeline = await pipeline('feature-extraction', MODEL_ID, { dtype: MODEL_DTYPE, progress_callback: () => { } });
-        console.error('Embedding model loaded');
+/**
+ * Resolve an intra-op thread cap for the embedding session, or null to leave
+ * onnxruntime at its default (one worker per core).
+ *
+ * Embedding is done one exchange at a time (batch=1) throughout indexing, sync,
+ * and the re-embed migration. At that size onnxruntime-node's default intra-op
+ * thread pool fans each tiny int8 matmul across every core, which on Apple
+ * Silicon pegs ~5 cores for almost no throughput gain and makes a bulk re-embed
+ * hog the whole machine. Capping intra-op threads keeps embedding off the
+ * user's cores; measured on an M-series Mac, a cap of 2 is as fast or faster
+ * than the uncapped default while using ~1.7 cores instead of ~5 (and pulls
+ * further ahead when the machine is otherwise busy, since it stops the pool
+ * from oversubscribing).
+ *
+ * This stays on the same CPU / q8 execution provider, so embeddings are
+ * bit-identical to the uncapped output — no re-index is triggered. (CoreML and
+ * WebGPU were evaluated and rejected: on this quantized model they either run
+ * far slower and never leave the CPU, or require an fp32 model whose vectors
+ * differ from the stored q8 ones and would force a full re-index.)
+ *
+ * Override with EPISODIC_MEMORY_EMBED_THREADS: a positive integer sets the cap;
+ * 0 (or any non-positive/invalid value) restores onnxruntime's default.
+ */
+export function resolveIntraOpThreads() {
+    const override = process.env.EPISODIC_MEMORY_EMBED_THREADS;
+    if (override !== undefined) {
+        const n = Number.parseInt(override, 10);
+        return Number.isFinite(n) && n > 0 ? n : null;
     }
+    if (process.platform === 'darwin' && process.arch === 'arm64') {
+        return 2;
+    }
+    return null;
+}
+let embeddingPipeline = null;
+/**
+ * Thrown when the embedding backend can't be loaded. The most common cause is
+ * that `@huggingface/transformers` eagerly requires `sharp`, whose native
+ * binding fails to `dlopen` libvips on some hosts (#135) — even though sharp is
+ * only needed for image inputs, not the text feature-extraction this package
+ * uses. Callers that can proceed without semantic features (e.g. background
+ * sync indexing) should catch this and degrade gracefully rather than crash.
+ */
+export class EmbeddingsUnavailableError extends Error {
+    constructor(message, options) {
+        super(message, options);
+        this.name = 'EmbeddingsUnavailableError';
+    }
+}
+export async function initEmbeddings() {
+    if (embeddingPipeline)
+        return;
+    // Load @huggingface/transformers lazily. Its module graph eagerly requires
+    // `sharp`, so a static top-level import would crash *every* consumer of this
+    // file at import time on hosts where sharp's native binding can't load —
+    // including code paths that never embed anything. Importing here keeps the
+    // failure catchable and confined to callers that actually need embeddings.
+    let pipeline;
+    try {
+        const transformers = await import('@huggingface/transformers');
+        // Disable progress callbacks / remote cache to prevent stdout pollution in
+        // MCP context, where stdout is reserved for JSON-RPC communication.
+        transformers.env.allowLocalModels = true;
+        transformers.env.useBrowserCache = false;
+        pipeline = transformers.pipeline;
+    }
+    catch (error) {
+        throw new EmbeddingsUnavailableError('Failed to load the embedding backend (@huggingface/transformers). This ' +
+            'usually means the native "sharp" binding could not load libvips; ' +
+            'semantic search and indexing are unavailable until it is fixed. ' +
+            `Underlying error: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+    console.error('Loading embedding model (first run may take time)...');
+    const options = {
+        dtype: MODEL_DTYPE,
+        progress_callback: () => { },
+    };
+    const intraOpThreads = resolveIntraOpThreads();
+    if (intraOpThreads !== null) {
+        options.session_options = {
+            intraOpNumThreads: intraOpThreads,
+            interOpNumThreads: 1,
+        };
+    }
+    embeddingPipeline = await pipeline('feature-extraction', MODEL_ID, options);
+    console.error('Embedding model loaded');
 }
 export async function generateEmbedding(text) {
     if (!embeddingPipeline) {

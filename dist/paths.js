@@ -77,6 +77,20 @@ export function findJsonlFiles(dir, excludedDirNames) {
     return results;
 }
 /**
+ * statSync that follows symlinks but returns null instead of throwing when
+ * the entry cannot be stat'ed — a dangling symlink (e.g. left behind by a
+ * storage migration), or an entry deleted between readdir and stat.
+ * Callers treat null as "skip this entry".
+ */
+export function statIfExists(target) {
+    try {
+        return fs.statSync(target);
+    }
+    catch {
+        return null;
+    }
+}
+/**
  * Get the personal superpowers directory
  *
  * Precedence:

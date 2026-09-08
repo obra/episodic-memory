@@ -11,6 +11,13 @@ export function getLogDir() {
 export function getSyncLogPath() {
     return path.join(getLogDir(), 'episodic-memory.log');
 }
+/**
+ * Lock shared by `sync-cli` and `index-cli`. The filename is an on-disk
+ * contract since v1.4.2: changing it lets older sync clients race new indexers.
+ */
+export function getSyncLockPath() {
+    return path.join(getLogDir(), 'episodic-memory-sync.lock');
+}
 export function formatLogLine(level, message) {
     return `${new Date().toISOString()} [${level}] ${message}\n`;
 }

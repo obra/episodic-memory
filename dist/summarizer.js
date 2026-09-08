@@ -85,6 +85,9 @@ function extractSummary(text) {
  * ~/.claude/projects/ (#83). Without it, every summarization spawns a fake
  * session JSONL that pollutes the IDE session sidebar. The option is honored
  * by claude-agent-sdk >= 0.2.0.
+ *
+ * tools: [] disables every built-in tool so a resumed mid-task session can't
+ * keep EXECUTING the task instead of writing a <summary>.
  */
 export function buildSummarizerQueryOptions(args) {
     const { model, sessionId, cwd } = args;
@@ -94,6 +97,20 @@ export function buildSummarizerQueryOptions(args) {
         env: getApiEnv(),
         resume: sessionId,
         persistSession: false,
+        // Summarizers never call tools — disabling them stops a resumed live
+        // session from executing the session's pending work in the user's repo
+        // (#116/#134). Empty tool list = no built-in tools available.
+        tools: [],
+        // Summarizers never call tools, so skip the user's MCP config entirely.
+        // Without this, every summarization subprocess launches all configured MCP
+        // servers; with concurrent summarizations that fans out to hundreds of
+        // processes on MCP-heavy installs (#106).
+        strictMcpConfig: true,
+        // strictMcpConfig only blocks ~/.claude.json MCP servers; user settings
+        // still load every enabled plugin (each with its own MCP server) plus the
+        // user's Stop/Notification hooks (#136) into the subprocess. Summarizers
+        // need no plugins, hooks, or user settings at all.
+        settingSources: [],
         // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
         ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
         // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.

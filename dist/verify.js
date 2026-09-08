@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseConversation } from './parser.js';
 import { initDatabase, getAllExchanges, getFileLastIndexed } from './db.js';
-import { getArchiveDir, getExcludedProjects, findJsonlFiles } from './paths.js';
+import { getArchiveDir, getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { isErroredSentinel } from './summary-sentinel.js';
 export async function verifyIndex() {
     const result = {
@@ -30,8 +30,8 @@ export async function verifyIndex() {
             continue;
         }
         const projectPath = path.join(archiveDir, project);
-        const stat = fs.statSync(projectPath);
-        if (!stat.isDirectory())
+        const stat = statIfExists(projectPath);
+        if (!stat?.isDirectory())
             continue;
         const files = findJsonlFiles(projectPath, excludedDirSet);
         for (const file of files) {

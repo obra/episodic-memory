@@ -14,6 +14,7 @@ export async function getIndexStats(dbPath) {
         };
     }
     const db = new Database(resolvedDbPath, { readonly: true });
+    db.pragma('busy_timeout = 5000');
     try {
         // Check if tables exist
         const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();

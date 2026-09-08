@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
-import { getExcludedProjects, findJsonlFiles } from './paths.js';
+import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 const EXCLUSION_MARKERS = [
     '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
@@ -17,6 +17,24 @@ function shouldSkipConversation(filePath) {
         // If we can't read the file, don't skip it
         return false;
     }
+}
+/**
+ * Derive sync options from the process environment.
+ *
+ * `EPISODIC_MEMORY_SKIP_SUMMARIES=1` turns the summarization pass off.
+ * Only the exact string '1' enables the switch — unset, '0', 'true',
+ * and anything else leave summarization on, so a stray value can't
+ * silently disable a feature the user still expects.
+ *
+ * Why anyone wants this: summaries are display-only. search.ts reads
+ * the `-summary.txt` sidecar solely to decorate result output; summary
+ * text is never embedded and never searched, so skipping it leaves
+ * recall untouched. The summarizer, by contrast, resumes each
+ * conversation through the Claude Agent SDK, which spends the user's
+ * Claude quota and can stall on a permission prompt.
+ */
+export function buildSyncOptionsFromEnv(env) {
+    return { skipSummaries: env.EPISODIC_MEMORY_SKIP_SUMMARIES === '1' };
 }
 function copyIfNewer(src, dest) {
     // Ensure destination directory exists
@@ -73,8 +91,8 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
             continue;
         }
         const projectPath = path.join(sourceDir, project);
-        const stat = fs.statSync(projectPath);
-        if (!stat.isDirectory())
+        const stat = statIfExists(projectPath);
+        if (!stat?.isDirectory())
             continue;
         const files = findJsonlFiles(projectPath, excludedDirSet);
         for (const file of files) {
@@ -112,34 +130,56 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
     }
     // Index copied files (unless skipIndex is set)
     if (!options.skipIndex && filesToIndex.length > 0) {
-        const { initDatabase, insertExchange } = await import('./db.js');
-        const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
         const { parseConversation } = await import('./parser.js');
-        const db = initDatabase();
-        await initEmbeddings();
-        for (const file of filesToIndex) {
-            try {
-                // Check for DO NOT INDEX marker
-                if (shouldSkipConversation(file)) {
-                    continue; // Skip indexing but file is already copied
-                }
-                const project = path.basename(path.dirname(file));
-                const exchanges = await parseConversation(file, project, file);
-                for (const exchange of exchanges) {
-                    const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
-                    const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
-                    insertExchange(db, exchange, embedding, toolNames);
-                }
-                result.indexed++;
-            }
-            catch (error) {
-                result.errors.push({
-                    file,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-            }
+        // Load the embedding backend first. It can fail on hosts where sharp's
+        // native binding (pulled in transitively by @huggingface/transformers)
+        // can't dlopen libvips (#135). That must not abort the whole sync — copying
+        // has already happened and summaries still need to run — so surface a
+        // clear, actionable error and skip semantic indexing for this run instead
+        // of throwing out of syncConversations (which would crash the SessionStart
+        // hook that invokes it).
+        let embeddings = null;
+        try {
+            embeddings = await import('./embeddings.js');
+            await embeddings.initEmbeddings();
         }
-        db.close();
+        catch (error) {
+            embeddings = null;
+            result.errors.push({
+                file: '(embeddings)',
+                error: `Semantic indexing skipped — embedding backend unavailable: ${error instanceof Error ? error.message : String(error)}`,
+            });
+            console.error('episodic-memory: embedding backend failed to load; skipping semantic ' +
+                'indexing this run (copying and summaries still run). See the error above.');
+        }
+        if (embeddings) {
+            const { initDatabase, insertExchange } = await import('./db.js');
+            const { generateExchangeEmbedding } = embeddings;
+            const db = initDatabase();
+            for (const file of filesToIndex) {
+                try {
+                    // Check for DO NOT INDEX marker
+                    if (shouldSkipConversation(file)) {
+                        continue; // Skip indexing but file is already copied
+                    }
+                    const project = path.basename(path.dirname(file));
+                    const exchanges = await parseConversation(file, project, file);
+                    for (const exchange of exchanges) {
+                        const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
+                        const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
+                        insertExchange(db, exchange, embedding, toolNames);
+                    }
+                    result.indexed++;
+                }
+                catch (error) {
+                    result.errors.push({
+                        file,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                }
+            }
+            db.close();
+        }
     }
     // Generate summaries for files that need them
     if (!options.skipSummaries && filesToSummarize.length > 0) {

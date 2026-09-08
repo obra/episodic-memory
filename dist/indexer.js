@@ -4,7 +4,7 @@ import { initDatabase, insertExchange } from './db.js';
 import { parseConversation } from './parser.js';
 import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
-import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles } from './paths.js';
+import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
@@ -51,8 +51,8 @@ export async function indexConversations(limitToProject, maxConversations, concu
             if (limitToProject && project !== limitToProject)
                 continue;
             const projectPath = path.join(sourceDir, project);
-            const stat = fs.statSync(projectPath);
-            if (!stat.isDirectory())
+            const stat = statIfExists(projectPath);
+            if (!stat?.isDirectory())
                 continue;
             const files = findJsonlFiles(projectPath, excludedDirSet);
             if (files.length === 0)
@@ -67,14 +67,22 @@ export async function indexConversations(limitToProject, maxConversations, concu
             for (const file of files) {
                 const sourcePath = path.join(projectPath, file);
                 const archivePath = path.join(projectArchive, file);
-                // Copy to archive (ensure parent dirs exist for subagent files)
-                if (!fs.existsSync(archivePath)) {
-                    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                    fs.copyFileSync(sourcePath, archivePath);
-                    console.log(`  Archived: ${file}`);
+                // Source transcripts can vanish mid-run (Claude Code cleanup). Skip loudly.
+                let exchanges;
+                try {
+                    // Copy to archive (ensure parent dirs exist for subagent files)
+                    if (!fs.existsSync(archivePath)) {
+                        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+                        fs.copyFileSync(sourcePath, archivePath);
+                        console.log(`  Archived: ${file}`);
+                    }
+                    // Parse conversation
+                    exchanges = await parseConversation(sourcePath, project, archivePath);
                 }
-                // Parse conversation
-                const exchanges = await parseConversation(sourcePath, project, archivePath);
+                catch (error) {
+                    console.log(`  Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
+                    continue;
+                }
                 if (exchanges.length === 0) {
                     console.log(`  Skipped ${file} (no exchanges)`);
                     continue;
@@ -151,7 +159,7 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
             if (excludedProjects.includes(project))
                 continue;
             const projectPath = path.join(sourceDir, project);
-            if (!fs.statSync(projectPath).isDirectory())
+            if (!statIfExists(projectPath)?.isDirectory())
                 continue;
             const files = findJsonlFiles(projectPath, excludedDirSet).filter(f => f.includes(sessionId));
             if (files.length > 0) {
@@ -163,13 +171,20 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                 const projectArchive = path.join(ARCHIVE_DIR, project);
                 fs.mkdirSync(projectArchive, { recursive: true });
                 const archivePath = path.join(projectArchive, file);
-                // Archive (ensure parent dirs exist for subagent files)
-                if (!fs.existsSync(archivePath)) {
-                    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                    fs.copyFileSync(sourcePath, archivePath);
+                // Archive + parse — source may vanish mid-run (Claude Code cleanup).
+                let exchanges;
+                try {
+                    if (!fs.existsSync(archivePath)) {
+                        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+                        fs.copyFileSync(sourcePath, archivePath);
+                    }
+                    exchanges = await parseConversation(sourcePath, project, archivePath);
                 }
-                // Parse and summarize
-                const exchanges = await parseConversation(sourcePath, project, archivePath);
+                catch (error) {
+                    console.log(`Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
+                    db.close();
+                    break;
+                }
                 if (exchanges.length > 0) {
                     // Generate summary (unless --no-summaries)
                     const summaryPath = archivePath.replace('.jsonl', '-summary.txt');
@@ -228,7 +243,7 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
             if (excludedProjects.includes(project))
                 continue;
             const projectPath = path.join(sourceDir, project);
-            if (!fs.statSync(projectPath).isDirectory())
+            if (!statIfExists(projectPath)?.isDirectory())
                 continue;
             const files = findJsonlFiles(projectPath, excludedDirSet);
             for (const file of files) {
@@ -241,19 +256,25 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
                 const hw = db.prepare('SELECT COALESCE(MAX(line_end), 0) as maxLine FROM exchanges WHERE archive_path = ?').get(archivePath);
                 const maxIndexedLine = hw.maxLine;
                 // Ensure parent dirs exist for subagent files
-                fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                // Refresh the archive when the source may have grown beyond what we've seen.
-                if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
-                    fs.copyFileSync(sourcePath, archivePath);
+                try {
+                    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+                    // Refresh the archive when the source may have grown beyond what we've seen.
+                    if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
+                        fs.copyFileSync(sourcePath, archivePath);
+                    }
+                    // Parse and filter to exchanges past the high-water mark
+                    const exchanges = await parseConversation(sourcePath, project, archivePath);
+                    const newExchanges = maxIndexedLine > 0
+                        ? exchanges.filter(e => e.lineStart > maxIndexedLine)
+                        : exchanges;
+                    if (newExchanges.length === 0)
+                        continue;
+                    unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges: newExchanges });
                 }
-                // Parse and filter to exchanges past the high-water mark
-                const exchanges = await parseConversation(sourcePath, project, archivePath);
-                const newExchanges = maxIndexedLine > 0
-                    ? exchanges.filter(e => e.lineStart > maxIndexedLine)
-                    : exchanges;
-                if (newExchanges.length === 0)
+                catch (error) {
+                    console.log(`  Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
                     continue;
-                unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges: newExchanges });
+                }
             }
         }
     } // end sourceDir loop

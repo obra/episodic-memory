@@ -102,6 +102,8 @@ export function initDatabase() {
     sqliteVec.load(db);
     // Enable WAL mode for better concurrency
     db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
+    db.pragma('foreign_keys = ON');
     // Create exchanges table
     db.exec(`
     CREATE TABLE IF NOT EXISTS exchanges (

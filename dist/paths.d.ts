@@ -1,3 +1,4 @@
+import fs from 'fs';
 /**
  * Get the Claude Code configuration directory.
  * Supports CLAUDE_CONFIG_DIR for multiple profiles.
@@ -27,6 +28,13 @@ export declare function getConversationSourceDirs(): string[];
  * inside session UUIDs (#80).
  */
 export declare function findJsonlFiles(dir: string, excludedDirNames?: ReadonlySet<string>): string[];
+/**
+ * statSync that follows symlinks but returns null instead of throwing when
+ * the entry cannot be stat'ed — a dangling symlink (e.g. left behind by a
+ * storage migration), or an entry deleted between readdir and stat.
+ * Callers treat null as "skip this entry".
+ */
+export declare function statIfExists(target: string): fs.Stats | null;
 /**
  * Get the personal superpowers directory
  *

@@ -51,6 +51,9 @@ export declare function formatConversationText(exchanges: ConversationExchange[]
  * ~/.claude/projects/ (#83). Without it, every summarization spawns a fake
  * session JSONL that pollutes the IDE session sidebar. The option is honored
  * by claude-agent-sdk >= 0.2.0.
+ *
+ * tools: [] disables every built-in tool so a resumed mid-task session can't
+ * keep EXECUTING the task instead of writing a <summary>.
  */
 export declare function buildSummarizerQueryOptions(args: {
     model: string;
