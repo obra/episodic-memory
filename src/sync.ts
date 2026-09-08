@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
-import { getExcludedProjects, findJsonlFiles } from './paths.js';
+import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 
 const EXCLUSION_MARKERS = [
@@ -102,9 +102,9 @@ export async function syncConversations(
     }
 
     const projectPath = path.join(sourceDir, project);
-    const stat = fs.statSync(projectPath);
+    const stat = statIfExists(projectPath);
 
-    if (!stat.isDirectory()) continue;
+    if (!stat?.isDirectory()) continue;
 
     const files = findJsonlFiles(projectPath, excludedDirSet);
 
