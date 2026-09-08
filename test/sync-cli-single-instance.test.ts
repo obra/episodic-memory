@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
+import { acquireFileLock, releaseFileLock } from '../src/file-lock.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SYNC_CLI = join(REPO_ROOT, 'dist', 'sync-cli.js');
@@ -76,22 +77,24 @@ describe('sync-cli single-instance lock (#97)', () => {
     try { rmSync(testDir, { recursive: true, force: true }); } catch {}
   });
 
-  it('only one of two concurrent workers does real work; the other prints "sync already running" and exits 0', async () => {
-    // Launch two workers as close together as possible. One will win the lock
-    // race; the other must observe it and bail before initDatabase().
-    const a = spawnWith(envOverrides);
-    const b = spawnWith(envOverrides);
-    const [ra, rb] = await Promise.all([collectOutput(a), collectOutput(b)]);
-
-    expect(ra.status).toBe(0);
-    expect(rb.status).toBe(0);
-
-    const winner = ra.stdout.includes('Sync complete') ? ra : rb;
-    const loser = winner === ra ? rb : ra;
-
-    expect(winner.stdout).toMatch(/Sync complete/);
-    expect(loser.stderr).toMatch(/sync already running.*skipping/);
-    expect(loser.stdout).not.toMatch(/Sync complete/);
+  it('a worker skips ("sync already running") and exits 0 when the lock is already held', async () => {
+    // Deterministic contention: hold the real proper-lockfile mutex from the
+    // test process, then a spawned worker must observe it and bail before
+    // initDatabase(). (An earlier version raced two spawned workers and relied
+    // on their execution windows overlapping; under a loaded parallel test run
+    // the OS could schedule them far enough apart that the first released the
+    // lock before the second acquired, so both did real work — a false failure.)
+    const lockPath = join(testDir, 'config', 'logs', 'episodic-memory-sync.lock');
+    const handle = acquireFileLock(lockPath);
+    expect(handle).not.toBeNull();
+    try {
+      const worker = await collectOutput(spawnWith(envOverrides));
+      expect(worker.status).toBe(0);
+      expect(worker.stderr).toMatch(/sync already running.*skipping/);
+      expect(worker.stdout).not.toMatch(/Sync complete/);
+    } finally {
+      releaseFileLock(handle!);
+    }
   });
 
   it('a single sequential run is unaffected by the lock — runs to completion as before', () => {
