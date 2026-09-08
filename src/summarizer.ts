@@ -104,6 +104,9 @@ function extractSummary(text: string): string {
  * ~/.claude/projects/ (#83). Without it, every summarization spawns a fake
  * session JSONL that pollutes the IDE session sidebar. The option is honored
  * by claude-agent-sdk >= 0.2.0.
+ *
+ * tools: [] disables every built-in tool so a resumed mid-task session can't
+ * keep EXECUTING the task instead of writing a <summary>.
  */
 export function buildSummarizerQueryOptions(args: {
   model: string;
@@ -117,6 +120,7 @@ export function buildSummarizerQueryOptions(args: {
     env: getApiEnv(),
     resume: sessionId,
     persistSession: false,
+    tools: [],
     // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
     ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
     // Don't override systemPrompt when resuming — the resumed session's prompt stays in effect.
