@@ -1,6 +1,6 @@
 # Episodic Memory
 
-Semantic search for Claude Code and Codex conversations. Remember past discussions, decisions, and patterns.
+Semantic search for Claude Code, Codex, Cursor, and opencode conversations. Remember past discussions, decisions, and patterns.
 
 ## Testimonial
 
@@ -91,6 +91,29 @@ Then open `/hooks` in Codex, review the Episodic Memory hook, and press `t` to t
 
 See [docs/CODEX.md](docs/CODEX.md) for the full Codex setup, trust, troubleshooting, and E2E test workflow.
 
+### As an opencode plugin
+
+Episodic Memory exposes an opencode server plugin through the `./server` entrypoint.
+This opencode plugin keeps the same search/read MCP surface as the Claude and Codex integrations.
+
+```bash
+npm install -g github:obra/episodic-memory
+```
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["episodic-memory"]
+}
+```
+
+The opencode plugin:
+- Exports conversations from `~/.local/share/opencode/opencode.db` on each sync
+- Exposes the same MCP search/read tools
+- Runs background sync on the opencode `SessionStart` event
+
+See [docs/OPENCODE.md](docs/OPENCODE.md) for the full setup and troubleshooting details.
+
 ### As an npm package
 
 ```bash
@@ -102,7 +125,7 @@ npm install -g github:obra/episodic-memory
 ### Quick Start
 
 ```bash
-# Sync conversations from Claude Code and Codex and index them
+# Sync conversations from Claude Code, Codex, Cursor, and opencode and index them
 episodic-memory sync
 
 # Search your conversation history
@@ -111,12 +134,30 @@ episodic-memory search "React Router authentication"
 # View index statistics
 episodic-memory stats
 
-# Diagnose Codex setup
+# Diagnose Codex or opencode setup
 episodic-memory doctor codex
+episodic-memory doctor opencode
 
 # Display a conversation
 episodic-memory show path/to/conversation.jsonl
 ```
+
+### Cursor support
+
+Sync automatically indexes Cursor agent transcripts from `~/.cursor/projects`
+(written by Cursor since early 2026). Conversations older than that exist only
+inside Cursor's global SQLite store; backfill them once with:
+
+```bash
+# Export legacy Cursor conversations from state.vscdb (read-only), then index
+episodic-memory import-cursor-history
+episodic-memory sync
+```
+
+The importer skips conversations that already have a live agent transcript,
+recovers each conversation's project from tool-call working directories, and
+embeds original message timestamps. Re-running it only exports new
+conversations; use `--force` to re-export everything.
 
 ### Command Line
 
@@ -152,7 +193,7 @@ episodic-memory-index
 episodic-memory-search "query"
 ```
 
-### In Claude Code or Codex
+### In Claude Code, Codex, or opencode
 
 The plugin automatically syncs and indexes conversations from the harness that starts it. Reference past work in natural conversation — the `remembering-conversations` skill dispatches the `search-conversations` agent automatically when recall is needed. Example prompts:
 
@@ -161,7 +202,7 @@ The plugin automatically syncs and indexes conversations from the harness that s
 - "Error message about sqlite-vec initialization"
 - "Git commit SHA for the routing refactor"
 
-In Codex, the skill guides the agent to use the episodic-memory MCP search/read tools directly when an agent-dispatch path is not available.
+In Codex and opencode, the skill guides the agent to use the episodic-memory MCP search/read tools directly when an agent-dispatch path is not available.
 
 ## API Configuration
 
@@ -188,9 +229,23 @@ export EPISODIC_MEMORY_CODEX_BIN=/path/to/codex
 
 # Disable the summarization pass entirely (search is unaffected)
 export EPISODIC_MEMORY_SKIP_SUMMARIES=1
+
+# Wall-clock timeout per Claude summarizer call (milliseconds, default: 120000).
+# A wedged summarizer subprocess is aborted after this, so it can't stall
+# summarization or block later syncs on the lock.
+export EPISODIC_MEMORY_SUMMARY_TIMEOUT_MS=120000
+
+# Acknowledge that summarization may bill a metered Anthropic API. If
+# ANTHROPIC_API_KEY is set (and no EPISODIC_MEMORY_API_BASE_URL/TOKEN is), the
+# summarizer bills the metered API instead of your Claude subscription and prints
+# a one-time warning. Set this to exactly 1 to acknowledge the cost and silence
+# that warning. (To avoid metered billing entirely, unset ANTHROPIC_API_KEY or
+# point episodic-memory at its own endpoint.)
+export EPISODIC_MEMORY_ALLOW_METERED_API=1
 ```
 
-Only the exact value `1` disables summarization; any other value leaves it on.
+Only the exact value `1` silences the metered-API warning; any other value still shows it.
+`EPISODIC_MEMORY_ALLOW_METERED_API` is likewise `1`-only.
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
@@ -211,7 +266,7 @@ Summaries are display-only: they decorate search results and are never embedded 
 
 ### `episodic-memory sync`
 
-**Recommended for plugin hooks.** Copies new conversations from `~/.claude/projects`, `~/.claude/transcripts`, and `~/.codex/sessions` to archive and indexes them.
+**Recommended for plugin hooks.** Copies new conversations from `~/.claude/projects`, `~/.claude/transcripts`, and `~/.codex/sessions` to archive and indexes them. opencode sessions are exported from `~/.local/share/opencode/opencode.db` into generated JSONL transcripts before indexing.
 
 Features:
 - Only copies new or modified files (fast on subsequent runs)
@@ -241,9 +296,11 @@ Diagnose local integration issues.
 
 ```bash
 episodic-memory doctor codex
+episodic-memory doctor opencode
 ```
 
 The Codex doctor checks the Codex version, plugin hook feature state, MCP server registration, transcript directory, database path, and background sync log path.
+The opencode doctor checks the opencode version, plugin configuration, MCP server registration, SQLite database path, generated transcript directory, and background sync log path.
 
 ### Codex E2E Verification
 
@@ -303,11 +360,12 @@ open output.html
 - **MCP Server** - Model Context Protocol server exposing search and conversation tools
 - **Claude Code plugin** - Integration with Claude Code (auto-indexing, MCP tools, hooks)
 - **Codex plugin** - Integration with Codex (manifest, MCP config, hooks, skills)
+- **opencode plugin** - Integration with opencode (DB export, MCP config, background sync)
 
 ## How It Works
 
-1. **Sync** - Copies conversation files from Claude Code and Codex transcript directories to archive
-2. **Parse** - Extracts user-agent exchanges from Claude Code JSONL or Codex rollout JSONL
+1. **Sync** - Copies conversation files from Claude Code and Codex transcript directories to archive; exports opencode sessions from SQLite into generated JSONL transcripts
+2. **Parse** - Extracts user-agent exchanges from Claude Code JSONL, Codex rollout JSONL, or opencode transcript JSONL
 3. **Embed** - Generates vector embeddings using Transformers.js (local, offline)
 4. **Index** - Stores in SQLite with sqlite-vec for fast similarity search
 5. **Search** - Semantic search using vector similarity or exact text matching
@@ -334,7 +392,7 @@ The marker can appear in any message (user or assistant) and excludes the entire
 
 ## MCP Server
 
-When installed as a Claude Code or Codex plugin, episodic-memory provides an MCP (Model Context Protocol) server that exposes tools for searching and viewing conversations.
+When installed as a Claude Code, Codex, or opencode plugin, episodic-memory provides an MCP (Model Context Protocol) server that exposes tools for searching and viewing conversations.
 
 ### Available MCP Tools
 
@@ -365,7 +423,21 @@ Search indexed conversations using semantic similarity or exact text matching.
 - `limit` (number): Max results, 1-50 (default: 10)
 - `after` (string, optional): Only show conversations after YYYY-MM-DD
 - `before` (string, optional): Only show conversations before YYYY-MM-DD
+- `include_sidechains` (boolean): Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: `true`; set `false` to search only the main thread)
 - `response_format` ('markdown' | 'json'): Output format (default: 'markdown')
+
+**Text-match behavior:** In `text` mode (and the text half of `both`), the *whole
+query* is matched as a single case-insensitive substring — there is no word
+splitting, stemming, or per-term AND/OR. A `text` search only matches an exchange
+when the entire query appears verbatim and contiguous in one message, so it is
+best for exact strings (git SHAs, error codes) rather than natural-language
+phrases. Use `vector` or `both` for descriptive queries.
+
+**Sidechain conversations:** Work that happens inside subagents or `Workflow`
+runs is recorded as *sidechain* exchanges. These are searched by default and
+ranked just below equally-relevant main-thread matches, so orchestrated sessions
+(where most substance lives in sidechains) remain findable. Pass
+`include_sidechains: false` to restore main-thread-only search.
 
 #### `read`
 
