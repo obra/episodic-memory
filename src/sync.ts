@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { StringDecoder } from 'string_decoder';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
@@ -10,13 +11,39 @@ const EXCLUSION_MARKERS = [
   SUMMARIZER_CONTEXT_MARKER,
 ];
 
-function shouldSkipConversation(filePath: string): boolean {
+const MARKER_SCAN_CHUNK_BYTES = 1 << 20; // 1 MiB
+
+/**
+ * Stream and scan for any exclusion marker, carrying an overlap between
+ * chunks so a marker split across a boundary is still found. A single
+ * fs.readFileSync(path, 'utf-8') throws ERR_STRING_TOO_LONG above Node's
+ * ~512 MB max string length; the old catch returned false (fail OPEN),
+ * silently indexing a file whose DO NOT INDEX marker we never read (#152).
+ * Streaming confirms cleanliness at any size, and a real read error now
+ * fails CLOSED (skip) rather than open.
+ */
+export function shouldSkipConversation(filePath: string): boolean {
+  const maxMarkerLen = Math.max(...EXCLUSION_MARKERS.map(m => m.length));
+  let fd: number | undefined;
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    return EXCLUSION_MARKERS.some(marker => content.includes(marker));
-  } catch (error) {
-    // If we can't read the file, don't skip it
-    return false;
+    fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.allocUnsafe(MARKER_SCAN_CHUNK_BYTES);
+    const decoder = new StringDecoder('utf8');
+    let carry = '';
+    let bytesRead: number;
+    while ((bytesRead = fs.readSync(fd, buf, 0, buf.length, null)) > 0) {
+      const window = carry + decoder.write(buf.subarray(0, bytesRead));
+      if (EXCLUSION_MARKERS.some(marker => window.includes(marker))) {
+        return true;
+      }
+      carry = window.slice(Math.max(0, window.length - (maxMarkerLen - 1)));
+    }
+    const tail = carry + decoder.end();
+    return EXCLUSION_MARKERS.some(marker => tail.includes(marker));
+  } catch {
+    return true; // fail closed (#152)
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
   }
 }
 
@@ -264,10 +291,22 @@ export async function syncConversations(
             continue; // Skip indexing but file is already copied
           }
 
+          // High-water mark: index exchanges past the last line we've already
+          // covered. Transcript JSONLs are append-only, so MAX(line_end) tells
+          // us where to resume — without this, a grown transcript re-embeds
+          // every exchange on every sync (#152). Ported from indexer.ts.
+          const hw = db.prepare(
+            'SELECT COALESCE(MAX(line_end), 0) as maxLine FROM exchanges WHERE archive_path = ?'
+          ).get(file) as { maxLine: number };
+          const maxIndexedLine = hw.maxLine;
+
           const project = path.basename(path.dirname(file));
           const exchanges = await parseConversation(file, project, file);
+          const newExchanges = maxIndexedLine > 0
+            ? exchanges.filter(e => e.lineStart > maxIndexedLine)
+            : exchanges;
 
-          for (const exchange of exchanges) {
+          for (const exchange of newExchanges) {
             const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
             const embedding = await generateExchangeEmbedding(
               exchange.userMessage,
