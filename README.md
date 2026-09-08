@@ -1,6 +1,6 @@
 # Episodic Memory
 
-Semantic search for Claude Code, Codex, Cursor, and opencode conversations. Remember past discussions, decisions, and patterns.
+Semantic search for Claude Code, Codex, Cursor, opencode, and Oh My Pi (OMP) conversations. Remember past discussions, decisions, and patterns.
 
 ## Testimonial
 
@@ -125,7 +125,7 @@ npm install -g github:obra/episodic-memory
 ### Quick Start
 
 ```bash
-# Sync conversations from Claude Code, Codex, Cursor, and opencode and index them
+# Sync conversations from Claude Code, Codex, Cursor, opencode, and Oh My Pi (OMP) and index them
 episodic-memory sync
 
 # Search your conversation history
@@ -158,6 +158,14 @@ The importer skips conversations that already have a live agent transcript,
 recovers each conversation's project from tool-call working directories, and
 embeds original message timestamps. Re-running it only exports new
 conversations; use `--force` to re-export everything.
+
+### Oh My Pi (OMP) support
+
+Sync automatically indexes Oh My Pi transcripts from `~/.omp/agent/sessions`
+(set `OMP_HOME` to point at an alternate profile). OMP stores each session as
+append-only pi-lineage JSONL whose messages form a tree via `parentId`; sync
+follows the active path (the current leaf back to the root) so regenerated or
+abandoned branches are left out of the index.
 
 ### Command Line
 
@@ -303,7 +311,7 @@ Summaries are display-only: they decorate search results and are never embedded 
 
 ### `episodic-memory sync`
 
-**Recommended for plugin hooks.** Copies new conversations from `~/.claude/projects`, `~/.claude/transcripts`, and `~/.codex/sessions` to archive and indexes them. opencode sessions are exported from `~/.local/share/opencode/opencode.db` into generated JSONL transcripts before indexing.
+**Recommended for plugin hooks.** Copies new conversations from `~/.claude/projects`, `~/.claude/transcripts`, `~/.codex/sessions`, and `~/.omp/agent/sessions` (Oh My Pi) to archive and indexes them. opencode sessions are exported from `~/.local/share/opencode/opencode.db` into generated JSONL transcripts before indexing.
 
 Features:
 - Only copies new or modified files (fast on subsequent runs)

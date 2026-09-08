@@ -49,6 +49,15 @@ export function getCursorLegacyExportDir(): string {
 }
 
 /**
+ * Get the Oh My Pi (OMP) configuration directory.
+ * Supports OMP_HOME for alternate profiles.
+ * Falls back to ~/.omp when not set.
+ */
+export function getOmpDir(): string {
+  return process.env.OMP_HOME || path.join(os.homedir(), '.omp');
+}
+
+/**
  * Get the opencode data directory.
  * opencode stores its SQLite database under XDG data by default.
  */
@@ -79,7 +88,7 @@ export function getOpencodeTranscriptDir(): string {
     path.join(getSuperpowersDir(), 'opencode-transcripts');
 }
 
-export type ConversationSourceHarness = 'claude' | 'codex' | 'cursor' | 'opencode';
+export type ConversationSourceHarness = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp';
 
 /**
  * Get all directories where supported harnesses store conversation files.
@@ -103,6 +112,7 @@ export function getConversationSourceDirs(only?: ConversationSourceHarness[]): s
     { harness: 'cursor', dir: path.join(cursorDir, 'projects') },
     { harness: 'cursor', dir: getCursorLegacyExportDir() },
     { harness: 'opencode', dir: getOpencodeTranscriptDir() },
+    { harness: 'omp', dir: path.join(getOmpDir(), 'agent', 'sessions') },
   ];
   return candidates
     .filter(candidate => !allowed || allowed.has(candidate.harness))

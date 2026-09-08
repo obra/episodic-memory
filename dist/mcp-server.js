@@ -31211,6 +31211,9 @@ function formatConversationAsMarkdown(jsonl, startLine, endLine) {
   if (isOpencodeTranscript(lines)) {
     return formatOpencodeConversationAsMarkdown(lines);
   }
+  if (isOmpTranscript(lines)) {
+    return formatOmpConversationAsMarkdown(lines);
+  }
   if (isCursorTranscript(lines)) {
     return formatCursorConversationAsMarkdown(lines);
   }
@@ -31443,6 +31446,94 @@ function isOpencodeTranscript(lines) {
     }
   }
   return false;
+}
+function isOmpTranscript(lines) {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === "session" && !parsed.payload && !parsed.session) return true;
+      if (parsed.type === "message" && parsed.message && parsed.message.role) return true;
+      if (parsed.type === "opencode_session" || parsed.type === "opencode_message") return false;
+      if (parsed.payload) return false;
+      if (parsed.type === void 0 && parsed.role && parsed.message) return false;
+      continue;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+function extractOmpText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content.filter((block) => block && block.type === "text" && typeof block.text === "string").map((block) => block.text).join("\n");
+}
+function formatOmpConversationAsMarkdown(lines) {
+  const metadata = {};
+  const nodesById = /* @__PURE__ */ new Map();
+  let leafId;
+  for (const line of lines) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry.type === "session") {
+      metadata.sessionId = entry.id || metadata.sessionId;
+      metadata.cwd = entry.cwd || metadata.cwd;
+      continue;
+    }
+    if (entry.type !== "message" || !entry.message || !entry.message.role || !entry.id) {
+      continue;
+    }
+    nodesById.set(entry.id, entry);
+    leafId = entry.id;
+  }
+  const chain = [];
+  const seen = /* @__PURE__ */ new Set();
+  let currentId = leafId;
+  while (currentId && nodesById.has(currentId) && !seen.has(currentId)) {
+    seen.add(currentId);
+    const node2 = nodesById.get(currentId);
+    chain.push(node2);
+    currentId = node2.parentId ?? void 0;
+  }
+  chain.reverse();
+  let output2 = "# Conversation\n\n";
+  output2 += "## Metadata\n\n";
+  output2 += "**Harness:** Oh My Pi (OMP)\n\n";
+  if (metadata.sessionId) output2 += `**Session ID:** ${metadata.sessionId}
+
+`;
+  if (metadata.cwd) output2 += `**Working Directory:** ${metadata.cwd}
+
+`;
+  output2 += "---\n\n";
+  output2 += "## Messages\n\n";
+  for (const node2 of chain) {
+    const role = node2.message.role === "user" ? "User" : "Agent";
+    const text = extractOmpText(node2.message.content);
+    if (!text.trim()) {
+      continue;
+    }
+    let timestamp = "";
+    if (typeof node2.timestamp === "string") {
+      const date5 = new Date(node2.timestamp);
+      timestamp = Number.isNaN(date5.getTime()) ? "" : date5.toLocaleString("en-US", { timeZone: "UTC" });
+    }
+    output2 += `### **${role}** (${timestamp}) {#${node2.id}}
+
+`;
+    output2 += `${text}
+
+`;
+  }
+  return output2;
 }
 function extractCodexText(content) {
   if (typeof content === "string") {

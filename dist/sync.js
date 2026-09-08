@@ -87,6 +87,11 @@ function hasConversationContent(filePath) {
                 if (parsed.type === 'opencode_message' && parsed.message) {
                     return true;
                 }
+                // OMP: {type: "message", message: {role, content}, id, parentId}.
+                // A session-header-only file has no message lines and is still skipped.
+                if (parsed.type === 'message' && parsed.message && parsed.message.role) {
+                    return true;
+                }
             }
             catch {
                 continue;

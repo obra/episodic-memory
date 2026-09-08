@@ -24,6 +24,12 @@ export declare function getCursorDir(): string;
  */
 export declare function getCursorLegacyExportDir(): string;
 /**
+ * Get the Oh My Pi (OMP) configuration directory.
+ * Supports OMP_HOME for alternate profiles.
+ * Falls back to ~/.omp when not set.
+ */
+export declare function getOmpDir(): string;
+/**
  * Get the opencode data directory.
  * opencode stores its SQLite database under XDG data by default.
  */
@@ -36,7 +42,7 @@ export declare function getOpencodeDbPath(): string;
  * Get the generated opencode transcript directory used as a sync source.
  */
 export declare function getOpencodeTranscriptDir(): string;
-export type ConversationSourceHarness = 'claude' | 'codex' | 'cursor' | 'opencode';
+export type ConversationSourceHarness = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp';
 /**
  * Get all directories where supported harnesses store conversation files.
  * Checks Claude Code legacy (projects/) and current (transcripts/) locations,

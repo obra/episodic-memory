@@ -7,7 +7,7 @@ export interface ToolCall {
     isError: boolean;
     timestamp: string;
 }
-export type ConversationHarness = 'claude' | 'codex' | 'cursor' | 'opencode';
+export type ConversationHarness = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp';
 export interface ConversationExchange {
     id: string;
     project: string;

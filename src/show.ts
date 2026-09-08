@@ -40,6 +40,9 @@ export function formatConversationAsMarkdown(jsonl: string, startLine?: number, 
   if (isOpencodeTranscript(lines)) {
     return formatOpencodeConversationAsMarkdown(lines);
   }
+  if (isOmpTranscript(lines)) {
+    return formatOmpConversationAsMarkdown(lines);
+  }
 
   if (isCursorTranscript(lines)) {
     return formatCursorConversationAsMarkdown(lines);
@@ -238,6 +241,9 @@ export function formatConversationAsHTML(jsonl: string): string {
   }
   if (isOpencodeTranscript(lines)) {
     return formatMarkdownDocumentAsHTML(formatOpencodeConversationAsMarkdown(lines));
+  }
+  if (isOmpTranscript(lines)) {
+    return formatMarkdownDocumentAsHTML(formatOmpConversationAsMarkdown(lines));
   }
 
   if (isCursorTranscript(lines)) {
@@ -821,6 +827,104 @@ function isOpencodeTranscript(lines: string[]): boolean {
     }
   }
   return false;
+}
+
+// Oh My Pi (OMP) pi-lineage transcripts open with a bare {type:"session"}
+// header and carry {type:"message", message:{role, content}} turns. Mirrors
+// detectConversationHarness in parser.ts; skips title/session_init/custom noise
+// lines and bails out on another harness's markers.
+function isOmpTranscript(lines: string[]): boolean {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === 'session' && !parsed.payload && !parsed.session) return true;
+      if (parsed.type === 'message' && parsed.message && parsed.message.role) return true;
+      if (parsed.type === 'opencode_session' || parsed.type === 'opencode_message') return false;
+      if (parsed.payload) return false;
+      if (parsed.type === undefined && parsed.role && parsed.message) return false;
+      continue;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+function extractOmpText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return '';
+  }
+  return content
+    .filter(block => block && block.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text)
+    .join('\n');
+}
+
+// Render only the active path (leaf -> root via parentId, reversed), matching
+// parseOmpConversation: abandoned/regenerated branches stay out of the output.
+function formatOmpConversationAsMarkdown(lines: string[]): string {
+  const metadata: { sessionId?: string; cwd?: string } = {};
+  const nodesById = new Map<string, any>();
+  let leafId: string | undefined;
+
+  for (const line of lines) {
+    let entry: any;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry.type === 'session') {
+      metadata.sessionId = entry.id || metadata.sessionId;
+      metadata.cwd = entry.cwd || metadata.cwd;
+      continue;
+    }
+    if (entry.type !== 'message' || !entry.message || !entry.message.role || !entry.id) {
+      continue;
+    }
+    nodesById.set(entry.id, entry);
+    leafId = entry.id;
+  }
+
+  const chain: any[] = [];
+  const seen = new Set<string>();
+  let currentId: string | undefined = leafId;
+  while (currentId && nodesById.has(currentId) && !seen.has(currentId)) {
+    seen.add(currentId);
+    const node = nodesById.get(currentId);
+    chain.push(node);
+    currentId = node.parentId ?? undefined;
+  }
+  chain.reverse();
+
+  let output = '# Conversation\n\n';
+  output += '## Metadata\n\n';
+  output += '**Harness:** Oh My Pi (OMP)\n\n';
+  if (metadata.sessionId) output += `**Session ID:** ${metadata.sessionId}\n\n`;
+  if (metadata.cwd) output += `**Working Directory:** ${metadata.cwd}\n\n`;
+
+  output += '---\n\n';
+  output += '## Messages\n\n';
+
+  for (const node of chain) {
+    const role = node.message.role === 'user' ? 'User' : 'Agent';
+    const text = extractOmpText(node.message.content);
+    if (!text.trim()) {
+      continue;
+    }
+    let timestamp = '';
+    if (typeof node.timestamp === 'string') {
+      const date = new Date(node.timestamp);
+      timestamp = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-US', { timeZone: 'UTC' });
+    }
+    output += `### **${role}** (${timestamp}) {#${node.id}}\n\n`;
+    output += `${text}\n\n`;
+  }
+
+  return output;
 }
 
 function extractCodexText(content: unknown): string {

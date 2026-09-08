@@ -54,6 +54,19 @@ interface OpencodeJsonlLine {
   parts?: any[];
 }
 
+interface OmpJsonlLine {
+  type?: string;
+  id?: string;
+  parentId?: string | null;
+  timestamp?: string;
+  cwd?: string;
+  payload?: any;
+  message?: {
+    role?: 'user' | 'assistant';
+    content?: string | Array<any>;
+  };
+}
+
 interface ExchangeBuilder {
   project: string;
   userMessage: string;
@@ -104,6 +117,17 @@ async function detectConversationHarness(filePath: string): Promise<Conversation
       ) {
         return 'codex';
       }
+      // Oh My Pi (OMP) pi-lineage transcripts open with a bare session header
+      // ({type:"session", id, cwd}) with no payload/session sub-object (which
+      // would be Codex/opencode), and their turns are {type:"message",
+      // message:{role, content}} — a shape no other harness uses.
+      const maybeOmp = parsed as OmpJsonlLine;
+      if (parsed.type === 'session' && !parsed.payload && !(maybeOmp as any).session) {
+        return 'omp';
+      }
+      if (parsed.type === 'message' && maybeOmp.message && maybeOmp.message.role) {
+        return 'omp';
+      }
       // Cursor agent transcripts (~/.cursor/projects/<slug>/agent-transcripts/)
       // carry role+message with no top-level type field.
       const maybeCursor = parsed as CursorTranscriptLine;
@@ -138,6 +162,9 @@ export async function parseConversation(
   }
   if (harness === 'opencode') {
     return parseOpencodeConversation(filePath, projectName, archivePath);
+  }
+  if (harness === 'omp') {
+    return parseOmpConversation(filePath, projectName, archivePath);
   }
   return parseClaudeConversation(filePath, projectName, archivePath);
 }
@@ -611,6 +638,169 @@ async function parseOpencodeConversation(
   // Keep TypeScript aware that this intentionally tracks opencode's agent
   // name only as future metadata; the current DB schema stores version/model.
   void agent;
+
+  return exchanges;
+}
+
+interface OmpNode {
+  id: string;
+  parentId?: string;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+  lineNumber: number;
+}
+
+function extractOmpText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return '';
+  }
+  // Include only `text` blocks; skip `thinking` blocks (internal reasoning),
+  // exactly as the Claude parser ignores thinking and opencode ignores reasoning.
+  return content
+    .filter(block => block && block.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text)
+    .join('\n');
+}
+
+/**
+ * Parse an Oh My Pi (OMP) pi-lineage transcript.
+ *
+ * OMP entries form a TREE via id/parentId; the real conversation is the active
+ * path from the current leaf back to the root. Active-leaf rule: the last
+ * `type:"message"` entry in file order. Transcripts are append-only, so the
+ * most recently written message is the current tip; abandoned/regenerated
+ * branches remain earlier in the file but are not on the leaf's parentId chain.
+ * We follow parentId from that leaf up to the root (a message whose parentId is
+ * null/absent or not present in the file), then reverse to root->leaf order and
+ * linearize. Because parents are always written before their children, line
+ * numbers stay monotonic along the chain, keeping the #152 high-water mark and
+ * #139 byte-cap correct. A streaming single pass can't do the leaf->root walk,
+ * so we read every line with its line number first, then walk the tree.
+ */
+async function parseOmpConversation(
+  filePath: string,
+  projectName: string,
+  archivePath: string
+): Promise<ConversationExchange[]> {
+  const exchanges: ConversationExchange[] = [];
+  const fileStream = fs.createReadStream(filePath);
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity
+  });
+
+  let sessionId: string | undefined;
+  let cwd: string | undefined;
+  let headerTimestamp: string | undefined;
+  const nodesById = new Map<string, OmpNode>();
+  let leafId: string | undefined;
+
+  let lineNumber = 0;
+  for await (const line of rl) {
+    lineNumber++;
+    if (!line.trim()) {
+      continue;
+    }
+
+    let parsed: OmpJsonlLine;
+    try {
+      parsed = JSON.parse(line) as OmpJsonlLine;
+    } catch {
+      continue;
+    }
+
+    if (parsed.type === 'session') {
+      sessionId = parsed.id ?? sessionId;
+      cwd = parsed.cwd ?? cwd;
+      headerTimestamp = parsed.timestamp ?? headerTimestamp;
+      continue;
+    }
+
+    // Skip title/session_init/custom line types and malformed messages.
+    if (parsed.type !== 'message' || !parsed.message || !parsed.message.role || !parsed.id) {
+      continue;
+    }
+
+    const node: OmpNode = {
+      id: parsed.id,
+      parentId: parsed.parentId ?? undefined,
+      role: parsed.message.role,
+      text: extractOmpText(parsed.message.content),
+      timestamp: parsed.timestamp || headerTimestamp || new Date().toISOString(),
+      lineNumber
+    };
+    nodesById.set(node.id, node);
+    leafId = node.id; // the last message wins as the active leaf
+  }
+
+  // Walk from the active leaf back to the root, guarding against cycles.
+  const chain: OmpNode[] = [];
+  const seen = new Set<string>();
+  let currentId: string | undefined = leafId;
+  while (currentId && nodesById.has(currentId) && !seen.has(currentId)) {
+    seen.add(currentId);
+    const node = nodesById.get(currentId)!;
+    chain.push(node);
+    currentId = node.parentId;
+  }
+  chain.reverse(); // root -> leaf
+
+  const project = projectFromCwd(cwd) || projectName;
+  let currentExchange: ExchangeBuilder | null = null;
+
+  const finalizeExchange = () => {
+    if (currentExchange && currentExchange.assistantMessages.length > 0) {
+      const exchangeId = crypto
+        .createHash('md5')
+        .update(`${archivePath}:${currentExchange.userLine}-${currentExchange.lastAssistantLine}`)
+        .digest('hex');
+
+      exchanges.push({
+        id: exchangeId,
+        project: currentExchange.project,
+        timestamp: currentExchange.timestamp,
+        userMessage: currentExchange.userMessage,
+        assistantMessage: currentExchange.assistantMessages.join('\n\n'),
+        archivePath,
+        lineStart: currentExchange.userLine,
+        lineEnd: currentExchange.lastAssistantLine,
+        harness: 'omp',
+        sessionId: currentExchange.sessionId,
+        cwd: currentExchange.cwd
+      });
+    }
+    currentExchange = null;
+  };
+
+  for (const node of chain) {
+    if (node.role === 'user') {
+      finalizeExchange();
+      currentExchange = {
+        project,
+        userMessage: node.text || '(no content)',
+        userLine: node.lineNumber,
+        assistantMessages: [],
+        lastAssistantLine: node.lineNumber,
+        timestamp: node.timestamp,
+        harness: 'omp',
+        sessionId,
+        cwd,
+        toolCalls: []
+      };
+    } else if (node.role === 'assistant' && currentExchange) {
+      if (node.text.trim()) {
+        currentExchange.assistantMessages.push(node.text);
+      }
+      currentExchange.lastAssistantLine = node.lineNumber;
+      currentExchange.timestamp = node.timestamp;
+    }
+  }
+
+  finalizeExchange();
 
   return exchanges;
 }
