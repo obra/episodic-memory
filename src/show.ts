@@ -37,6 +37,13 @@ export function formatConversationAsMarkdown(jsonl: string, startLine?: number, 
   if (isCodexRollout(lines)) {
     return formatCodexConversationAsMarkdown(lines);
   }
+  if (isOpencodeTranscript(lines)) {
+    return formatOpencodeConversationAsMarkdown(lines);
+  }
+
+  if (isCursorTranscript(lines)) {
+    return formatCursorConversationAsMarkdown(lines);
+  }
 
   const allMessages: ConversationMessage[] = lines.map(line => JSON.parse(line));
 
@@ -84,7 +91,7 @@ export function formatConversationAsMarkdown(jsonl: string, startLine?: number, 
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    const timestamp = new Date(msg.timestamp).toLocaleString();
+    const timestamp = new Date(msg.timestamp).toLocaleString('en-US', { timeZone: 'UTC' });
     const messageId = msg.uuid || `msg-${i}`;
 
     // Skip user messages that are just tool results
@@ -229,6 +236,13 @@ export function formatConversationAsHTML(jsonl: string): string {
   if (isCodexRollout(lines)) {
     return formatMarkdownDocumentAsHTML(formatCodexConversationAsMarkdown(lines));
   }
+  if (isOpencodeTranscript(lines)) {
+    return formatMarkdownDocumentAsHTML(formatOpencodeConversationAsMarkdown(lines));
+  }
+
+  if (isCursorTranscript(lines)) {
+    return formatMarkdownDocumentAsHTML(formatCursorConversationAsMarkdown(lines));
+  }
 
   const allMessages: ConversationMessage[] = lines.map(line => JSON.parse(line));
 
@@ -299,7 +313,7 @@ export function formatConversationAsHTML(jsonl: string): string {
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    const timestamp = new Date(msg.timestamp).toLocaleString();
+    const timestamp = new Date(msg.timestamp).toLocaleString('en-US', { timeZone: 'UTC' });
     const messageId = `msg-${msg.uuid || i}`;
 
     // Skip user messages that are just tool results - they'll be rendered with their tool use
@@ -780,6 +794,35 @@ function isCodexRollout(lines: string[]): boolean {
   return false;
 }
 
+// Cursor agent transcripts carry role+message with no top-level `type`.
+// Mirrors detectConversationHarness in parser.ts; skips status/error noise
+// lines so a transcript that opens with one isn't misdetected.
+function isCursorTranscript(lines: string[]): boolean {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === 'status' || parsed.type === 'error') continue;
+      if (parsed.type === undefined && parsed.role && parsed.message) return true;
+      return false;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+function isOpencodeTranscript(lines: string[]): boolean {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      return parsed.type === 'opencode_session' || parsed.type === 'opencode_message';
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
 function extractCodexText(content: unknown): string {
   if (typeof content === 'string') {
     return content;
@@ -791,6 +834,100 @@ function extractCodexText(content: unknown): string {
     .filter(block => block && typeof block === 'object' && typeof (block as any).text === 'string')
     .map(block => (block as any).text)
     .join('\n');
+}
+
+function opencodeTimestamp(message: any): string {
+  const millis = message?.time?.completed || message?.time?.created || message?.timeUpdated || message?.timeCreated;
+  if (typeof millis !== 'number') {
+    return '';
+  }
+  const date = new Date(millis);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-US', { timeZone: 'UTC' });
+}
+
+function extractOpencodeText(parts: any[] | undefined): string {
+  if (!Array.isArray(parts)) {
+    return '';
+  }
+  return parts
+    .filter(part => part?.type === 'text' && typeof part.text === 'string')
+    .map(part => part.text)
+    .join('\n');
+}
+
+function formatOpencodeConversationAsMarkdown(lines: string[]): string {
+  const entries = lines.map(line => JSON.parse(line));
+  const metadata: {
+    sessionId?: string;
+    cwd?: string;
+    version?: string;
+    model?: string;
+    modelProvider?: string;
+  } = {};
+
+  for (const entry of entries) {
+    if (entry.type !== 'opencode_session' || !entry.session) {
+      continue;
+    }
+    metadata.sessionId = entry.session.id || metadata.sessionId;
+    metadata.cwd = entry.session.directory || entry.project?.worktree || metadata.cwd;
+    metadata.version = entry.session.version || metadata.version;
+    metadata.model = entry.session.model?.id || entry.session.model?.modelID || metadata.model;
+    metadata.modelProvider = entry.session.model?.providerID || metadata.modelProvider;
+  }
+
+  let output = '# Conversation\n\n';
+  output += '## Metadata\n\n';
+  output += '**Harness:** opencode\n\n';
+  if (metadata.sessionId) output += `**Session ID:** ${metadata.sessionId}\n\n`;
+  if (metadata.cwd) output += `**Working Directory:** ${metadata.cwd}\n\n`;
+  if (metadata.version) output += `**opencode Version:** ${metadata.version}\n\n`;
+  if (metadata.model) output += `**Model:** ${metadata.model}\n\n`;
+  if (metadata.modelProvider) output += `**Model Provider:** ${metadata.modelProvider}\n\n`;
+
+  output += '---\n\n';
+  output += '## Messages\n\n';
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.type !== 'opencode_message' || !entry.message) {
+      continue;
+    }
+
+    const timestamp = opencodeTimestamp(entry.message);
+    const anchor = entry.message.id || `msg-${i}`;
+    const role = entry.message.role === 'user' ? 'User' : 'Agent';
+    const text = extractOpencodeText(entry.parts);
+    if (text.trim()) {
+      output += `### **${role}** (${timestamp}) {#${anchor}}\n\n`;
+      output += `${text}\n\n`;
+    }
+
+    if (!Array.isArray(entry.parts)) {
+      continue;
+    }
+
+    for (const part of entry.parts) {
+      if (part?.type !== 'tool') {
+        continue;
+      }
+      const state = part.state || {};
+      output += `### **Tool Use** (${timestamp}) {#${part.callID || part.id || `${anchor}-tool`}}\n\n`;
+      output += `**Tool Use:** \`${part.tool || 'unknown'}\`\n\n`;
+      output += formatCodexToolInputMarkdown(state.input);
+      if (state.output !== undefined && state.output !== null) {
+        const result = typeof state.output === 'string' ? state.output : JSON.stringify(state.output, null, 2);
+        output += '**Result:**\n';
+        if (result.includes('\n') || result.length > 100) {
+          output += `\`\`\`\n${result}\n\`\`\`\n\n`;
+        } else {
+          output += `${result}\n\n`;
+        }
+      }
+    }
+  }
+
+  return output;
 }
 
 function safeParseJson(value: string): unknown {
@@ -895,7 +1032,7 @@ function formatCodexConversationAsMarkdown(lines: string[]): string {
       continue;
     }
 
-    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-US', { timeZone: 'UTC' }) : '';
     const anchor = payload.call_id || `msg-${i}`;
 
     if (payload.type === 'message') {
@@ -936,6 +1073,66 @@ function formatCodexConversationAsMarkdown(lines: string[]): string {
         output += `### **Reasoning Summary** (${timestamp}) {#${anchor}}\n\n`;
         output += `${text}\n\n`;
       }
+    }
+  }
+
+  return output;
+}
+
+function formatCursorConversationAsMarkdown(lines: string[]): string {
+  const entries = lines
+    .map(line => { try { return JSON.parse(line); } catch { return null; } })
+    .filter(e => e && e.role && e.message);
+
+  // sessionId/cwd are present only on legacy state.vscdb exports, not live
+  // transcripts; show whatever the first message carries.
+  const first = entries[0] || {};
+  let output = '# Conversation\n\n';
+  output += '## Metadata\n\n';
+  output += '**Harness:** Cursor\n\n';
+  if (first.sessionId) output += `**Session ID:** ${first.sessionId}\n\n`;
+  if (first.cwd) output += `**Working Directory:** ${first.cwd}\n\n`;
+
+  output += '---\n\n';
+  output += '## Messages\n\n';
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-US', { timeZone: 'UTC' }) : '';
+    const anchor = `msg-${i}`;
+    const content = entry.message.content;
+
+    let text = '';
+    const toolUses: Array<{ name: string; input: unknown }> = [];
+    if (typeof content === 'string') {
+      text = content;
+    } else if (Array.isArray(content)) {
+      text = content
+        .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+        .map(b => b.text)
+        .join('\n');
+      for (const b of content) {
+        if (b && b.type === 'tool_use') {
+          toolUses.push({ name: b.name || 'unknown', input: b.input });
+        }
+      }
+    }
+
+    if (entry.role === 'user') {
+      // Strip Cursor's <user_query> wrapper, consistent with the parser.
+      text = text.replace(/<\/?user_query>/g, '').trim();
+    }
+
+    if (!text.trim() && toolUses.length === 0) continue;
+
+    const roleLabel = entry.role === 'user' ? 'User' : 'Agent';
+    output += `### **${roleLabel}** (${timestamp}) {#${anchor}}\n\n`;
+    if (text.trim()) {
+      output += `${text}\n\n`;
+    }
+    for (const tool of toolUses) {
+      output += `**Tool Use:** \`${tool.name}\`\n\n`;
+      output += formatCodexToolInputMarkdown(tool.input);
     }
   }
 

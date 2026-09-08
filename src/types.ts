@@ -8,7 +8,7 @@ export interface ToolCall {
   timestamp: string;
 }
 
-export type ConversationHarness = 'claude' | 'codex';
+export type ConversationHarness = 'claude' | 'codex' | 'cursor' | 'opencode';
 
 export interface ConversationExchange {
   id: string;

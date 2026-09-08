@@ -41,6 +41,15 @@ The search workflow will:
 
 **Saves 50-100x context vs. loading raw conversations.**
 
+### opencode
+
+Use the MCP tools directly unless a local search agent is available:
+
+1. Search with the episodic-memory `search` tool
+2. Read the top 2-5 results with the episodic-memory `read` tool
+3. Synthesize findings in your response
+4. Include source pointers so the user can inspect the original conversations
+
 ## When to Use
 
 Use this whenever the current task would benefit from information you may have learned before, even if the user did not explicitly ask you to search.

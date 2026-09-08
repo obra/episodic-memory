@@ -31,22 +31,83 @@ export function getCodexDir(): string {
 }
 
 /**
+ * Get the Cursor configuration directory.
+ * Supports CURSOR_HOME for alternate profiles.
+ * Falls back to ~/.cursor when not set.
+ */
+export function getCursorDir(): string {
+  return process.env.CURSOR_HOME || path.join(os.homedir(), '.cursor');
+}
+
+/**
+ * Get the staging directory where `import-cursor-history` exports legacy
+ * Cursor conversations (extracted from state.vscdb) as JSONL. Scanned as a
+ * conversation source so sync picks the exports up like any other harness.
+ */
+export function getCursorLegacyExportDir(): string {
+  return path.join(getSuperpowersDir(), 'cursor-legacy-export');
+}
+
+/**
+ * Get the opencode data directory.
+ * opencode stores its SQLite database under XDG data by default.
+ */
+export function getOpencodeDataDir(): string {
+  if (process.env.EPISODIC_MEMORY_OPENCODE_DATA_DIR) {
+    return process.env.EPISODIC_MEMORY_OPENCODE_DATA_DIR;
+  }
+  if (process.env.OPENCODE_DATA_DIR) {
+    return process.env.OPENCODE_DATA_DIR;
+  }
+
+  const xdgDataHome = process.env.XDG_DATA_HOME;
+  return path.join(xdgDataHome || path.join(os.homedir(), '.local', 'share'), 'opencode');
+}
+
+/**
+ * Get the opencode SQLite database path.
+ */
+export function getOpencodeDbPath(): string {
+  return process.env.EPISODIC_MEMORY_OPENCODE_DB_PATH || path.join(getOpencodeDataDir(), 'opencode.db');
+}
+
+/**
+ * Get the generated opencode transcript directory used as a sync source.
+ */
+export function getOpencodeTranscriptDir(): string {
+  return process.env.EPISODIC_MEMORY_OPENCODE_TRANSCRIPT_DIR ||
+    path.join(getSuperpowersDir(), 'opencode-transcripts');
+}
+
+export type ConversationSourceHarness = 'claude' | 'codex' | 'cursor' | 'opencode';
+
+/**
  * Get all directories where supported harnesses store conversation files.
  * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
- * plus Codex sessions.
+ * Codex sessions, Cursor agent transcripts (live and legacy exports), and
+ * generated opencode transcripts.
  * Returns only directories that exist.
  */
-export function getConversationSourceDirs(): string[] {
+export function getConversationSourceDirs(only?: ConversationSourceHarness[]): string[] {
   const testDir = process.env.TEST_PROJECTS_DIR;
   if (testDir) return [testDir];
 
   const claudeDir = getClaudeDir();
   const codexDir = getCodexDir();
-  return [
-    path.join(claudeDir, 'projects'),
-    path.join(claudeDir, 'transcripts'),
-    path.join(codexDir, 'sessions'),
-  ].filter(d => fs.existsSync(d));
+  const cursorDir = getCursorDir();
+  const allowed = only ? new Set(only) : undefined;
+  const candidates: Array<{ harness: ConversationSourceHarness; dir: string }> = [
+    { harness: 'claude', dir: path.join(claudeDir, 'projects') },
+    { harness: 'claude', dir: path.join(claudeDir, 'transcripts') },
+    { harness: 'codex', dir: path.join(codexDir, 'sessions') },
+    { harness: 'cursor', dir: path.join(cursorDir, 'projects') },
+    { harness: 'cursor', dir: getCursorLegacyExportDir() },
+    { harness: 'opencode', dir: getOpencodeTranscriptDir() },
+  ];
+  return candidates
+    .filter(candidate => !allowed || allowed.has(candidate.harness))
+    .map(candidate => candidate.dir)
+    .filter(d => fs.existsSync(d));
 }
 
 /**

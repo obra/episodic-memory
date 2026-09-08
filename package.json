@@ -1,9 +1,23 @@
 {
   "name": "episodic-memory",
   "version": "1.4.2",
-  "description": "Semantic search for Claude Code and Codex conversations",
+  "description": "Semantic search for Claude Code, Codex, and opencode conversations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/opencode-plugin.d.ts",
+      "import": "./dist/opencode-plugin.js",
+      "default": "./dist/opencode-plugin.js"
+    },
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "episodic-memory": "./cli/episodic-memory.js",
     "episodic-memory-index": "./cli/index-conversations.js",
@@ -25,6 +39,7 @@
   "keywords": [
     "claude-code",
     "codex",
+    "opencode",
     "conversations",
     "search",
     "semantic-search",

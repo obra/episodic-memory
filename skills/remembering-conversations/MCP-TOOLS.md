@@ -1,10 +1,10 @@
 # Episodic Memory MCP Tools Reference
 
-The episodic-memory plugin exposes two MCP tools for searching and displaying past Claude Code and Codex conversations.
+The episodic-memory plugin exposes two MCP tools for searching and displaying past Claude Code, Codex, and opencode conversations.
 
 ## search
 
-Search your episodic memory of past Claude Code and Codex conversations using semantic or text search.
+Search your episodic memory of past Claude Code, Codex, and opencode conversations using semantic or text search.
 
 **Tool name:** `mcp__plugin_episodic-memory_episodic-memory__search`
 

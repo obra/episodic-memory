@@ -167,6 +167,54 @@ function codexJsonlWithLocalShellOutput(): string {
   ].map(line => JSON.stringify(line)).join('\n');
 }
 
+function opencodeJsonl(): string {
+  return [
+    {
+      type: 'opencode_session',
+      session: {
+        id: 'ses_opencode123',
+        directory: '/Users/jesse/Documents/GitHub/example-project',
+        version: '1.17.8',
+        model: { id: 'claude-sonnet-4-5', providerID: 'anthropic' },
+        time: { created: 1700000000000, updated: 1700000004000 },
+      },
+    },
+    {
+      type: 'opencode_message',
+      message: {
+        id: 'msg_user',
+        role: 'user',
+        time: { created: 1700000001000 },
+      },
+      parts: [
+        { id: 'prt_user', type: 'text', text: 'Please inspect opencode sync.' },
+      ],
+    },
+    {
+      type: 'opencode_message',
+      message: {
+        id: 'msg_assistant',
+        role: 'assistant',
+        time: { created: 1700000002000, completed: 1700000003000 },
+      },
+      parts: [
+        {
+          id: 'prt_tool',
+          type: 'tool',
+          callID: 'call_echo',
+          tool: 'bash',
+          state: {
+            status: 'completed',
+            input: { command: 'echo opencode' },
+            output: 'opencode\n',
+          },
+        },
+        { id: 'prt_assistant', type: 'text', text: 'opencode sync exports SQLite sessions.' },
+      ],
+    },
+  ].map(line => JSON.stringify(line)).join('\n');
+}
+
 describe('show command - markdown formatting', () => {
   const fixturesDir = join(import.meta.dirname, 'fixtures');
 
@@ -269,6 +317,68 @@ describe('show command - markdown formatting', () => {
     expect(markdown).toContain('Exit code: 0');
     expect(markdown).toContain('local shell');
   });
+
+  it('should format a live Cursor transcript (role/message, no timestamps)', () => {
+    const jsonl = [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nMake all addresses clickable\n</user_query>' }] } }),
+      JSON.stringify({ role: 'assistant', message: { content: [
+        { type: 'text', text: "I'll update the address cells." },
+        { type: 'tool_use', name: 'Shell', input: { command: 'grep -rn address src/', working_directory: '/repo' } },
+      ] } }),
+      // status/error noise lines must be ignored, not crash the renderer
+      JSON.stringify({ type: 'status', status: 'completed' }),
+      JSON.stringify({ role: 'assistant', message: { content: [{ type: 'text', text: 'Done — addresses are clickable now.' }] } }),
+    ].join('\n');
+
+    const markdown = formatConversationAsMarkdown(jsonl);
+
+    expect(markdown).toContain('**Harness:** Cursor');
+    expect(markdown).toContain('Make all addresses clickable');
+    expect(markdown).not.toContain('<user_query>');
+    expect(markdown).toContain("I'll update the address cells.");
+    expect(markdown).toContain('**Tool Use:** `Shell`');
+    expect(markdown).toContain('Done — addresses are clickable now.');
+  });
+
+  it('should format a legacy Cursor export (embedded timestamp/sessionId/cwd)', () => {
+    const jsonl = [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: 'Search git history' }] }, timestamp: '2025-10-24T08:14:39.904Z', sessionId: '1f512764-8211-4582-88f7-251df5e43bc9', cwd: '/repo' }),
+      JSON.stringify({ role: 'assistant', message: { content: [{ type: 'text', text: 'Searching now.' }] }, timestamp: '2025-10-24T08:15:02.000Z' }),
+    ].join('\n');
+
+    const markdown = formatConversationAsMarkdown(jsonl);
+
+    expect(markdown).toContain('**Harness:** Cursor');
+    expect(markdown).toContain('**Session ID:** 1f512764-8211-4582-88f7-251df5e43bc9');
+    expect(markdown).toContain('**Working Directory:** /repo');
+    expect(markdown).toContain('Search git history');
+    expect(markdown).toContain('Searching now.');
+  });
+
+  it('should not misroute a Cursor transcript that opens with a noise line', () => {
+    const jsonl = [
+      JSON.stringify({ type: 'status', status: 'started' }),
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: 'hello cursor' }] } }),
+      JSON.stringify({ role: 'assistant', message: { content: [{ type: 'text', text: 'hi there' }] } }),
+    ].join('\n');
+
+    const markdown = formatConversationAsMarkdown(jsonl);
+
+    expect(markdown).toContain('**Harness:** Cursor');
+    expect(markdown).toContain('hello cursor');
+    });
+
+  it('should format opencode generated JSONL', () => {
+    const markdown = formatConversationAsMarkdown(opencodeJsonl());
+
+    expect(markdown).toContain('**Harness:** opencode');
+    expect(markdown).toContain('ses_opencode123');
+    expect(markdown).toContain('**opencode Version:** 1.17.8');
+    expect(markdown).toContain('Please inspect opencode sync.');
+    expect(markdown).toContain('**Tool Use:** `bash`');
+    expect(markdown).toContain('**Result:**');
+    expect(markdown).toContain('opencode sync exports SQLite sessions.');
+  });
 });
 
 describe('show command - HTML formatting', () => {
@@ -349,5 +459,16 @@ describe('show command - HTML formatting', () => {
     expect(html).toContain('&lt;script&gt;alert(');
     expect(html).toContain('&lt;/script&gt;');
     expect(html).toContain('&lt;b&gt;literal markup&lt;/b&gt;');
+  });
+
+  it('should format opencode generated JSONL as HTML', () => {
+    const html = formatConversationAsHTML(opencodeJsonl());
+
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('opencode');
+    expect(html).toContain('Please inspect opencode sync.');
+    expect(html).toContain('Tool Use');
+    expect(html).toContain('bash');
+    expect(html).toContain('opencode sync exports SQLite sessions.');
   });
 });
