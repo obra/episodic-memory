@@ -236,6 +236,15 @@ export EPISODIC_MEMORY_SKIP_SUMMARIES=1
 # EPISODIC_MEMORY_SKIP_SUMMARIES, which only skips summaries.
 export EPISODIC_MEMORY_DISABLE_AUTO_SYNC=1
 
+# Skip indexing any single message larger than this many bytes (default: 262144
+# = 256 KB). A message this large is almost never a real conversational turn —
+# it is a foreign agent's prompt with a whole conversation transcript pasted in,
+# which would otherwise index as one giant exchange that dominates the database
+# and pollutes search. The oversize exchange is dropped (not truncated); normal
+# turns in the same conversation still index, and search over real conversations
+# is unaffected.
+export EPISODIC_MEMORY_MAX_MESSAGE_BYTES=262144
+
 # Wall-clock timeout per Claude summarizer call (milliseconds, default: 120000).
 # A wedged summarizer subprocess is aborted after this, so it can't stall
 # summarization or block later syncs on the lock.

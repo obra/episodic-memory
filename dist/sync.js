@@ -4,6 +4,7 @@ import { StringDecoder } from 'string_decoder';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
+import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
 const EXCLUSION_MARKERS = [
     '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
     'Only use NO_INSIGHTS_FOUND',
@@ -251,6 +252,8 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
             const { initDatabase, insertExchange } = await import('./db.js');
             const { generateExchangeEmbedding } = embeddings;
             const db = initDatabase();
+            const maxMessageBytes = getMaxMessageBytes();
+            let oversizeSkipped = 0;
             for (const file of filesToIndex) {
                 try {
                     // Check for DO NOT INDEX marker
@@ -269,6 +272,13 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                         ? exchanges.filter(e => e.lineStart > maxIndexedLine)
                         : exchanges;
                     for (const exchange of newExchanges) {
+                        // Skip oversize single messages BEFORE embedding — a foreign
+                        // summarizer's pasted transcript is noise, and embedding it is the
+                        // expensive waste (#139).
+                        if (isOversizeExchange(exchange, maxMessageBytes)) {
+                            oversizeSkipped++;
+                            continue;
+                        }
                         const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
                         const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
                         insertExchange(db, exchange, embedding, toolNames);
@@ -281,6 +291,9 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                         error: error instanceof Error ? error.message : String(error)
                     });
                 }
+            }
+            if (oversizeSkipped > 0) {
+                console.log(`  Skipped ${oversizeSkipped} oversize exchange(s) (> ${maxMessageBytes} bytes; set EPISODIC_MEMORY_MAX_MESSAGE_BYTES to change) — likely embedded-transcript payloads (#139)`);
             }
             db.close();
         }
