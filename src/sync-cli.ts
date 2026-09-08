@@ -29,6 +29,17 @@ if (shouldSkipReentrantSync()) {
   process.exit(0);
 }
 
+// Auto-sync off switch (#163): EPISODIC_MEMORY_DISABLE_AUTO_SYNC=1 stops the
+// hook-launched background sync entirely, for users who want indexing paused
+// without uninstalling. Only the exact string '1' enables it. It intentionally
+// gates ONLY the --background (hook/auto) path so an explicit foreground
+// `episodic-memory sync` a user runs by hand still works. Complements #159's
+// EPISODIC_MEMORY_SKIP_SUMMARIES, which only skips the summary pass.
+if (process.env.EPISODIC_MEMORY_DISABLE_AUTO_SYNC === '1' && args.includes('--background')) {
+  console.error('episodic-memory: auto-sync disabled via EPISODIC_MEMORY_DISABLE_AUTO_SYNC=1; skipping background sync (#163)');
+  process.exit(0);
+}
+
 if (args.includes('--help') || args.includes('-h')) {
   console.log(`
 Usage: episodic-memory sync [--background] [--only claude|codex|opencode] [--summary-limit N]

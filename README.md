@@ -230,6 +230,12 @@ export EPISODIC_MEMORY_CODEX_BIN=/path/to/codex
 # Disable the summarization pass entirely (search is unaffected)
 export EPISODIC_MEMORY_SKIP_SUMMARIES=1
 
+# Disable the automatic background sync entirely (hooks stop indexing new
+# conversations; explicit `episodic-memory sync` still works). Search over
+# already-indexed conversations is unaffected. Complements
+# EPISODIC_MEMORY_SKIP_SUMMARIES, which only skips summaries.
+export EPISODIC_MEMORY_DISABLE_AUTO_SYNC=1
+
 # Wall-clock timeout per Claude summarizer call (milliseconds, default: 120000).
 # A wedged summarizer subprocess is aborted after this, so it can't stall
 # summarization or block later syncs on the lock.
@@ -245,7 +251,7 @@ export EPISODIC_MEMORY_ALLOW_METERED_API=1
 ```
 
 Only the exact value `1` silences the metered-API warning; any other value still shows it.
-`EPISODIC_MEMORY_ALLOW_METERED_API` is likewise `1`-only.
+`EPISODIC_MEMORY_ALLOW_METERED_API` is likewise `1`-only, as is `EPISODIC_MEMORY_DISABLE_AUTO_SYNC`.
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
