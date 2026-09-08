@@ -4,6 +4,17 @@ import { isErroredSentinel } from './summary-sentinel.js';
 import fs from 'fs';
 import readline from 'readline';
 /**
+ * Distance penalty (L2, in the same units as vec.distance) added to a
+ * sidechain row's score so that an equally-relevant main-thread exchange
+ * ranks ahead of it. Sidechains (subagent and `Workflow` transcripts) carry
+ * the substance of orchestrated sessions, so they must stay reachable; this
+ * only de-prioritizes them on ties and near-ties, letting a clearly-more-
+ * relevant sidechain still outrank a weaker main-thread match. Chosen small:
+ * ~0.05 in L2 distance is a few points of cosine similarity for typical
+ * normalized embeddings.
+ */
+const SIDECHAIN_DISTANCE_PENALTY = 0.05;
+/**
  * Build the AND-clause and bound-parameter list that constrains a search
  * by the optional time and metadata filters. Bound parameters keep us
  * safe from SQL injection without regex-based input scrubbing.
@@ -35,9 +46,6 @@ function buildSearchFilters(options) {
         sql: parts.length ? `AND ${parts.join(' AND ')}` : '',
         params,
     };
-}
-function hasMetadataFilters(options) {
-    return Boolean(options.project || options.session_id || options.git_branch);
 }
 /**
  * Escape LIKE wildcards so user input is treated as a literal substring.
@@ -145,6 +153,8 @@ function validateISODate(dateStr, paramName) {
 }
 export async function searchConversations(query, options = {}) {
     const { limit = 10, mode = 'both', after, before } = options;
+    const includeSidechains = options.include_sidechains !== false;
+    const sidechainClause = includeSidechains ? '' : 'AND e.is_sidechain = 0';
     // Validate date parameters
     if (after)
         validateISODate(after, '--after');
@@ -155,11 +165,11 @@ export async function searchConversations(query, options = {}) {
     const { sql: filterClause, params: filterParams } = buildSearchFilters(options);
     if (mode === 'vector' || mode === 'both') {
         // Vector similarity search.
-        // vec0 applies KNN before WHERE, so when extra metadata filters are
-        // active we ask for more candidates than `limit` and trim afterwards.
+        // vec0 applies KNN before the WHERE clause and before our sidechain
+        // de-rank, so we over-fetch candidates and trim after the final ordering.
         await initEmbeddings();
         const queryEmbedding = await generateQueryEmbedding(query);
-        const k = hasMetadataFilters(options) ? limit * 3 : limit;
+        const k = limit * 3;
         const stmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},
@@ -168,11 +178,11 @@ export async function searchConversations(query, options = {}) {
       JOIN exchanges AS e ON vec.id = e.id
       WHERE vec.embedding MATCH ?
         AND k = ?
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY vec.distance ASC
+      ORDER BY (vec.distance + e.is_sidechain * ?) ASC
     `);
-        results = stmt.all(Buffer.from(new Float32Array(queryEmbedding).buffer), k, ...filterParams);
+        results = stmt.all(Buffer.from(new Float32Array(queryEmbedding).buffer), k, ...filterParams, SIDECHAIN_DISTANCE_PENALTY);
         if (results.length > limit) {
             results = results.slice(0, limit);
         }
@@ -181,7 +191,8 @@ export async function searchConversations(query, options = {}) {
         // Text search: AND of per-token LIKE patterns so multi-word queries match
         // when every term appears somewhere in the exchange (any order, either field).
         // See #127 — whole-query contiguous substring matching returned empty for
-        // typical multi-word searches that are not verbatim phrases.
+        // typical multi-word searches that are not verbatim phrases. Sidechain rows
+        // are de-ranked (ordered after main-thread rows), not excluded (#128).
         const { sql: textMatchSql, params: textMatchParams } = buildTextMatchClause(query);
         const textStmt = db.prepare(`
       SELECT
@@ -189,9 +200,9 @@ export async function searchConversations(query, options = {}) {
         0 as distance
       FROM exchanges AS e
       WHERE ${textMatchSql}
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY e.timestamp DESC
+      ORDER BY e.is_sidechain ASC, e.timestamp DESC
       LIMIT ?
     `);
         const textResults = textStmt.all(...textMatchParams, ...filterParams, limit);

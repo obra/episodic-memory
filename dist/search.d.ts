@@ -7,6 +7,7 @@ export interface SearchOptions {
     project?: string;
     session_id?: string;
     git_branch?: string;
+    include_sidechains?: boolean;
 }
 /**
  * Escape LIKE wildcards so user input is treated as a literal substring.

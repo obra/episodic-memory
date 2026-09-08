@@ -1,9 +1,10 @@
 import { buildSyncOptionsFromEnv, syncConversations } from './sync.js';
-import { getArchiveDir, getConversationSourceDirs, getIndexDir } from './paths.js';
+import { getArchiveDir, getConversationSourceDirs, getIndexDir, } from './paths.js';
 import { shouldSkipReentrantSync } from './summarizer.js';
 import { initDatabase } from './db.js';
 import { generateExchangeEmbedding, initEmbeddings } from './embeddings.js';
 import { runMigrationBatch, countStale } from './embedding-migration.js';
+import { exportOpencodeSessions } from './opencode-sync.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import { formatLogLine, getSyncLogPath, getSyncLockPath } from './logging.js';
@@ -22,20 +23,23 @@ if (shouldSkipReentrantSync()) {
 }
 if (args.includes('--help') || args.includes('-h')) {
     console.log(`
-Usage: episodic-memory sync [--background]
+Usage: episodic-memory sync [--background] [--only claude|codex|opencode] [--summary-limit N]
 
-Sync conversations from Claude Code and Codex transcript directories to archive and index them.
+Sync conversations from Claude Code, Codex, and opencode transcript sources to archive and index them.
 
 This command:
-1. Copies new or updated .jsonl files to conversation archive
-2. Generates embeddings for semantic search
-3. Updates the search index
+1. Exports opencode sessions from its SQLite database when available
+2. Copies new or updated .jsonl files to conversation archive
+3. Generates embeddings for semantic search
+4. Updates the search index
 
 Only processes files that are new or have been modified since last sync.
 Safe to run multiple times - subsequent runs are fast no-ops.
 
 OPTIONS:
-  --background    Run sync in background (for hooks, returns immediately)
+  --background        Run sync in background (for hooks, returns immediately)
+  --only <harness>    Limit sync to claude, codex, or opencode
+  --summary-limit N   Max summaries to generate per source this run (default: 10)
 
 EXAMPLES:
   # Sync all new conversations
@@ -43,6 +47,9 @@ EXAMPLES:
 
   # Sync in background (for hooks)
   episodic-memory sync --background
+
+  # Sync only opencode conversations
+  episodic-memory sync --only opencode
 
   # Use in Claude Code hook
   # In .claude/hooks/session-end:
@@ -52,6 +59,61 @@ EXAMPLES:
 }
 // Check if running in background mode
 const isBackground = args.includes('--background');
+function parseOnlyHarness() {
+    const raw = (() => {
+        const eq = args.find(arg => arg.startsWith('--only='));
+        if (eq)
+            return eq.slice('--only='.length);
+        const idx = args.indexOf('--only');
+        if (idx !== -1) {
+            const value = args[idx + 1];
+            if (!value || value.startsWith('--')) {
+                console.error('Invalid --only value: expected claude, codex, or opencode.');
+                process.exit(1);
+            }
+            return value;
+        }
+        return undefined;
+    })();
+    if (!raw)
+        return undefined;
+    const harnesses = raw.split(',').map(item => item.trim()).filter(Boolean);
+    const valid = new Set(['claude', 'codex', 'opencode']);
+    for (const harness of harnesses) {
+        if (!valid.has(harness)) {
+            console.error(`Invalid --only value: ${harness}. Expected claude, codex, or opencode.`);
+            process.exit(1);
+        }
+    }
+    return harnesses;
+}
+function parseSummaryLimit() {
+    const raw = (() => {
+        const eq = args.find(arg => arg.startsWith('--summary-limit='));
+        if (eq)
+            return eq.slice('--summary-limit='.length);
+        const idx = args.indexOf('--summary-limit');
+        if (idx !== -1) {
+            const value = args[idx + 1];
+            if (!value || value.startsWith('--')) {
+                console.error('Invalid --summary-limit value: expected a non-negative integer.');
+                process.exit(1);
+            }
+            return value;
+        }
+        return undefined;
+    })();
+    if (!raw)
+        return undefined;
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+        console.error(`Invalid --summary-limit value: ${raw}. Expected a non-negative integer.`);
+        process.exit(1);
+    }
+    return parsed;
+}
+const onlyHarnesses = parseOnlyHarness();
+const summaryLimit = parseSummaryLimit();
 // If background mode, fork the process and exit immediately
 if (isBackground) {
     const filteredArgs = args.filter(arg => arg !== '--background');
@@ -70,12 +132,25 @@ if (isBackground) {
     console.log(`Sync started in background. Log: ${logPath}`);
     process.exit(0);
 }
-const sourceDirs = getConversationSourceDirs();
+if (!onlyHarnesses || onlyHarnesses.includes('opencode')) {
+    const opencodeExport = exportOpencodeSessions();
+    if (opencodeExport.exported > 0 || opencodeExport.skipped > 0) {
+        console.log(`opencode export: ${opencodeExport.exported} exported, ${opencodeExport.skipped} skipped`);
+    }
+    if (opencodeExport.errors.length > 0) {
+        console.log(`opencode export errors: ${opencodeExport.errors.length}`);
+        opencodeExport.errors.forEach(err => {
+            const label = err.sessionId ? `session ${err.sessionId}` : 'database';
+            console.log(`  ${label}: ${err.error}`);
+        });
+    }
+}
+const sourceDirs = getConversationSourceDirs(onlyHarnesses);
 const destDir = getArchiveDir();
 const syncOptions = buildSyncOptionsFromEnv(process.env);
 if (sourceDirs.length === 0) {
     console.log('⚠️  No conversation source directories found.');
-    console.log('  Checked: ~/.claude/projects, ~/.claude/transcripts, and ~/.codex/sessions');
+    console.log('  Checked: ~/.claude/projects, ~/.claude/transcripts, ~/.codex/sessions, and generated opencode transcripts');
     if (process.env.CLAUDE_CONFIG_DIR) {
         console.log(`  CLAUDE_CONFIG_DIR is set to: ${process.env.CLAUDE_CONFIG_DIR}`);
     }
@@ -111,7 +186,7 @@ console.log(`Destination: ${destDir}\n`);
 async function syncAll() {
     const totals = { copied: 0, skipped: 0, indexed: 0, summarized: 0, errors: [], sourcesWithSummaryWork: 0, totalNeedingSummaries: 0 };
     for (const sourceDir of sourceDirs) {
-        const result = await syncConversations(sourceDir, destDir, syncOptions);
+        const result = await syncConversations(sourceDir, destDir, { ...syncOptions, summaryLimit });
         totals.copied += result.copied;
         totals.skipped += result.skipped;
         totals.indexed += result.indexed;

@@ -12,12 +12,39 @@ export declare function getClaudeDir(): string;
  */
 export declare function getCodexDir(): string;
 /**
+ * Get the Cursor configuration directory.
+ * Supports CURSOR_HOME for alternate profiles.
+ * Falls back to ~/.cursor when not set.
+ */
+export declare function getCursorDir(): string;
+/**
+ * Get the staging directory where `import-cursor-history` exports legacy
+ * Cursor conversations (extracted from state.vscdb) as JSONL. Scanned as a
+ * conversation source so sync picks the exports up like any other harness.
+ */
+export declare function getCursorLegacyExportDir(): string;
+/**
+ * Get the opencode data directory.
+ * opencode stores its SQLite database under XDG data by default.
+ */
+export declare function getOpencodeDataDir(): string;
+/**
+ * Get the opencode SQLite database path.
+ */
+export declare function getOpencodeDbPath(): string;
+/**
+ * Get the generated opencode transcript directory used as a sync source.
+ */
+export declare function getOpencodeTranscriptDir(): string;
+export type ConversationSourceHarness = 'claude' | 'codex' | 'cursor' | 'opencode';
+/**
  * Get all directories where supported harnesses store conversation files.
  * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
- * plus Codex sessions.
+ * Codex sessions, Cursor agent transcripts (live and legacy exports), and
+ * generated opencode transcripts.
  * Returns only directories that exist.
  */
-export declare function getConversationSourceDirs(): string[];
+export declare function getConversationSourceDirs(only?: ConversationSourceHarness[]): string[];
 /**
  * Recursively find all .jsonl files under a directory.
  * Returns paths relative to the given directory.

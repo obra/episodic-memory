@@ -29710,6 +29710,7 @@ function isErroredSentinel(content) {
 // src/search.ts
 import fs3 from "fs";
 import readline from "readline";
+var SIDECHAIN_DISTANCE_PENALTY = 0.05;
 function buildSearchFilters(options) {
   const parts = [];
   const params = [];
@@ -29737,9 +29738,6 @@ function buildSearchFilters(options) {
     sql: parts.length ? `AND ${parts.join(" AND ")}` : "",
     params
   };
-}
-function hasMetadataFilters(options) {
-  return Boolean(options.project || options.session_id || options.git_branch);
 }
 function escapeLikePattern(term) {
   return term.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
@@ -29824,6 +29822,8 @@ function validateISODate(dateStr, paramName) {
 }
 async function searchConversations(query, options = {}) {
   const { limit = 10, mode = "both", after, before } = options;
+  const includeSidechains = options.include_sidechains !== false;
+  const sidechainClause = includeSidechains ? "" : "AND e.is_sidechain = 0";
   if (after) validateISODate(after, "--after");
   if (before) validateISODate(before, "--before");
   const db = initDatabase();
@@ -29832,7 +29832,7 @@ async function searchConversations(query, options = {}) {
   if (mode === "vector" || mode === "both") {
     await initEmbeddings();
     const queryEmbedding = await generateQueryEmbedding(query);
-    const k2 = hasMetadataFilters(options) ? limit * 3 : limit;
+    const k2 = limit * 3;
     const stmt = db.prepare(`
       SELECT
         ${EXCHANGE_SELECT_COLUMNS},
@@ -29841,14 +29841,15 @@ async function searchConversations(query, options = {}) {
       JOIN exchanges AS e ON vec.id = e.id
       WHERE vec.embedding MATCH ?
         AND k = ?
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY vec.distance ASC
+      ORDER BY (vec.distance + e.is_sidechain * ?) ASC
     `);
     results = stmt.all(
       Buffer.from(new Float32Array(queryEmbedding).buffer),
       k2,
-      ...filterParams
+      ...filterParams,
+      SIDECHAIN_DISTANCE_PENALTY
     );
     if (results.length > limit) {
       results = results.slice(0, limit);
@@ -29862,9 +29863,9 @@ async function searchConversations(query, options = {}) {
         0 as distance
       FROM exchanges AS e
       WHERE ${textMatchSql}
-        AND e.is_sidechain = 0
+        ${sidechainClause}
         ${filterClause}
-      ORDER BY e.timestamp DESC
+      ORDER BY e.is_sidechain ASC, e.timestamp DESC
       LIMIT ?
     `);
     const textResults = textStmt.all(...textMatchParams, ...filterParams, limit);
@@ -31199,6 +31200,12 @@ function formatConversationAsMarkdown(jsonl, startLine, endLine) {
   if (isCodexRollout(lines)) {
     return formatCodexConversationAsMarkdown(lines);
   }
+  if (isOpencodeTranscript(lines)) {
+    return formatOpencodeConversationAsMarkdown(lines);
+  }
+  if (isCursorTranscript(lines)) {
+    return formatCursorConversationAsMarkdown(lines);
+  }
   const allMessages = lines.map((line) => JSON.parse(line));
   const messages = allMessages.filter((msg) => {
     if (msg.type !== "user" && msg.type !== "assistant") return false;
@@ -31244,7 +31251,7 @@ function formatConversationAsMarkdown(jsonl, startLine, endLine) {
   let inSidechain = false;
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    const timestamp = new Date(msg.timestamp).toLocaleString();
+    const timestamp = new Date(msg.timestamp).toLocaleString("en-US", { timeZone: "UTC" });
     const messageId = msg.uuid || `msg-${i}`;
     if (msg.type === "user" && Array.isArray(msg.message.content)) {
       const hasOnlyToolResults = msg.message.content.every((block) => block.type === "tool_result");
@@ -31405,6 +31412,30 @@ function isCodexRollout(lines) {
   }
   return false;
 }
+function isCursorTranscript(lines) {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === "status" || parsed.type === "error") continue;
+      if (parsed.type === void 0 && parsed.role && parsed.message) return true;
+      return false;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+function isOpencodeTranscript(lines) {
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      return parsed.type === "opencode_session" || parsed.type === "opencode_message";
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
 function extractCodexText(content) {
   if (typeof content === "string") {
     return content;
@@ -31413,6 +31444,104 @@ function extractCodexText(content) {
     return "";
   }
   return content.filter((block) => block && typeof block === "object" && typeof block.text === "string").map((block) => block.text).join("\n");
+}
+function opencodeTimestamp(message) {
+  const millis = message?.time?.completed || message?.time?.created || message?.timeUpdated || message?.timeCreated;
+  if (typeof millis !== "number") {
+    return "";
+  }
+  const date5 = new Date(millis);
+  return Number.isNaN(date5.getTime()) ? "" : date5.toLocaleString("en-US", { timeZone: "UTC" });
+}
+function extractOpencodeText(parts) {
+  if (!Array.isArray(parts)) {
+    return "";
+  }
+  return parts.filter((part) => part?.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
+}
+function formatOpencodeConversationAsMarkdown(lines) {
+  const entries = lines.map((line) => JSON.parse(line));
+  const metadata = {};
+  for (const entry of entries) {
+    if (entry.type !== "opencode_session" || !entry.session) {
+      continue;
+    }
+    metadata.sessionId = entry.session.id || metadata.sessionId;
+    metadata.cwd = entry.session.directory || entry.project?.worktree || metadata.cwd;
+    metadata.version = entry.session.version || metadata.version;
+    metadata.model = entry.session.model?.id || entry.session.model?.modelID || metadata.model;
+    metadata.modelProvider = entry.session.model?.providerID || metadata.modelProvider;
+  }
+  let output2 = "# Conversation\n\n";
+  output2 += "## Metadata\n\n";
+  output2 += "**Harness:** opencode\n\n";
+  if (metadata.sessionId) output2 += `**Session ID:** ${metadata.sessionId}
+
+`;
+  if (metadata.cwd) output2 += `**Working Directory:** ${metadata.cwd}
+
+`;
+  if (metadata.version) output2 += `**opencode Version:** ${metadata.version}
+
+`;
+  if (metadata.model) output2 += `**Model:** ${metadata.model}
+
+`;
+  if (metadata.modelProvider) output2 += `**Model Provider:** ${metadata.modelProvider}
+
+`;
+  output2 += "---\n\n";
+  output2 += "## Messages\n\n";
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.type !== "opencode_message" || !entry.message) {
+      continue;
+    }
+    const timestamp = opencodeTimestamp(entry.message);
+    const anchor2 = entry.message.id || `msg-${i}`;
+    const role = entry.message.role === "user" ? "User" : "Agent";
+    const text = extractOpencodeText(entry.parts);
+    if (text.trim()) {
+      output2 += `### **${role}** (${timestamp}) {#${anchor2}}
+
+`;
+      output2 += `${text}
+
+`;
+    }
+    if (!Array.isArray(entry.parts)) {
+      continue;
+    }
+    for (const part of entry.parts) {
+      if (part?.type !== "tool") {
+        continue;
+      }
+      const state = part.state || {};
+      output2 += `### **Tool Use** (${timestamp}) {#${part.callID || part.id || `${anchor2}-tool`}}
+
+`;
+      output2 += `**Tool Use:** \`${part.tool || "unknown"}\`
+
+`;
+      output2 += formatCodexToolInputMarkdown(state.input);
+      if (state.output !== void 0 && state.output !== null) {
+        const result = typeof state.output === "string" ? state.output : JSON.stringify(state.output, null, 2);
+        output2 += "**Result:**\n";
+        if (result.includes("\n") || result.length > 100) {
+          output2 += `\`\`\`
+${result}
+\`\`\`
+
+`;
+        } else {
+          output2 += `${result}
+
+`;
+        }
+      }
+    }
+  }
+  return output2;
 }
 function safeParseJson(value) {
   try {
@@ -31523,7 +31652,7 @@ function formatCodexConversationAsMarkdown(lines) {
     if (entry.type !== "response_item" || !payload) {
       continue;
     }
-    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "";
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString("en-US", { timeZone: "UTC" }) : "";
     const anchor2 = payload.call_id || `msg-${i}`;
     if (payload.type === "message") {
       const text = extractCodexText(payload.content);
@@ -31577,6 +31706,65 @@ ${result}
   }
   return output2;
 }
+function formatCursorConversationAsMarkdown(lines) {
+  const entries = lines.map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  }).filter((e) => e && e.role && e.message);
+  const first = entries[0] || {};
+  let output2 = "# Conversation\n\n";
+  output2 += "## Metadata\n\n";
+  output2 += "**Harness:** Cursor\n\n";
+  if (first.sessionId) output2 += `**Session ID:** ${first.sessionId}
+
+`;
+  if (first.cwd) output2 += `**Working Directory:** ${first.cwd}
+
+`;
+  output2 += "---\n\n";
+  output2 += "## Messages\n\n";
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString("en-US", { timeZone: "UTC" }) : "";
+    const anchor2 = `msg-${i}`;
+    const content = entry.message.content;
+    let text = "";
+    const toolUses = [];
+    if (typeof content === "string") {
+      text = content;
+    } else if (Array.isArray(content)) {
+      text = content.filter((b2) => b2 && b2.type === "text" && typeof b2.text === "string").map((b2) => b2.text).join("\n");
+      for (const b2 of content) {
+        if (b2 && b2.type === "tool_use") {
+          toolUses.push({ name: b2.name || "unknown", input: b2.input });
+        }
+      }
+    }
+    if (entry.role === "user") {
+      text = text.replace(/<\/?user_query>/g, "").trim();
+    }
+    if (!text.trim() && toolUses.length === 0) continue;
+    const roleLabel = entry.role === "user" ? "User" : "Agent";
+    output2 += `### **${roleLabel}** (${timestamp}) {#${anchor2}}
+
+`;
+    if (text.trim()) {
+      output2 += `${text}
+
+`;
+    }
+    for (const tool of toolUses) {
+      output2 += `**Tool Use:** \`${tool.name}\`
+
+`;
+      output2 += formatCodexToolInputMarkdown(tool.input);
+    }
+  }
+  return output2;
+}
 
 // src/version.ts
 var VERSION = "1.4.2";
@@ -31601,6 +31789,9 @@ var SearchInputSchema = external_exports.object({
   project: external_exports.string().min(1).optional().describe("Filter by project name (exact match)"),
   session_id: external_exports.string().min(1).optional().describe("Filter by session ID (exact match)"),
   git_branch: external_exports.string().min(1).optional().describe("Filter by git branch name (exact match)"),
+  include_sidechains: external_exports.boolean().default(true).describe(
+    "Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: true). Set false to search only the main thread."
+  ),
   response_format: ResponseFormatEnum.default("markdown").describe(
     'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
   )
@@ -31632,7 +31823,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "search",
-        description: `Gives you memory across sessions. You don't automatically remember past Claude Code and Codex conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past Claude Code, Codex, Cursor, and opencode conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Subagent and workflow (sidechain) conversations are searched by default, de-ranked below main-thread matches; pass include_sidechains=false to search only the main thread. Returns ranked results with project, date, snippets, and file paths.`,
         inputSchema: {
           type: "object",
           properties: {
@@ -31649,6 +31840,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             project: { type: "string", minLength: 1, description: "Filter by project name (exact match)" },
             session_id: { type: "string", minLength: 1, description: "Filter by session ID (exact match)" },
             git_branch: { type: "string", minLength: 1, description: "Filter by git branch name (exact match)" },
+            include_sidechains: { type: "boolean", default: true, description: "Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: true)" },
             response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" }
           },
           required: ["query"],
@@ -31699,7 +31891,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           before: params.before,
           project: params.project,
           session_id: params.session_id,
-          git_branch: params.git_branch
+          git_branch: params.git_branch,
+          include_sidechains: params.include_sidechains
         };
         const results = await searchMultipleConcepts(params.query, options);
         if (params.response_format === "json") {
@@ -31723,7 +31916,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           before: params.before,
           project: params.project,
           session_id: params.session_id,
-          git_branch: params.git_branch
+          git_branch: params.git_branch,
+          include_sidechains: params.include_sidechains
         };
         const results = await searchConversations(params.query, options);
         if (params.response_format === "json") {
