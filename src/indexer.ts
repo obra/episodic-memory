@@ -106,15 +106,22 @@ export async function indexConversations(
       const sourcePath = path.join(projectPath, file);
       const archivePath = path.join(projectArchive, file);
 
-      // Copy to archive (ensure parent dirs exist for subagent files)
-      if (!fs.existsSync(archivePath)) {
-        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-        fs.copyFileSync(sourcePath, archivePath);
-        console.log(`  Archived: ${file}`);
-      }
+      // Source transcripts can vanish mid-run (Claude Code cleanup). Skip loudly.
+      let exchanges;
+      try {
+        // Copy to archive (ensure parent dirs exist for subagent files)
+        if (!fs.existsSync(archivePath)) {
+          fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+          fs.copyFileSync(sourcePath, archivePath);
+          console.log(`  Archived: ${file}`);
+        }
 
-      // Parse conversation
-      const exchanges = await parseConversation(sourcePath, project, archivePath);
+        // Parse conversation
+        exchanges = await parseConversation(sourcePath, project, archivePath);
+      } catch (error) {
+        console.log(`  Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
+        continue;
+      }
 
       if (exchanges.length === 0) {
         console.log(`  Skipped ${file} (no exchanges)`);
@@ -221,14 +228,19 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
 
       const archivePath = path.join(projectArchive, file);
 
-      // Archive (ensure parent dirs exist for subagent files)
-      if (!fs.existsSync(archivePath)) {
-        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-        fs.copyFileSync(sourcePath, archivePath);
+      // Archive + parse — source may vanish mid-run (Claude Code cleanup).
+      let exchanges;
+      try {
+        if (!fs.existsSync(archivePath)) {
+          fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+          fs.copyFileSync(sourcePath, archivePath);
+        }
+        exchanges = await parseConversation(sourcePath, project, archivePath);
+      } catch (error) {
+        console.log(`Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
+        db.close();
+        break;
       }
-
-      // Parse and summarize
-      const exchanges = await parseConversation(sourcePath, project, archivePath);
 
       if (exchanges.length > 0) {
         // Generate summary (unless --no-summaries)
@@ -322,21 +334,26 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
       const maxIndexedLine = hw.maxLine;
 
       // Ensure parent dirs exist for subagent files
-      fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+      try {
+        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
 
-      // Refresh the archive when the source may have grown beyond what we've seen.
-      if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
-        fs.copyFileSync(sourcePath, archivePath);
+        // Refresh the archive when the source may have grown beyond what we've seen.
+        if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
+          fs.copyFileSync(sourcePath, archivePath);
+        }
+
+        // Parse and filter to exchanges past the high-water mark
+        const exchanges = await parseConversation(sourcePath, project, archivePath);
+        const newExchanges = maxIndexedLine > 0
+          ? exchanges.filter(e => e.lineStart > maxIndexedLine)
+          : exchanges;
+        if (newExchanges.length === 0) continue;
+
+        unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges: newExchanges });
+      } catch (error) {
+        console.log(`  Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
+        continue;
       }
-
-      // Parse and filter to exchanges past the high-water mark
-      const exchanges = await parseConversation(sourcePath, project, archivePath);
-      const newExchanges = maxIndexedLine > 0
-        ? exchanges.filter(e => e.lineStart > maxIndexedLine)
-        : exchanges;
-      if (newExchanges.length === 0) continue;
-
-      unprocessed.push({ project, file, sourcePath, archivePath, summaryPath, exchanges: newExchanges });
     }
   }
   } // end sourceDir loop
