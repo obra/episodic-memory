@@ -262,6 +262,28 @@ export EPISODIC_MEMORY_ALLOW_METERED_API=1
 Only the exact value `1` silences the metered-API warning; any other value still shows it.
 `EPISODIC_MEMORY_ALLOW_METERED_API` is likewise `1`-only, as is `EPISODIC_MEMORY_DISABLE_AUTO_SYNC`.
 
+### Routing through AWS Bedrock
+
+To route Claude summarization through AWS Bedrock instead of the Anthropic API, set `CLAUDE_CODE_USE_BEDROCK` and provide AWS credentials in the plugin's environment:
+
+```bash
+export CLAUDE_CODE_USE_BEDROCK=1
+export AWS_REGION=us-west-2          # or AWS_DEFAULT_REGION
+
+# Then one of:
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...         # if using temporary credentials
+
+# or:
+export AWS_PROFILE=your-bedrock-profile
+
+# or:
+export AWS_BEARER_TOKEN_BEDROCK=...  # Bedrock API-key auth
+```
+
+These pass through unchanged to episodic-memory's summarizer subprocess. Because Bedrock authenticates with AWS credentials rather than `ANTHROPIC_API_KEY`, it does not trigger the metered-API warning above.
+
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
 Codex summarization requires `codex-cli 0.130.0` or newer. If Codex app-server summarization is unavailable, sync logs the reason and falls back to transcript-text summarization.

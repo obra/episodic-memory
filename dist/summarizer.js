@@ -129,6 +129,12 @@ export function getApiEnv() {
     // SessionStart hook checks the guard via shouldSkipReentrantSync() and
     // exits before launching another sync, breaking the recursive cascade
     // reported in #87.
+    //
+    // The `...process.env` spread below also carries CLAUDE_CODE_USE_BEDROCK and
+    // AWS_* (region, credentials, AWS_PROFILE, AWS_BEARER_TOKEN_BEDROCK) through
+    // to the SDK subprocess unchanged, which is how summarization gets routed
+    // through AWS Bedrock (#44). No per-var handling needed here — the spread
+    // already covers it.
     return {
         ...process.env,
         EPISODIC_MEMORY_SUMMARIZER_GUARD: '1',
