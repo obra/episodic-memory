@@ -176,4 +176,31 @@ describe('search metadata filters', () => {
     expect(projects.has('project-a')).toBe(true);
     expect(projects.has('project-b')).toBe(true);
   });
+
+  // #126 (via #128): date-filtered vector search used to return empty because vec0
+  // ran KNN before the WHERE while k stayed at `limit`; #128 over-fetches (k = limit*3)
+  // and applies after/before in the WHERE. This guards that after/before are honored in
+  // vector mode; boundary and dates are derived from the fixture so it is timezone-robust.
+  // (The exact large-index starvation #126 described needs a >limit fixture; #128's k=limit*3
+  // is the fix.) Regression test contributed by @arimu1 (#133). --after/--before take YYYY-MM-DD.
+  it('honors after/before date filters in vector search mode (#126)', async () => {
+    const all = await searchConversations('authentication', { mode: 'vector', limit: 10 });
+    expect(all.length).toBe(3);
+    const dates = [...new Set(all.map(r => r.exchange.timestamp.slice(0, 10)))].sort();
+    expect(dates.length).toBeGreaterThanOrEqual(2);
+    const boundary = dates[1];
+
+    const after = await searchConversations('authentication', { after: boundary, mode: 'vector', limit: 10 });
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.length).toBeLessThan(all.length);
+    for (const r of after) {
+      expect(r.exchange.timestamp.slice(0, 10) >= boundary).toBe(true);
+    }
+
+    const before = await searchConversations('authentication', { before: boundary, mode: 'vector', limit: 10 });
+    expect(before.length).toBeGreaterThan(0);
+    for (const r of before) {
+      expect(r.exchange.timestamp.slice(0, 10) <= boundary).toBe(true);
+    }
+  });
 });

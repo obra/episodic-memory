@@ -2,7 +2,7 @@
 /**
  * MCP Server for Episodic Memory.
  *
- * This server provides tools to search and explore indexed Claude Code and Codex conversations
+ * This server provides tools to search and explore indexed Claude Code, Codex, and opencode conversations
  * using semantic search, text search, and conversation display capabilities.
  */
 
@@ -77,6 +77,12 @@ const SearchInputSchema = z
       .min(1)
       .optional()
       .describe('Filter by git branch name (exact match)'),
+    include_sidechains: z
+      .boolean()
+      .default(true)
+      .describe(
+        'Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: true). Set false to search only the main thread.'
+      ),
     response_format: ResponseFormatEnum.default('markdown').describe(
       'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
     ),
@@ -138,7 +144,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'search',
-        description: `Gives you memory across sessions. You don't automatically remember past Claude Code and Codex conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past Claude Code, Codex, Cursor, and opencode conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Subagent and workflow (sidechain) conversations are searched by default, de-ranked below main-thread matches; pass include_sidechains=false to search only the main thread. Returns ranked results with project, date, snippets, and file paths.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -155,6 +161,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             project: { type: 'string', minLength: 1, description: 'Filter by project name (exact match)' },
             session_id: { type: 'string', minLength: 1, description: 'Filter by session ID (exact match)' },
             git_branch: { type: 'string', minLength: 1, description: 'Filter by git branch name (exact match)' },
+            include_sidechains: { type: 'boolean', default: true, description: 'Include subagent/workflow (sidechain) conversations, de-ranked below main-thread matches (default: true)' },
             response_format: { type: 'string', enum: ['markdown', 'json'], default: 'markdown' },
           },
           required: ['query'],
@@ -213,6 +220,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           project: params.project,
           session_id: params.session_id,
           git_branch: params.git_branch,
+          include_sidechains: params.include_sidechains,
         };
 
         const results = await searchMultipleConcepts(params.query, options);
@@ -240,6 +248,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           project: params.project,
           session_id: params.session_id,
           git_branch: params.git_branch,
+          include_sidechains: params.include_sidechains,
         };
 
         const results = await searchConversations(params.query, options);
