@@ -20,6 +20,52 @@ function shouldSkipConversation(filePath: string): boolean {
   }
 }
 
+/**
+ * True when a transcript contains at least one message line in any supported
+ * harness format. Summarizer-spawned Agent SDK sessions materialize as
+ * message-less stub files (a single {"type":"ai-title"} line) that defeat the
+ * marker-based exclusion above and would otherwise re-enter the sync queue on
+ * every run — one new stub per summary generated. A transcript that has no
+ * messages *yet* (a session that just started) is skipped this run and picked
+ * up on a later sync once it has content, since its mtime keeps advancing.
+ */
+function hasConversationContent(filePath: string): boolean {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line);
+        // Claude: {type: "user"|"assistant", message: {...}}
+        if ((parsed.type === 'user' || parsed.type === 'assistant') && parsed.message) {
+          return true;
+        }
+        // Codex: {type: "response_item"|..., payload: {...}}
+        if (parsed.payload) {
+          return true;
+        }
+        // Cursor: {role: "user"|"assistant", message: {...}}
+        if (parsed.role && parsed.message) {
+          return true;
+        }
+        // opencode: {type: "opencode_message", message: {...}, parts: [...]}.
+        // The message line has no top-level `role` and its `type` is neither
+        // user nor assistant, so without this branch #113's pre-copy guard would
+        // skip every opencode transcript before it is copied/indexed/summarized.
+        if (parsed.type === 'opencode_message' && parsed.message) {
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return false;
+  } catch {
+    // If we can't read the file, let the normal pipeline handle it
+    return true;
+  }
+}
+
 export interface SyncResult {
   copied: number;
   skipped: number;
@@ -73,6 +119,14 @@ function copyIfNewer(src: string, dest: string): boolean {
   const tempDest = dest + '.tmp.' + process.pid;
   fs.copyFileSync(src, tempDest);
   fs.renameSync(tempDest, dest); // Atomic on same filesystem
+
+  // Preserve source mtime: harnesses without per-message timestamps (Cursor
+  // agent transcripts) fall back to file mtime. Round up to the next whole
+  // millisecond — utimes can't always represent the source's sub-millisecond
+  // precision, and a dest mtime even fractionally older would defeat the
+  // skip-if-current check above on every subsequent sync.
+  const srcStat = fs.statSync(src);
+  fs.utimesSync(dest, srcStat.atimeMs / 1000, Math.ceil(srcStat.mtimeMs) / 1000);
   return true;
 }
 
@@ -107,7 +161,7 @@ export async function syncConversations(
 
   // Collect files to index and summarize
   const filesToIndex: string[] = [];
-  const filesToSummarize: Array<{ path: string; sessionId: string }> = [];
+  const filesToSummarize: Array<{ path: string; sessionId: string | undefined }> = [];
 
   // Walk source directory
   const projects = fs.readdirSync(sourceDir);
@@ -132,6 +186,13 @@ export async function syncConversations(
       const destFile = path.join(destDir, project, file);
 
       try {
+        // Skip message-less transcripts (summarizer-spawned stubs, sessions
+        // that haven't produced content yet) before they enter the archive.
+        if (!hasConversationContent(srcFile)) {
+          result.skipped++;
+          continue;
+        }
+
         const wasCopied = copyIfNewer(srcFile, destFile);
         if (wasCopied) {
           result.copied++;
@@ -146,10 +207,12 @@ export async function syncConversations(
         if (!options.skipSummaries) {
           const summaryPath = destFile.replace('.jsonl', '-summary.txt');
           if (shouldQueueForSummary(summaryPath) && !shouldSkipConversation(destFile)) {
-            const sessionId = extractSessionIdFromPath(destFile);
-            if (sessionId) {
-              filesToSummarize.push({ path: destFile, sessionId });
-            }
+            // sessionId enables Claude session-resume summarization; when the
+            // filename has no UUID to extract (e.g. subagent transcripts named
+            // agent-<hex>.jsonl), queue anyway — summarizeConversation falls
+            // back to summarizing from the transcript text.
+            const sessionId = extractSessionIdFromPath(destFile) ?? undefined;
+            filesToSummarize.push({ path: destFile, sessionId });
           }
         }
       } catch (error) {
@@ -230,7 +293,7 @@ export async function syncConversations(
   // Generate summaries for files that need them
   if (!options.skipSummaries && filesToSummarize.length > 0) {
     const { parseConversation } = await import('./parser.js');
-    const { summarizeConversation } = await import('./summarizer.js');
+    const { summarizeConversation, isAuthFailure } = await import('./summarizer.js');
 
     const summaryLimit = options.summaryLimit ?? 10;
     const toSummarize = filesToSummarize.slice(0, summaryLimit);
@@ -241,7 +304,26 @@ export async function syncConversations(
       console.log(`  (${remaining} more need summaries - will process on next sync)`);
     }
 
+    // A global failure (expired Claude CLI OAuth, #138) is not per-file. After
+    // the first, skip the rest of this batch with
+    // error sentinels so we don't burn minutes re-billing doomed calls or spam the
+    // same message per file. The skipped files re-queue on the next sync.
+    let stopBatch = false;
+    let stopBatchMessage = '';
+
     for (const { path: filePath, sessionId } of toSummarize) {
+      if (stopBatch) {
+        try {
+          const summaryPath = filePath.replace('.jsonl', '-summary.txt');
+          fs.writeFileSync(summaryPath, formatErrorSentinel(new Error(stopBatchMessage)), 'utf-8');
+        } catch {}
+        result.errors.push({
+          file: filePath,
+          error: `Summary generation skipped: ${stopBatchMessage}`,
+        });
+        continue;
+      }
+
       try {
         const project = path.basename(path.dirname(filePath));
         const exchanges = await parseConversation(filePath, project, filePath);
@@ -273,6 +355,14 @@ export async function syncConversations(
           file: filePath,
           error: `Summary generation failed: ${error instanceof Error ? error.message : String(error)}`
         });
+
+        // Stop the batch on a global failure (expired auth).
+        if (isAuthFailure(error)) {
+          stopBatch = true;
+          stopBatchMessage =
+            'Claude CLI authentication failed — run `claude` and re-authenticate; summaries will retry on the next sync.';
+          console.error(`  ${stopBatchMessage}`);
+        }
       }
     }
   }

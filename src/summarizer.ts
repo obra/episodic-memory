@@ -11,24 +11,110 @@ import {
   versionMeetsMinimum,
 } from './codex-support.js';
 
+/** Max chars of SDK `result` text kept on SummarizerSdkError (see #138). */
+const SDK_ERROR_DETAIL_MAX = 300;
+
 /**
- * Thrown by callClaude when the SDK yields an `is_error: true` result message.
- * Carries the SDK's `subtype` and `session_id` as typed fields so callers can
- * dispatch on structural metadata rather than parsing error message text.
+ * Truncate SDK error detail for log/error/sentinel messages without dropping the lead.
+ */
+export function truncateSdkErrorDetail(detail: string, max = SDK_ERROR_DETAIL_MAX): string {
+  const collapsed = detail.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= max) return collapsed;
+  return `${collapsed.slice(0, max - 1)}…`;
+}
+
+/**
+ * Thrown by the summarizer query when the SDK yields an `is_error: true` result.
+ * Carries `subtype`, `session_id`, `api_error_status`, and the (truncated) SDK
+ * `result` text so callers can dispatch on structure and logs/sentinels show the
+ * real failure — not a bare, often-useless subtype. The SDK pairs
+ * `subtype: 'success'` with `is_error: true` when the loop finished but the turn
+ * hit an API error (carried in `result` / `api_error_status`): e.g. a CLI OAuth
+ * 401 (#138), a replayed-thinking-block 400 (#110), or "No conversation found"
+ * on an archive-only resume (#122).
  */
 export class SummarizerSdkError extends Error {
-  constructor(public readonly subtype: string, public readonly sessionId?: string) {
-    super(`Summarizer SDK error: ${subtype}${sessionId ? ` (session ${sessionId})` : ''}`);
+  public readonly detail?: string;
+
+  constructor(
+    public readonly subtype: string,
+    public readonly sessionId?: string,
+    public readonly apiErrorStatus?: number | null,
+    detail?: string,
+  ) {
+    const trimmed = typeof detail === 'string' ? detail.trim() : '';
+    const kept = trimmed ? truncateSdkErrorDetail(trimmed) : undefined;
+    super(
+      `Summarizer SDK error: ${subtype}` +
+        (apiErrorStatus != null ? ` (HTTP ${apiErrorStatus})` : '') +
+        (sessionId ? ` (session ${sessionId})` : '') +
+        (kept ? `: ${kept}` : ''),
+    );
     this.name = 'SummarizerSdkError';
+    this.detail = kept;
   }
 }
 
 /**
- * True when the SDK's reported failure subtype indicates resume couldn't find
- * the session — the trigger for the non-resume fallback in summarizeConversation.
+ * True when the resume continuation itself failed — the trigger for the
+ * non-resume (transcript-text) fallback in summarizeConversation. Signals:
+ * - `error_during_execution`: the SDK couldn't resume (e.g. recorded cwd gone).
+ * - HTTP 400: the API rejected the replayed history — canonically the `thinking`
+ *   blocks it forbids modifying on continuation (#110). Our prompt is plain
+ *   text, so a 400 on resume can only come from the replayed turns.
+ * - `subtype: 'success'` with a "No conversation found" detail: an archive-only
+ *   session the CLI can't resume (#122). The SDK reports this with is_error but
+ *   subtype 'success', so the bare-subtype check missed it and the fallback
+ *   never fired.
+ * Auth failures also use subtype 'success' — those are NOT resume-specific and
+ * are excluded here (401/429/529 return false); isAuthFailure handles them.
  */
 export function isResumeFailure(error: unknown): boolean {
-  return error instanceof SummarizerSdkError && error.subtype === 'error_during_execution';
+  if (!(error instanceof SummarizerSdkError)) return false;
+  if (error.subtype === 'error_during_execution') return true;
+  if (error.apiErrorStatus === 400) return true;
+  if (error.subtype === 'success' && /no conversation found/i.test(error.detail ?? '')) return true;
+  return false;
+}
+
+/**
+ * True when the SDK's spawned Claude Code subprocess died before returning a
+ * result (e.g. `--resume` exiting nonzero because the session is a background
+ * agent that can't be resumed without --fork-session; #146). The SDK throws
+ * these as plain Errors, not SummarizerSdkError, so isResumeFailure never
+ * matches them — callers that resumed a session should still fall back to the
+ * non-resume path.
+ */
+export function isProcessExitFailure(error: unknown): boolean {
+  return error instanceof Error && /exited with code|terminated by signal/.test(error.message);
+}
+
+/**
+ * True when a summarizer failure looks like a GLOBAL auth problem (expired
+ * Claude CLI OAuth, 401, authentication_error). Auth is not per-conversation,
+ * so sync fail-fasts the rest of the summary batch instead of burning minutes
+ * re-billing doomed calls (#138). Matches against subtype + detail + message so
+ * it works whether the SDK reported subtype 'success' with a 401 in `result` or
+ * threw a plain Error.
+ */
+export function isAuthFailure(error: unknown): boolean {
+  const chunks: string[] = [];
+  if (error instanceof SummarizerSdkError) {
+    chunks.push(error.subtype, error.detail ?? '', error.message);
+  } else if (error instanceof Error) {
+    chunks.push(error.message);
+  } else if (error != null) {
+    chunks.push(String(error));
+  }
+  const text = chunks.join(' ').toLowerCase();
+  if (!text.trim()) return false;
+  return (
+    text.includes('failed to authenticate') ||
+    text.includes('authentication_error') ||
+    text.includes('oauth access token') ||
+    text.includes('unauthorized') ||
+    /\b401\b/.test(text)
+  );
 }
 
 export interface CodexSummarizerCommand {
@@ -79,6 +165,148 @@ export function getApiEnv(): Record<string, string | undefined> | undefined {
  */
 export function shouldSkipReentrantSync(): boolean {
   return process.env.EPISODIC_MEMORY_SUMMARIZER_GUARD === '1';
+}
+
+/** Default wall-clock ceiling for a single Claude summarizer query (#160). */
+const DEFAULT_SUMMARY_TIMEOUT_MS = 120000; // matches Codex appServerTimeoutMs
+
+/**
+ * Wall-clock ceiling for a single Claude summarizer query(). A wedged subprocess
+ * otherwise stalls forever while holding the sync single-instance lock, blocking
+ * every later sync (#160). Override with EPISODIC_MEMORY_SUMMARY_TIMEOUT_MS.
+ */
+export function summaryTimeoutMs(): number {
+  const configured = Number(process.env.EPISODIC_MEMORY_SUMMARY_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SUMMARY_TIMEOUT_MS;
+}
+
+/**
+ * Thrown when a Claude summarizer query exceeds summaryTimeoutMs(). Deliberately
+ * NOT matched by isResumeFailure/isProcessExitFailure, so a timeout surfaces as a
+ * failure sentinel and is not retried in a loop (#160).
+ */
+export class SummarizerTimeoutError extends Error {
+  constructor(public readonly timeoutMs: number) {
+    super(`Summarizer query timed out after ${timeoutMs}ms`);
+    this.name = 'SummarizerTimeoutError';
+  }
+}
+
+/**
+ * True when the summarizer would spend real money: a metered Anthropic API key
+ * is present in the environment (getApiEnv() spreads process.env, so the SDK
+ * subprocess inherits it) AND the user has NOT pointed episodic-memory at its own
+ * endpoint. Subscription (OAuth) auth carries no ANTHROPIC_API_KEY, so the key's
+ * absence means "not metered" (#104).
+ */
+export function wouldBillMeteredApi(): boolean {
+  if (process.env.EPISODIC_MEMORY_API_BASE_URL || process.env.EPISODIC_MEMORY_API_TOKEN) {
+    return false;
+  }
+  return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
+/** Explicit user opt-in to metered billing (#104). */
+export function meteredApiOptIn(): boolean {
+  return process.env.EPISODIC_MEMORY_ALLOW_METERED_API === '1';
+}
+
+let meteredApiWarned = false;
+
+/** Test-only: reset the once-per-process metered-API warning latch. */
+export function resetMeteredApiWarningForTests(): void {
+  meteredApiWarned = false;
+}
+
+/**
+ * Warn once per process when background summarization will bill the metered
+ * Anthropic API instead of a Claude subscription (#104). Summarization still
+ * proceeds; the warning just makes the spend visible. EPISODIC_MEMORY_ALLOW_METERED_API=1
+ * acknowledges it and silences the warning.
+ */
+export function warnMeteredApiOnce(): void {
+  if (meteredApiWarned) return;
+  meteredApiWarned = true;
+  console.warn(
+    'episodic-memory: ANTHROPIC_API_KEY is set, so background summarization will ' +
+    'bill the metered Anthropic API rather than your Claude subscription. ' +
+    'Set EPISODIC_MEMORY_ALLOW_METERED_API=1 to acknowledge and silence this warning, ' +
+    'unset ANTHROPIC_API_KEY to use your subscription, or set ' +
+    'EPISODIC_MEMORY_API_BASE_URL / EPISODIC_MEMORY_API_TOKEN to route elsewhere.',
+  );
+}
+
+/** The subset of the SDK query() signature the summarizer depends on. Injectable for tests. */
+export type SummarizerQueryFn = (args: { prompt: string; options: Record<string, unknown> })
+  => AsyncIterable<unknown>;
+
+/**
+ * Run one summarizer query() under a wall-clock timeout, returning the SDK's
+ * `result` string. Throws SummarizerSdkError on an is_error result (carrying
+ * api_error_status + truncated result text) and SummarizerTimeoutError if the
+ * generator does not produce a result within timeoutMs — aborting the query via
+ * AbortController and closing the generator so the wedged subprocess is torn down
+ * (#160). Buffers the subprocess stderr and appends it to process-exit errors so
+ * sentinels record the real cause (#147).
+ */
+export async function runSummarizerQuery(
+  queryFn: SummarizerQueryFn,
+  prompt: string,
+  options: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<string> {
+  const abortController = new AbortController();
+  let stderrTail = '';
+  const withGuards = {
+    ...options,
+    abortController,
+    stderr: (data: string) => { stderrTail = (stderrTail + data).slice(-2000); },
+  };
+
+  const iterator = queryFn({ prompt, options: withGuards })[Symbol.asyncIterator]();
+
+  let timedOut = false;
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { abortController.abort(); } catch {}
+      reject(new SummarizerTimeoutError(timeoutMs));
+    }, timeoutMs);
+    // Don't let the summary timer alone keep the process alive.
+    if (typeof timer.unref === 'function') timer.unref();
+  });
+
+  try {
+    while (true) {
+      const step = await Promise.race([iterator.next(), timeout]);
+      if (step.done) break;
+      const message = step.value as any;
+      if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
+        const result = message.result;
+        // Throw on is_error, carrying HTTP status + result text so logs are diagnostic
+        // and summarizeConversation can route a 400 / no-conversation to the transcript fallback.
+        if (message.is_error) {
+          throw new SummarizerSdkError(
+            message.subtype || 'unknown',
+            message.session_id,
+            message.api_error_status,
+            typeof result === 'string' ? result : undefined,
+          );
+        }
+        return typeof result === 'string' ? result : '';
+      }
+    }
+    return '';
+  } catch (error) {
+    if (!timedOut && error instanceof Error && stderrTail.trim() && isProcessExitFailure(error)) {
+      error.message = `${error.message}: ${stderrTail.trim()}`;
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+    try { await iterator.return?.(undefined); } catch {}
+  }
 }
 
 export function formatConversationText(exchanges: ConversationExchange[]): string {
@@ -191,31 +419,20 @@ async function callClaude(prompt: string, sessionId?: string, useFallback = fals
   const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
   const model = useFallback ? fallbackModel : primaryModel;
 
-  for await (const message of query({
-    prompt,
-    options: buildSummarizerQueryOptions({ model, sessionId, cwd }) as any,
-  })) {
-    if (message && typeof message === 'object' && 'type' in message && message.type === 'result') {
-      // Throw on is_error — otherwise we return `message.result` (undefined) and the SDK's later iterator throw never fires.
-      if ((message as any).is_error) {
-        throw new SummarizerSdkError((message as any).subtype || 'unknown', (message as any).session_id);
-      }
-      const result = (message as any).result;
+  const options = buildSummarizerQueryOptions({ model, sessionId, cwd });
+  const result = await runSummarizerQuery(query as SummarizerQueryFn, prompt, options, summaryTimeoutMs());
 
-      // Check if result is an API error (SDK returns errors as result strings)
-      if (typeof result === 'string' && result.includes('API Error') && result.includes('thinking.budget_tokens')) {
-        if (!useFallback) {
-          console.log(`    ${primaryModel} hit thinking budget error, retrying with ${fallbackModel}`);
-          return await callClaude(prompt, sessionId, true, cwd);
-        }
-        // If fallback also fails, return error message
-        return result;
-      }
-
-      return result;
+  // Check if result is an API error the SDK returns as a result string (not is_error).
+  if (typeof result === 'string' && result.includes('API Error') && result.includes('thinking.budget_tokens')) {
+    if (!useFallback) {
+      console.log(`    ${primaryModel} hit thinking budget error, retrying with ${fallbackModel}`);
+      return await callClaude(prompt, sessionId, true, cwd);
     }
+    // If fallback also fails, return error message
+    return result;
   }
-  return '';
+
+  return result;
 }
 
 interface PendingAppServerRequest {
@@ -501,9 +718,24 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
     }
   }
 
+  // Cost safety (#104): everything below this point calls the metered Claude API
+  // path. If a stray global ANTHROPIC_API_KEY would be billed and the user hasn't
+  // acknowledged it, warn once and proceed (don't silently spend without notice).
+  // Placed AFTER the Codex attempt so pure-Codex users are never warned needlessly.
+  if (wouldBillMeteredApi() && !meteredApiOptIn()) {
+    warnMeteredApiOnce();
+  }
+
   // For short conversations (≤15 exchanges), summarize directly
   if (exchanges.length <= 15) {
-    const claudeSessionId = codexSessionId ? undefined : sessionId;
+    // Only Claude Code sessions can be resumed by `claude --resume`; Cursor
+    // sessions carry composer UUIDs Claude Code doesn't know, so resuming
+    // would fail on every one before the no-resume retry kicks in. Treat
+    // missing harness as Claude for backward compatibility with old archives.
+    const isClaudeSession = exchanges.some(
+      e => e.harness === 'claude' || e.harness === undefined
+    );
+    const claudeSessionId = !codexSessionId && isClaudeSession ? sessionId : undefined;
     const cwd = claudeSessionId ? exchanges.find(e => e.cwd)?.cwd : undefined;
     const conversationText = claudeSessionId
       ? '' // When resuming, no need to include conversation text - it's already in context
@@ -537,8 +769,19 @@ ${conversationText}`;
       const result = await callClaude(prompt, claudeSessionId, false, cwd);
       return extractSummary(result);
     } catch (error) {
-      // Resume fails when the session's cwd doesn't exist on disk — retry without resume and feed the conversation text directly.
-      if (claudeSessionId && isResumeFailure(error)) {
+      // Resume can fail for several reasons the transcript path doesn't care
+      // about: the recorded cwd is gone (error_during_execution), the API
+      // rejected the replayed thinking blocks (HTTP 400), the session is
+      // archive-only ("No conversation found", subtype 'success'; #122), or the
+      // subprocess refused to resume and exited nonzero (bg-agent sessions; #146).
+      // Any of those → retry once without resume, feeding the transcript as text.
+      // Genuine auth failures are global, not resume-specific, so they fail-fast
+      // (never fall back). A timeout is neither, so it also propagates.
+      if (
+        claudeSessionId &&
+        (isResumeFailure(error) || isProcessExitFailure(error)) &&
+        !isAuthFailure(error)
+      ) {
         console.log(`    resume failed for ${claudeSessionId} (${(error as Error).message}); retrying without resume`);
         const fullPrompt = prompt + '\n\n' + formatConversationText(exchanges);
         const result = await callClaude(fullPrompt);
