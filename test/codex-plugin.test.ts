@@ -24,7 +24,7 @@ describe('Codex plugin packaging', () => {
     expect(manifest.interface.shortDescription).toContain('conversation memory');
   });
 
-  it('defines a relative MCP server command for Codex', () => {
+  it('declares a startup timeout for slow Codex MCP cold starts', () => {
     const mcpPath = join(REPO_ROOT, '.mcp.json');
     expect(existsSync(mcpPath)).toBe(true);
 
