@@ -143,6 +143,7 @@ describe('runCodexCommand', () => {
         if (message.method === 'thread/fork') {
           if (message.params.threadId !== 'session-123') throw new Error('wrong session id');
           if (message.params.ephemeral !== true) throw new Error('fork was not ephemeral');
+          if (message.params.excludeTurns !== true) throw new Error('fork did not set excludeTurns (required by codex-cli 0.150+ for paginated threads)');
           if (message.params.sandbox !== 'read-only') throw new Error('fork was not read-only');
           console.log(JSON.stringify({ id: message.id, result: { thread: { id: 'fork-456' } } }));
           return;
