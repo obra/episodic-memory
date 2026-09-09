@@ -35,6 +35,7 @@ describe('Codex plugin packaging', () => {
           command: 'node',
           args: ['./cli/mcp-server-wrapper.js'],
           cwd: '.',
+          startup_timeout_sec: 120,
           env_vars: [
             'EPISODIC_MEMORY_CONFIG_DIR',
             'PERSONAL_SUPERPOWERS_DIR',

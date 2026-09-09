@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-09-08
+
+### Fixed
+
+- Codex now gives Episodic Memory up to two minutes to start. Cold dependency checks or a busy machine could exceed Codex's 30-second default and make the memory tools unavailable for that session; the plugin now declares its own 120-second startup budget.
+
 ## [1.6.0] - 2026-09-08
 
 Adds a fifth conversation source, an off switch for automatic syncing, and two fixes for real-world resource problems.
