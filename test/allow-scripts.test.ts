@@ -25,4 +25,19 @@ describe('package.json allowScripts (npm 12 install-script gating, #162)', () =>
       expect(key).not.toMatch(/@\d/);
     }
   });
+
+  it('explicitly denies sharp\'s postinstall (#102)', () => {
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf-8'));
+
+    // sharp's postinstall exits 1 on any host with libvips already
+    // installed globally and corrupts node_modules on the way out (#102).
+    // It must be present here (not merely absent from allowScripts) and
+    // set to `false`, not just omitted: an omitted key blocks the script
+    // today only incidentally, and `npm install-scripts approve --all`
+    // would sweep it into the allowlist on the next run. An explicit
+    // `false` is documented to survive `--all`, turning "we happened not
+    // to allow it" into an enforced decision.
+    expect(pkg.allowScripts).toHaveProperty('sharp');
+    expect(pkg.allowScripts['sharp']).toBe(false);
+  });
 });
