@@ -230,7 +230,10 @@ describe('show command - markdown formatting', () => {
     expect(markdown).toMatch(/\*\*Agent\*\*/);
     expect(markdown).toContain('Looking at your instructions');
 
-    const expectedTimestamp = new Date('2025-09-19T17:34:29.181Z').toLocaleString();
+    // Match formatConversationAsMarkdown, which pins timestamps to en-US / UTC
+    // (#120, #130). A bare toLocaleString() depends on the host locale and
+    // timezone, so the old expectation only held on en-US / UTC hosts.
+    const expectedTimestamp = new Date('2025-09-19T17:34:29.181Z').toLocaleString('en-US', { timeZone: 'UTC' });
     expect(markdown).toContain(expectedTimestamp);
   });
 
