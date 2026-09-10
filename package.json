@@ -18,6 +18,10 @@
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
   },
+  "allowScripts": {
+    "better-sqlite3": true,
+    "onnxruntime-node": true
+  },
   "bin": {
     "episodic-memory": "./cli/episodic-memory.js",
     "episodic-memory-index": "./cli/index-conversations.js",
