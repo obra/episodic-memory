@@ -15,6 +15,8 @@ interface JSONLMessage {
   uuid?: string;
   parentUuid?: string;
   isSidechain?: boolean;
+  isMeta?: boolean;
+  origin?: { kind?: string; [key: string]: unknown };
   sessionId?: string;
   cwd?: string;
   gitBranch?: string;
@@ -169,6 +171,17 @@ export async function parseConversation(
   return parseClaudeConversation(filePath, projectName, archivePath);
 }
 
+// Channel-bridge plugins (Discord, Slack, ...) deliver the user's own words as
+// isMeta:true user lines with origin.kind === "channel" (anthropics/claude-code#44828),
+// so isMeta alone does not mean "not the user's input"; provenance is in origin.kind.
+const HUMAN_ORIGIN_KINDS = new Set(['channel', 'human']);
+
+function isInjectedMetaLine(msg: JSONLMessage): boolean {
+  if (msg.isMeta !== true) return false;
+  const kind = msg.origin?.kind;
+  return !(typeof kind === 'string' && HUMAN_ORIGIN_KINDS.has(kind));
+}
+
 async function parseClaudeConversation(
   filePath: string,
   projectName: string,
@@ -237,6 +250,20 @@ async function parseClaudeConversation(
       }
 
       if (!parsed.message) {
+        continue;
+      }
+
+      // Harness-injected user lines carry isMeta:true: image-paste placeholders
+      // ("[Image: source: ...]"), Skill tool bodies, task/system notifications,
+      // local-command caveats, coordinator messages, "Continue from where you
+      // left off.". They are not the user's words, so while an exchange is open
+      // they must not start a new one: a pasted image yields the real prompt line
+      // followed by an isMeta placeholder line with no assistant reply between,
+      // and finalizeExchange() would drop the real prompt. Their text is not
+      // indexed; the assistant lines that follow attach to the open exchange.
+      // With no exchange open (a session that opens with a notification) the
+      // line still starts one, so no assistant text is ever lost.
+      if (parsed.message.role === 'user' && currentExchange && isInjectedMetaLine(parsed)) {
         continue;
       }
 
@@ -805,6 +832,54 @@ async function parseOmpConversation(
   return exchanges;
 }
 
+// Codex injects system context as ordinary user-role message items with no field
+// that tells them apart from typed prompts. The only safe content signal is a
+// COMPLETE canonical fragment: an input_text block that is exactly one wrapper
+// element, or the AGENTS.md instructions block. A prefix is not enough — a typed
+// prompt may open with an XML snippet or a look-alike heading. Only wrappers
+// that Codex emits with role "user" are listed: observed in rollouts
+// (<environment_context>, <recommended_plugins>, <skill>, "# AGENTS.md
+// instructions" + <INSTRUCTIONS>) or defined with role user in codex-rs
+// (legacy <user_instructions>, <subagent_notification>). Developer-role wrappers
+// (<multi_agent_mode>, <skills_instructions>, ...) never reach the user branch.
+const CODEX_INJECTED_OPEN = /^<(environment_context|recommended_plugins|skill|user_instructions|subagent_notification)(?:\s[^>]*)?>/;
+const CODEX_AGENTS_MD_OPEN = /^# AGENTS\.md instructions(?: for [^\n]*)?\n\n<INSTRUCTIONS>\n/;
+
+// Exactly one wrapper element: the block opens with the tag and the FIRST matching
+// closing tag is the very end of the block — so "<skill>..</skill> question
+// <skill>..</skill>" (text between elements, or several elements) is user text.
+function endsAtFirstClose(text: string, closing: string): boolean {
+  const close = text.indexOf(closing);
+  return close !== -1 && close + closing.length === text.length;
+}
+
+function isCodexInjectedBlock(text: string): boolean {
+  const trimmed = text.trim();
+  if (CODEX_AGENTS_MD_OPEN.test(trimmed)) {
+    return endsAtFirstClose(trimmed, '</INSTRUCTIONS>');
+  }
+  const open = CODEX_INJECTED_OPEN.exec(trimmed);
+  return open !== null && endsAtFirstClose(trimmed, '</' + open[1] + '>');
+}
+
+// Split a Codex user item into the user's own text and the number of injected
+// blocks it carried — block by block, so a real request that shares an item with
+// an injected block is kept.
+function splitCodexUserContent(content: unknown): { userText: string; injected: number } {
+  const blocks: any[] = typeof content === 'string'
+    ? [{ type: 'input_text', text: content }]
+    : Array.isArray(content) ? content : [];
+  let injected = 0;
+  const kept = blocks.filter(block => {
+    if (block && typeof block.text === 'string' && isCodexInjectedBlock(block.text)) {
+      injected++;
+      return false;
+    }
+    return true;
+  });
+  return { userText: extractTextFromContent(kept), injected };
+}
+
 async function parseCodexConversation(
   filePath: string,
   projectName: string,
@@ -825,6 +900,11 @@ async function parseCodexConversation(
   let model: string | undefined;
   let modelProvider: string | undefined;
   let currentExchange: ExchangeBuilder | null = null;
+  // A user item from which injected blocks were removed: either held back entirely
+  // (injected-only, while an exchange was open) or trimmed to its remaining text.
+  // If the very next event vouches for the ORIGINAL text as a typed UserMessage,
+  // the full authored prompt is restored.
+  let pendingInjected: { text: string; line: number; timestamp: string; held: boolean } | null = null;
   const toolCallsByCallId = new Map<string, ToolCall>();
 
   const currentProject = () => projectFromCwd(cwd) || projectName;
@@ -878,14 +958,14 @@ async function parseCodexConversation(
     toolCallsByCallId.clear();
   };
 
-  const startExchange = (text: string, timestamp: string) => {
+  const startExchange = (text: string, timestamp: string, line: number = lineNumber) => {
     finalizeExchange();
     currentExchange = {
       project: currentProject(),
       userMessage: text,
-      userLine: lineNumber,
+      userLine: line,
       assistantMessages: [],
-      lastAssistantLine: lineNumber,
+      lastAssistantLine: line,
       timestamp,
       harness: 'codex',
       sessionId,
@@ -971,9 +1051,35 @@ async function parseCodexConversation(
         continue;
       }
 
+      // Positive provenance (newer rollouts): each typed prompt is followed by an
+      // item_completed UserMessage event (legacy: a user_message event). If one
+      // vouches for the item we just held back as injected, it was typed after all.
+      if (parsed.type === 'event_msg' && payload && pendingInjected) {
+        let vouched: string | undefined;
+        if (payload.type === 'item_completed' && payload.item?.type === 'UserMessage') {
+          vouched = extractTextFromContent(payload.item.content);
+        } else if (payload.type === 'user_message' && typeof payload.message === 'string') {
+          vouched = payload.message;
+        }
+        if (vouched !== undefined && (!vouched.trim() || vouched.trim() === pendingInjected.text.trim())) {
+          if (pendingInjected.held) {
+            startExchange(pendingInjected.text, pendingInjected.timestamp, pendingInjected.line);
+          } else {
+            // Trimmed item: the exchange it started is the current one.
+            const exchange = currentExchange as ExchangeBuilder | null;
+            if (exchange && exchange.userLine === pendingInjected.line) {
+              exchange.userMessage = pendingInjected.text;
+            }
+          }
+          pendingInjected = null;
+        }
+        continue;
+      }
+
       if (parsed.type !== 'response_item' || !payload) {
         continue;
       }
+      pendingInjected = null;
 
       if (payload.type === 'message') {
         const text = extractTextFromContent(payload.content);
@@ -982,7 +1088,24 @@ async function parseCodexConversation(
         }
 
         if (payload.role === 'user') {
-          startExchange(text, timestamp);
+          const { userText, injected } = splitCodexUserContent(payload.content);
+          if (userText.trim()) {
+            // The user's own words; injected blocks in the same item are dropped, but
+            // the original text is kept so a UserMessage event can restore it.
+            startExchange(userText, timestamp);
+            if (injected > 0) {
+              pendingInjected = { text, line: lineNumber, timestamp, held: false };
+            }
+          } else if (injected > 0 && currentExchange) {
+            // Injected-only item while an exchange is open: it must not split the
+            // exchange; the reply attaches to the typed prompt. Held back in case
+            // the next event proves it was typed.
+            pendingInjected = { text, line: lineNumber, timestamp, held: true };
+          } else {
+            // Nothing open yet (a rollout that starts with injected context):
+            // unchanged behavior, the item starts an exchange.
+            startExchange(text, timestamp);
+          }
         } else if (payload.role === 'assistant') {
           const exchange = currentExchange as ExchangeBuilder | null;
           if (exchange) {
