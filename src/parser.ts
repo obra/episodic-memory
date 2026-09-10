@@ -15,6 +15,8 @@ interface JSONLMessage {
   uuid?: string;
   parentUuid?: string;
   isSidechain?: boolean;
+  isMeta?: boolean;
+  origin?: { kind?: string; [key: string]: unknown };
   sessionId?: string;
   cwd?: string;
   gitBranch?: string;
@@ -169,6 +171,17 @@ export async function parseConversation(
   return parseClaudeConversation(filePath, projectName, archivePath);
 }
 
+// Channel-bridge plugins (Discord, Slack, ...) deliver the user's own words as
+// isMeta:true user lines with origin.kind === "channel" (anthropics/claude-code#44828),
+// so isMeta alone does not mean "not the user's input"; provenance is in origin.kind.
+const HUMAN_ORIGIN_KINDS = new Set(['channel', 'human']);
+
+function isInjectedMetaLine(msg: JSONLMessage): boolean {
+  if (msg.isMeta !== true) return false;
+  const kind = msg.origin?.kind;
+  return !(typeof kind === 'string' && HUMAN_ORIGIN_KINDS.has(kind));
+}
+
 async function parseClaudeConversation(
   filePath: string,
   projectName: string,
@@ -237,6 +250,20 @@ async function parseClaudeConversation(
       }
 
       if (!parsed.message) {
+        continue;
+      }
+
+      // Harness-injected user lines carry isMeta:true: image-paste placeholders
+      // ("[Image: source: ...]"), Skill tool bodies, task/system notifications,
+      // local-command caveats, coordinator messages, "Continue from where you
+      // left off.". They are not the user's words, so while an exchange is open
+      // they must not start a new one: a pasted image yields the real prompt line
+      // followed by an isMeta placeholder line with no assistant reply between,
+      // and finalizeExchange() would drop the real prompt. Their text is not
+      // indexed; the assistant lines that follow attach to the open exchange.
+      // With no exchange open (a session that opens with a notification) the
+      // line still starts one, so no assistant text is ever lost.
+      if (parsed.message.role === 'user' && currentExchange && isInjectedMetaLine(parsed)) {
         continue;
       }
 

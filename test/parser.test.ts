@@ -139,3 +139,92 @@ describe('Parser - Real Conversation Data', () => {
     });
   });
 });
+
+describe('Parser - isMeta user lines (harness-injected vs. human provenance)', () => {
+  describe('Image paste: real prompt + isMeta "[Image: source: ...]" placeholder', () => {
+    const fixturePath = getFixturePath('image-paste-conversation.jsonl');
+
+    it('keeps the real prompt as the user message, not the placeholder', async () => {
+      const result = await parseConversationFile(fixturePath);
+      expect(result.exchanges).toHaveLength(1);
+
+      const [exchange] = result.exchanges;
+      expect(exchange.userMessage).toBe(
+        '[Image #1] I want to make Codex not ask any questions about permissions - can you help me with configuring it?'
+      );
+      expect(exchange.userMessage).not.toContain('[Image: source:');
+      expect(exchange.assistantMessage).toContain('approval_policy');
+    });
+
+    it('anchors the exchange at the real prompt line', async () => {
+      const result = await parseConversationFile(fixturePath);
+      const [exchange] = result.exchanges;
+      expect(exchange.lineStart).toBe(1);
+      expect(exchange.lineEnd).toBe(3);
+      // First-line metadata comes from the real prompt, not the placeholder
+      expect(exchange.thinkingLevel).toBe('high');
+    });
+  });
+
+  describe('Skill invocation: isMeta skill body and "Continue" line inside one turn', () => {
+    const fixturePath = getFixturePath('skill-invocation-conversation.jsonl');
+
+    it('does not split an already-populated turn at the injected skill body', async () => {
+      const result = await parseConversationFile(fixturePath);
+      expect(result.exchanges).toHaveLength(1);
+
+      const [exchange] = result.exchanges;
+      expect(exchange.userMessage).toBe('register as summarizer in agent-chat');
+      expect(exchange.userMessage).not.toContain('Base directory for this skill');
+      expect(exchange.assistantMessage).not.toContain('Base directory for this skill');
+      // The assistant text that preceded the Skill tool call is kept
+      expect(exchange.assistantMessage).toContain("I'll load the agent-chat skill");
+    });
+
+    it('accumulates replies across isMeta lines into the same exchange', async () => {
+      const result = await parseConversationFile(fixturePath);
+      const [exchange] = result.exchanges;
+      expect(exchange.assistantMessage).toContain('Registered as summarizer');
+      expect(exchange.assistantMessage).toContain('Standing by');
+      expect(exchange.lineStart).toBe(1);
+      expect(exchange.lineEnd).toBe(8);
+      expect(exchange.toolCalls?.map(tc => tc.toolName)).toEqual(['Skill']);
+    });
+  });
+
+  describe('Channel-bridge prompt: isMeta but origin.kind === "channel" (claude-code#44828)', () => {
+    const fixturePath = getFixturePath('channel-plugin-conversation.jsonl');
+
+    it('treats the channel message as a real prompt and starts a new exchange', async () => {
+      const result = await parseConversationFile(fixturePath);
+      expect(result.exchanges).toHaveLength(2);
+
+      const [typed, channel] = result.exchanges;
+      expect(typed.userMessage).toBe('List the files in src.');
+      expect(typed.assistantMessage).toBe('parser.ts and show.ts.');
+      expect(typed.lineEnd).toBe(2);
+
+      expect(channel.userMessage).toContain('Please explain the retry policy.');
+      expect(channel.assistantMessage).toContain('exponential backoff');
+      expect(channel.lineStart).toBe(3);
+      expect(channel.lineEnd).toBe(4);
+    });
+  });
+
+  describe('Session that opens with an injected notification (no exchange open yet)', () => {
+    const fixturePath = getFixturePath('meta-first-conversation.jsonl');
+
+    it('still starts an exchange so the assistant reply is not lost', async () => {
+      const result = await parseConversationFile(fixturePath);
+      expect(result.exchanges).toHaveLength(2);
+
+      const [notice, typed] = result.exchanges;
+      expect(notice.userMessage).toContain('[SYSTEM NOTIFICATION - NOT USER INPUT]');
+      expect(notice.assistantMessage).toContain('background task finished');
+      expect(notice.lineStart).toBe(1);
+
+      expect(typed.userMessage).toBe('Now summarize what changed.');
+      expect(typed.lineStart).toBe(3);
+    });
+  });
+});
