@@ -19,7 +19,7 @@
     "./package.json": "./package.json"
   },
   "allowScripts": {
-    "better-sqlite3": true,
+    "better-sqlite3": false,
     "onnxruntime-node": true,
     "sharp": false
   },
@@ -60,7 +60,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.126",
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.20.0",
-    "better-sqlite3": "^12.4.1",
+    "better-sqlite3": "^13.0.3",
     "marked": "^16.4.0",
     "proper-lockfile": "^4.1.2",
     "sqlite-vec": "^0.1.7-alpha.2",

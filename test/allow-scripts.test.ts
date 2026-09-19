@@ -5,17 +5,16 @@ import { join } from 'path';
 const REPO_ROOT = join(import.meta.dirname, '..');
 
 describe('package.json allowScripts (npm 12 install-script gating, #162)', () => {
-  it('approves the native-binding installs indexing depends on', () => {
+  it('allows only the native install scripts indexing still needs', () => {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf-8'));
 
     // Under npm 12 (and npm 11.16+ with blocking opted in), a dependency's
     // install/postinstall script is skipped unless the ROOT package's
-    // allowScripts explicitly permits it. Without this, `npm install`
-    // exits 0 while better-sqlite3 and onnxruntime-node silently ship
-    // with no native binding, and indexing/search fail forever with
-    // nothing surfacing the problem to the user.
+    // allowScripts explicitly permits it. onnxruntime-node still needs that
+    // permission; better-sqlite3 13.x bundles N-API binaries and must not fall
+    // back to a runtime-specific source build.
     expect(pkg.allowScripts).toBeDefined();
-    expect(pkg.allowScripts['better-sqlite3']).toBe(true);
+    expect(pkg.allowScripts['better-sqlite3']).toBe(false);
     expect(pkg.allowScripts['onnxruntime-node']).toBe(true);
 
     // Bare package names, not pinned versions: a pinned key (e.g.
@@ -24,6 +23,16 @@ describe('package.json allowScripts (npm 12 install-script gating, #162)', () =>
     for (const key of Object.keys(pkg.allowScripts)) {
       expect(key).not.toMatch(/@\d/);
     }
+  });
+
+  it('uses the N-API better-sqlite3 line that works across Node ABIs', () => {
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf-8'));
+    const postinstall = readFileSync(join(REPO_ROOT, 'scripts', 'postinstall.js'), 'utf-8');
+
+    expect(pkg.dependencies['better-sqlite3']).toBe('^13.0.3');
+    expect(postinstall).not.toContain("npm(['rebuild', 'better-sqlite3']");
+    expect(postinstall).not.toContain("npm(['run', 'build-release']");
+    expect(postinstall).not.toContain('failure.stderr');
   });
 
   it('explicitly denies sharp\'s postinstall (#102)', () => {
