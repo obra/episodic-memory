@@ -864,10 +864,12 @@ function extractOmpText(content: unknown): string {
 }
 
 // Render only the active path (leaf -> root via parentId, reversed), matching
-// parseOmpConversation: abandoned/regenerated branches stay out of the output.
+// parseOmpConversation: abandoned/regenerated branches stay out of the output,
+// and the walk passes through non-message entries that parent messages.
 function formatOmpConversationAsMarkdown(lines: string[]): string {
   const metadata: { sessionId?: string; cwd?: string } = {};
   const nodesById = new Map<string, any>();
+  const parentById = new Map<string, string | undefined>();
   let leafId: string | undefined;
 
   for (const line of lines) {
@@ -882,6 +884,9 @@ function formatOmpConversationAsMarkdown(lines: string[]): string {
       metadata.cwd = entry.cwd || metadata.cwd;
       continue;
     }
+    if (entry.id) {
+      parentById.set(entry.id, entry.parentId ?? undefined);
+    }
     if (entry.type !== 'message' || !entry.message || !entry.message.role || !entry.id) {
       continue;
     }
@@ -892,11 +897,13 @@ function formatOmpConversationAsMarkdown(lines: string[]): string {
   const chain: any[] = [];
   const seen = new Set<string>();
   let currentId: string | undefined = leafId;
-  while (currentId && nodesById.has(currentId) && !seen.has(currentId)) {
+  while (currentId && parentById.has(currentId) && !seen.has(currentId)) {
     seen.add(currentId);
     const node = nodesById.get(currentId);
-    chain.push(node);
-    currentId = node.parentId ?? undefined;
+    if (node) {
+      chain.push(node);
+    }
+    currentId = parentById.get(currentId);
   }
   chain.reverse();
 
