@@ -1,8 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import { parseConversationFile } from '../src/parser.js';
 import { getFixturePath, countLines } from './test-utils.js';
+import { writeFileSync, rmSync } from 'fs';
+import { randomUUID } from 'crypto';
 
 describe('Parser - Real Conversation Data', () => {
+  it('keeps unknown project for a filename without a parent directory', async () => {
+    const filename = `parser-filename-only-${randomUUID()}.jsonl`;
+    writeFileSync(filename,
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Synthetic question' }, timestamp: '2026-01-01T00:00:00Z' }) + '\n' +
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Synthetic answer' }, timestamp: '2026-01-01T00:00:01Z' }) + '\n');
+    try {
+      const result = await parseConversationFile(filename);
+      expect(result.project).toBe('unknown');
+      expect(result.exchanges).toHaveLength(1);
+      expect(result.exchanges[0].project).toBe('unknown');
+    } finally {
+      rmSync(filename, { force: true });
+    }
+  });
+
   describe('Short conversation (3 lines)', () => {
     const fixturePath = getFixturePath('short-conversation.jsonl');
 

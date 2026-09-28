@@ -58,6 +58,7 @@ async function main() {
 
     // Use spawn with shell: false for better cross-platform compatibility
     const child = spawn(process.execPath, [mcpServerPath], {
+      windowsHide: true,
       stdio: 'inherit',
       shell: false
     });

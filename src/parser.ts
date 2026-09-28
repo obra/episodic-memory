@@ -1262,13 +1262,8 @@ export async function parseConversationFile(filePath: string): Promise<{
   exchanges: ConversationExchange[];
 }> {
   // Extract project name from path (directory name before the .jsonl file)
-  const pathParts = filePath.split('/');
-  let project = 'unknown';
-
-  // Find the parent directory name (second to last part)
-  if (pathParts.length >= 2) {
-    project = pathParts[pathParts.length - 2];
-  }
+  const parent = path.parse(filePath).dir;
+  const project = parent ? path.basename(parent) || 'unknown' : 'unknown';
 
   const exchanges = await parseConversation(filePath, project, filePath);
 
