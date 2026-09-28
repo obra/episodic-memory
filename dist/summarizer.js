@@ -4,6 +4,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { VERSION } from './version.js';
 import { spawn } from 'child_process';
 import { createInterface } from 'readline';
+import { resolveCodexExecutable } from './codex-executable.js';
 import { codexVersionRequirementMessage, parseCodexCliVersion, versionMeetsMinimum, } from './codex-support.js';
 /** Max chars of SDK `result` text kept on SummarizerSdkError (see #138). */
 const SDK_ERROR_DETAIL_MAX = 300;
@@ -394,6 +395,7 @@ function appServerTimeoutMs() {
 function readCommandOutput(command, args) {
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
+            windowsHide: true,
             env: getApiEnv(),
             stdio: ['ignore', 'pipe', 'pipe']
         });
@@ -415,14 +417,57 @@ function readCommandOutput(command, args) {
         });
     });
 }
-async function assertSupportedCodexVersion(command) {
+// Worker-local only: share in-flight checks, retain successful checks, and retry
+// every failure. Bound entries so callers with custom version arguments cannot
+// grow a long-lived worker indefinitely.
+const supportedCodexVersions = new Map();
+const MAX_CODEX_VERSION_ENTRIES = 16;
+class CodexExecutableChangedError extends Error {
+}
+async function assertSupportedCodexVersion(command, retryIdentityChange = true) {
     if (command.skipVersionCheck) {
         return;
     }
-    const output = await readCommandOutput(command.command, command.versionArgs || ['--version']);
-    const version = parseCodexCliVersion(output);
-    if (!version || !versionMeetsMinimum(version)) {
-        throw new Error(codexVersionRequirementMessage(output));
+    const executable = resolveCodexExecutable(command.command);
+    const versionArgs = command.versionArgs || ['--version'];
+    const validate = async () => {
+        const output = await readCommandOutput(command.command, versionArgs);
+        const version = parseCodexCliVersion(output);
+        if (!version || !versionMeetsMinimum(version)) {
+            throw new Error(codexVersionRequirementMessage(output));
+        }
+        if (executable && resolveCodexExecutable(command.command)?.identity !== executable.identity) {
+            throw new CodexExecutableChangedError('Codex executable changed during compatibility validation; retry.');
+        }
+    };
+    if (!executable) {
+        await validate();
+        return;
+    }
+    const key = JSON.stringify([command.command, executable.command, versionArgs]);
+    let entry = supportedCodexVersions.get(key);
+    if (!entry || entry.identity !== executable.identity) {
+        entry = { identity: executable.identity, check: validate() };
+        supportedCodexVersions.delete(key);
+        supportedCodexVersions.set(key, entry);
+        if (supportedCodexVersions.size > MAX_CODEX_VERSION_ENTRIES) {
+            supportedCodexVersions.delete(supportedCodexVersions.keys().next().value);
+        }
+    }
+    try {
+        await entry.check;
+    }
+    catch (error) {
+        // An older failed check must not evict a replacement executable's entry.
+        if (supportedCodexVersions.get(key) === entry)
+            supportedCodexVersions.delete(key);
+        // Native installers/Windows can update metadata on first execution. Repeat
+        // the full check once; concurrent waiters join the same replacement entry.
+        // Repeated instability and ordinary version/launch failures still reject.
+        if (retryIdentityChange && error instanceof CodexExecutableChangedError) {
+            return assertSupportedCodexVersion(command, false);
+        }
+        throw error;
     }
 }
 function requireThreadId(result, method) {
@@ -443,6 +488,7 @@ export async function runCodexCommand(command) {
     await assertSupportedCodexVersion(command);
     return new Promise((resolve, reject) => {
         const child = spawn(command.command, command.args, {
+            windowsHide: true,
             env: getApiEnv(),
             stdio: ['pipe', 'pipe', 'pipe']
         });

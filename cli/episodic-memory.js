@@ -13,6 +13,7 @@ const args = process.argv.slice(3);
 function runScript(scriptPath, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [scriptPath, ...args], {
+      windowsHide: true,
       stdio: 'inherit'
     });
 

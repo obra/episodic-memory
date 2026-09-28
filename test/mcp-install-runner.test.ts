@@ -119,6 +119,28 @@ describe('install-runner — runNpmInstall termination handling (#161)', () => {
     expect(process.listenerCount('exit')).toBe(beforeExit);
   });
 
+  it.runIf(process.platform === 'win32')('uses a hidden Windows shell child and releases its lock on explicit termination', async () => {
+    const child = makeFakeChild();
+    const fakeSpawn = vi.fn(() => child);
+    const lock = acquireInstallLock(root);
+    expect(lock).not.toBeNull();
+
+    const install = runNpmInstall(root, { spawn: fakeSpawn, lockHandle: lock });
+    expect(fakeSpawn).toHaveBeenCalledWith('npm.cmd', ['install', '--no-audit', '--no-fund'], {
+      cwd: root,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      shell: true,
+      detached: false,
+    });
+
+    install.terminate();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(existsSync(join(root, '.episodic-memory-install.lock'))).toBe(false);
+    child.emit('exit', null);
+    await install.promise.catch(() => {});
+  });
+
   it('resolves and removes handlers when the child exits 0 normally (no termination)', async () => {
     const beforeSigterm = process.listenerCount('SIGTERM');
 
@@ -163,7 +185,7 @@ describe('mcp-server-wrapper — real spawn, orphan prevention on SIGTERM (#161)
     try { rmSync(binDir, { recursive: true, force: true }); } catch {}
   });
 
-  it('kills the stub npm install child when the wrapper is SIGTERM-ed mid-install', async () => {
+  it.skipIf(process.platform === 'win32')('kills the stub npm install child when the wrapper is SIGTERM-ed mid-install', async () => {
     // A stub "npm" that just stays alive and records its own pid, so we can
     // tell whether the wrapper's real child-tree kill reaches it. No network
     // call is made — this never touches the real npm registry.

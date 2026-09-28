@@ -136,6 +136,7 @@ export function runNpmInstall(pluginRoot, { spawn = defaultSpawn, lockHandle } =
   const child = spawn(npmCommand, ['install', '--no-audit', '--no-fund'], {
     cwd: pluginRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
     shell: isWindows, // On Windows, we need shell: true to find npm.cmd
     detached: !isWindows,
   });

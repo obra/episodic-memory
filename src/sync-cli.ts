@@ -148,6 +148,7 @@ if (isBackground) {
     process.argv[1], // This script
     ...filteredArgs
   ], {
+    windowsHide: true,
     detached: true,
     stdio: ['ignore', logFd, logFd]
   });
