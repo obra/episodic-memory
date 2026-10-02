@@ -8,6 +8,11 @@ export interface CodexDoctorInputs {
     logPath: string;
     dbPath: string;
     hookTrustState: CodexHookTrustState;
+    hookEnabledState?: 'enabled' | 'disabled' | 'unknown' | 'not_found';
+    pluginListOutput?: string;
+    pluginMcpDeclared?: boolean;
+    mcpListInspected?: boolean;
+    observationFailures?: string[];
 }
 export interface DoctorReport {
     ok: boolean;

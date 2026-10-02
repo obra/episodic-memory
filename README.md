@@ -344,7 +344,7 @@ episodic-memory doctor codex
 episodic-memory doctor opencode
 ```
 
-The Codex doctor checks the Codex version, plugin hook feature state, MCP server registration, transcript directory, database path, and background sync log path.
+The Codex doctor reads the current native `hooks` feature and app-server `plugin/list`, `plugin/read`, and `hooks/list` results. The native materialized MCP declaration is distinct from mutable plugin source files and explicit MCP registration. It reports hook execution policy and trust independently; deliberately disabled synchronization stays disabled. Failed inspections remain unknown, and configuration never claims a successful runtime tool loop. It also checks the Codex version, transcript directory, database path, and background sync log path. It does not enable hooks, register another server, or index conversations.
 The opencode doctor checks the opencode version, plugin configuration, MCP server registration, SQLite database path, generated transcript directory, and background sync log path.
 
 ### Codex E2E Verification

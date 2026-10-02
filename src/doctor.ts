@@ -14,6 +14,11 @@ export interface CodexDoctorInputs {
   logPath: string;
   dbPath: string;
   hookTrustState: CodexHookTrustState;
+  hookEnabledState?: 'enabled' | 'disabled' | 'unknown' | 'not_found';
+  pluginListOutput?: string;
+  pluginMcpDeclared?: boolean;
+  mcpListInspected?: boolean;
+  observationFailures?: string[];
 }
 
 export interface DoctorReport {
@@ -56,6 +61,17 @@ function parseMcpState(mcpListOutput: string): 'enabled' | 'disabled' | 'missing
   return line.includes(' enabled') ? 'enabled' : 'disabled';
 }
 
+function parsePluginState(output: string | undefined): 'enabled' | 'disabled' | 'missing' | 'unknown' {
+  if (output === undefined) return 'unknown';
+  const registry = parseJsonConfig(output);
+  if (!registry || !Array.isArray(registry.installed)) return 'unknown';
+  const plugins = registry.installed.filter((entry: any) => entry?.name === 'episodic-memory');
+  if (plugins.some((entry: any) => entry.installed === true && entry.enabled === true)) return 'enabled';
+  if (plugins.some((entry: any) => entry.installed === true && entry.enabled === false)) return 'disabled';
+  if (plugins.some((entry: any) => entry.installed !== false)) return 'unknown';
+  return 'missing';
+}
+
 function formatHookTrustState(hookTrustState: CodexHookTrustState): string {
   switch (hookTrustState) {
     case 'trusted':
@@ -74,33 +90,50 @@ function formatHookTrustState(hookTrustState: CodexHookTrustState): string {
 export function buildCodexDoctorReport(inputs: CodexDoctorInputs): DoctorReport {
   const version = parseCodexCliVersion(inputs.codexVersionOutput);
   const versionOk = version !== undefined && versionMeetsMinimum(version);
-  const pluginHooksEnabled = parseFeatureState(inputs.featuresOutput, 'plugin_hooks');
+  const hooksEnabled = parseFeatureState(inputs.featuresOutput, 'hooks');
   const pluginsEnabled = parseFeatureState(inputs.featuresOutput, 'plugins');
-  const mcpState = parseMcpState(inputs.mcpListOutput);
+  const failures = inputs.observationFailures ?? [];
+  const explicitMcpState = inputs.mcpListInspected === false ? 'not inspected'
+    : failures.some(failure => failure.startsWith('MCP list'))
+    ? 'unknown' : parseMcpState(inputs.mcpListOutput);
+  const pluginState = failures.some(failure => failure.startsWith('plugin registry'))
+    ? 'unknown' : parsePluginState(inputs.pluginListOutput);
+  const pluginMcpAvailable = pluginState === 'enabled' && inputs.pluginMcpDeclared === true;
+  const mcpState = explicitMcpState === 'enabled' || pluginMcpAvailable ? 'enabled' : explicitMcpState;
+  const hookDisabled = inputs.hookEnabledState === 'disabled' || hooksEnabled === false;
 
   const issues: string[] = [];
   if (!versionOk) {
     issues.push(`Codex must be upgraded with codex update (minimum ${MIN_CODEX_VERSION}).`);
   }
   if (pluginsEnabled === false) {
-    issues.push('Codex plugins are disabled; run codex features enable plugins.');
+    issues.push('Codex plugins are disabled by policy; review that setting only if plugin use is intended.');
+  } else if (pluginsEnabled === undefined) {
+    issues.push('Codex plugins feature state could not be verified.');
   }
-  if (pluginHooksEnabled !== true) {
-    issues.push('Codex plugin hooks are not enabled; run codex features enable plugin_hooks.');
+  if (hooksEnabled === undefined) {
+    issues.push('Codex hooks feature state could not be verified.');
   }
   if (!inputs.sessionsDirExists) {
     issues.push('Codex sessions directory does not exist yet; start at least one Codex session.');
   }
   if (mcpState !== 'enabled') {
-    issues.push('Episodic Memory MCP server is not enabled in codex mcp list.');
+    issues.push('Episodic Memory MCP configuration could not be verified from native plugin or explicit registration evidence.');
   }
-  if (inputs.hookTrustState === 'untrusted' || inputs.hookTrustState === 'modified') {
+  if (inputs.pluginListOutput !== undefined && pluginState !== 'enabled' && explicitMcpState !== 'enabled') {
+    issues.push(`Episodic Memory plugin registry state: ${pluginState}.`);
+  }
+  if (pluginState === 'enabled' && inputs.pluginMcpDeclared !== true && explicitMcpState !== 'enabled') {
+    issues.push('The enabled plugin MCP declaration could not be verified.');
+  }
+  if (!hookDisabled && (inputs.hookTrustState === 'untrusted' || inputs.hookTrustState === 'modified')) {
     issues.push('Episodic Memory Codex hook is not trusted; open /hooks in Codex and press t to trust it.');
-  } else if (inputs.hookTrustState === 'not_found') {
+  } else if (!hookDisabled && inputs.hookTrustState === 'not_found') {
     issues.push('Episodic Memory Codex hook was not found; confirm the plugin is installed and enabled.');
-  } else if (inputs.hookTrustState === 'unknown') {
+  } else if (!hookDisabled && inputs.hookTrustState === 'unknown') {
     issues.push('Episodic Memory Codex hook trust could not be verified.');
   }
+  for (const failure of failures) issues.push(`Native inspection unavailable: ${failure}.`);
 
   const lines = [
     'Episodic Memory Codex Doctor',
@@ -110,12 +143,17 @@ export function buildCodexDoctorReport(inputs: CodexDoctorInputs): DoctorReport 
     `Codex home: ${inputs.codexHome}`,
     `Codex sessions: ${inputs.sessionsDirExists ? 'found' : 'missing'}`,
     `Plugins feature: ${pluginsEnabled === true ? 'enabled' : pluginsEnabled === false ? 'disabled' : 'unknown'}`,
-    `Plugin hooks feature: ${pluginHooksEnabled === true ? 'enabled' : pluginHooksEnabled === false ? 'disabled' : 'unknown'}`,
+    `Hooks feature: ${hooksEnabled === true ? 'enabled' : hooksEnabled === false ? 'disabled' : 'unknown'}`,
+    `Plugin registry: ${pluginState}`,
+    `Plugin MCP: ${inputs.pluginMcpDeclared === true ? 'declared' : inputs.pluginMcpDeclared === false ? 'not declared' : 'unknown'}`,
+    `Explicit MCP: ${explicitMcpState}`,
     `Episodic Memory MCP: ${mcpState}`,
+    'MCP runtime: not probed; configuration is not a successful tool loop.',
     `Index database: ${inputs.dbPath}`,
     `Hook/background sync log: ${inputs.logPath}`,
     '',
-    `Hook trust: ${formatHookTrustState(inputs.hookTrustState)}`,
+    `Hook execution: ${hookDisabled ? 'disabled' : inputs.hookEnabledState ?? 'not inspected'}`,
+    `Hook trust: ${hookDisabled ? inputs.hookTrustState : formatHookTrustState(inputs.hookTrustState)}`,
   ];
 
   if (issues.length > 0) {

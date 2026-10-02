@@ -1,7 +1,20 @@
 import { spawn } from 'child_process';
 import readline from 'readline';
+import { pluginMcpDeclaration } from './doctor-observations.js';
 
 export type CodexHookTrustState = 'trusted' | 'untrusted' | 'modified' | 'not_found' | 'unknown';
+
+export interface CodexHookState {
+  trustState: CodexHookTrustState;
+  enabledState: 'enabled' | 'disabled' | 'not_found' | 'unknown';
+}
+
+export interface CodexIntegrationState {
+  hooks: CodexHookState;
+  pluginListOutput?: string;
+  pluginMcpDeclared?: boolean;
+  failures: string[];
+}
 
 interface JsonRpcMessage {
   id?: number;
@@ -19,9 +32,9 @@ function hookBelongsToEpisodicMemory(hook: Record<string, unknown>): boolean {
   return pluginId.startsWith('episodic-memory@') || key.startsWith('episodic-memory@');
 }
 
-export function trustStateFromHooksList(result: unknown): CodexHookTrustState {
+export function hookStateFromHooksList(result: unknown): CodexHookState {
   if (!isRecord(result) || !Array.isArray(result.data)) {
-    return 'unknown';
+    return { trustState: 'unknown', enabledState: 'unknown' };
   }
 
   const matchingHooks: Record<string, unknown>[] = [];
@@ -35,30 +48,32 @@ export function trustStateFromHooksList(result: unknown): CodexHookTrustState {
   }
 
   if (matchingHooks.length === 0) {
-    return 'not_found';
+    return { trustState: 'not_found', enabledState: 'not_found' };
   }
 
-  const trustStates = matchingHooks
+  const active = matchingHooks.filter(hook => hook.enabled !== false && hook.disabled !== true);
+  const enabledState = active.some(hook => hook.enabled === true || hook.disabled === false)
+    ? 'enabled' : active.length === 0 ? 'disabled' : 'unknown';
+  const trustStates = (active.length > 0 ? active : matchingHooks)
     .map(hook => hook.trustStatus ?? hook.trust ?? hook.trust_status)
     .filter((trust): trust is string => typeof trust === 'string');
 
-  if (trustStates.includes('trusted') || trustStates.includes('managed')) {
-    return 'trusted';
-  }
-  if (trustStates.includes('modified')) {
-    return 'modified';
-  }
-  if (trustStates.includes('untrusted')) {
-    return 'untrusted';
-  }
-  return 'unknown';
+  const trustState = trustStates.includes('modified') ? 'modified'
+    : trustStates.includes('untrusted') ? 'untrusted'
+    : trustStates.length !== (active.length > 0 ? active : matchingHooks).length ? 'unknown'
+    : trustStates.every(trust => trust === 'trusted' || trust === 'managed') ? 'trusted' : 'unknown';
+  return { trustState, enabledState };
 }
 
-export async function detectCodexHookTrustState(
+export function trustStateFromHooksList(result: unknown): CodexHookTrustState {
+  return hookStateFromHooksList(result).trustState;
+}
+
+export async function detectCodexIntegrationState(
   codexHome: string,
   cwd: string,
   timeoutMs = 10000
-): Promise<CodexHookTrustState> {
+): Promise<CodexIntegrationState> {
   const child = spawn('codex', ['app-server'], {
     env: { ...process.env, CODEX_HOME: codexHome },
     stdio: ['pipe', 'pipe', 'ignore'],
@@ -123,12 +138,57 @@ export async function detectCodexHookTrustState(
     });
     notify('initialized');
     const hooksList = await send('hooks/list', { cwds: [cwd] });
-    return trustStateFromHooksList(hooksList);
+    const hooks = hookStateFromHooksList(hooksList);
+    const observed: CodexIntegrationState = { hooks, failures: [] };
+    try {
+      const result = await send('plugin/list', {
+        cwds: [cwd], forceRefetch: false, marketplaceKinds: ['local'],
+      });
+      if (!isRecord(result) || !Array.isArray(result.marketplaces)) throw new Error('invalid registry');
+      const installed: Record<string, unknown>[] = [];
+      let declared: boolean | undefined = false;
+      for (const market of result.marketplaces) {
+        if (!isRecord(market) || !Array.isArray(market.plugins)) throw new Error('invalid marketplace');
+        for (const plugin of market.plugins) {
+          if (!isRecord(plugin) || plugin.name !== 'episodic-memory') continue;
+          installed.push(plugin);
+          if (plugin.installed !== true || plugin.enabled !== true) continue;
+          if (typeof plugin.id !== 'string' || typeof market.name !== 'string') {
+            declared = undefined; continue;
+          }
+          const detail = await send('plugin/read', {
+            pluginName: plugin.name,
+            ...(typeof market.path === 'string' ? { marketplacePath: market.path }
+              : { remoteMarketplaceName: market.name }),
+          });
+          const state = pluginMcpDeclaration(detail, plugin.id);
+          if (state === true) declared = true;
+          else if (state === undefined && declared !== true) declared = undefined;
+        }
+      }
+      observed.pluginListOutput = JSON.stringify({ installed });
+      observed.pluginMcpDeclared = declared;
+      if (declared === undefined) observed.failures.push('plugin declaration (unknown)');
+    } catch { observed.failures.push('plugin registry (unavailable)'); }
+    return observed;
   } catch {
-    return 'unknown';
+    return { hooks: { trustState: 'unknown', enabledState: 'unknown' },
+      failures: ['hooks/plugin native inspection (unavailable)'] };
   } finally {
     clearTimeout(timeout);
     rl.close();
     child.kill('SIGTERM');
   }
+}
+
+export async function detectCodexHookState(
+  codexHome: string, cwd: string, timeoutMs = 10000
+): Promise<CodexHookState> {
+  return (await detectCodexIntegrationState(codexHome, cwd, timeoutMs)).hooks;
+}
+
+export async function detectCodexHookTrustState(
+  codexHome: string, cwd: string, timeoutMs = 10000
+): Promise<CodexHookTrustState> {
+  return (await detectCodexHookState(codexHome, cwd, timeoutMs)).trustState;
 }

@@ -6,12 +6,14 @@ import { buildCodexDoctorReport, buildOpencodeDoctorReport } from './doctor.js';
 import { getCodexDir, getOpencodeDbPath, getOpencodeTranscriptDir } from './paths.js';
 import { getDbPath } from './paths.js';
 import { getSyncLogPath } from './logging.js';
-import { detectCodexHookTrustState } from './codex-hook-trust.js';
+import { detectCodexIntegrationState } from './codex-hook-trust.js';
+import { captureNative } from './doctor-observations.js';
 
 function capture(command: string, args: string[]): string {
   const result = spawnSync(command, args, {
     encoding: 'utf-8',
     timeout: 10000,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   return `${result.stdout || ''}${result.stderr || ''}`.trim();
 }
@@ -47,16 +49,36 @@ async function main(): Promise<void> {
   }
 
   const codexHome = getCodexDir();
-  const hookTrustState = await detectCodexHookTrustState(codexHome, process.cwd());
+  const env = { ...process.env, CODEX_HOME: codexHome };
+  const observationFailures: string[] = [];
+  const observe = (name: string, args: string[]): string => {
+    const observed = captureNative('codex', args, env);
+    if (observed.failure) observationFailures.push(`${name} (${observed.failure})`);
+    return observed.output;
+  };
+  const codexVersionOutput = observe('version', ['--version']);
+  const featuresOutput = observe('features', ['features', 'list']);
+  const native = await detectCodexIntegrationState(codexHome, process.cwd());
+  observationFailures.push(...native.failures);
+  const { pluginListOutput, pluginMcpDeclared, hooks } = native;
+  // Plugin-provided servers are not in the explicit registration registry.
+  // Inspect that fallback only when the native plugin declaration cannot establish configuration.
+  const mcpListInspected = pluginMcpDeclared !== true;
+  const mcpListOutput = mcpListInspected ? observe('MCP list', ['mcp', 'list']) : '';
   const report = buildCodexDoctorReport({
-    codexVersionOutput: capture('codex', ['--version']),
-    featuresOutput: capture('codex', ['features', 'list']),
-    mcpListOutput: capture('codex', ['mcp', 'list']),
+    codexVersionOutput,
+    featuresOutput,
+    mcpListOutput,
+    pluginListOutput,
+    pluginMcpDeclared,
+    mcpListInspected,
+    observationFailures,
     codexHome,
     sessionsDirExists: fs.existsSync(path.join(codexHome, 'sessions')),
     logPath: getSyncLogPath(),
     dbPath: getDbPath(),
-    hookTrustState,
+    hookTrustState: hooks.trustState,
+    hookEnabledState: hooks.enabledState,
   });
 
   process.stdout.write(report.text);
