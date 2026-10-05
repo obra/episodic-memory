@@ -149,7 +149,10 @@ describe('install-runner — runNpmInstall termination handling (#161)', () => {
   });
 });
 
-describe('mcp-server-wrapper — real spawn, orphan prevention on SIGTERM (#161)', () => {
+// POSIX only: the stub `npm` is an extensionless shebang script, which Windows
+// can't run from PATH, and Windows has no catchable SIGTERM for the wrapper to
+// handle.
+describe.skipIf(process.platform === 'win32')('mcp-server-wrapper — real spawn, orphan prevention on SIGTERM (#161)', () => {
   let root: string;
   let binDir: string;
 

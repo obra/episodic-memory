@@ -66,7 +66,9 @@ describe('file-lock — proper-lockfile wrapper (#97)', () => {
     expect(readLockHolder(lockPath)).toBeNull();
   });
 
-  it('propagates unexpected I/O errors instead of masking them as "lock contention"', () => {
+  // POSIX only: Windows ignores directory mode bits, so the chmod below can't
+  // make the directory unwritable.
+  it.skipIf(process.platform === 'win32')('propagates unexpected I/O errors instead of masking them as "lock contention"', () => {
     // chmod the directory read-only so openSync('a') hits EACCES on the lock
     // target. The wrapper must throw rather than return null — otherwise sync
     // would report "already running" for what's actually a disk problem.
