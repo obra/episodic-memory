@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { detectCursorCwd } from './parser.js';
+import { loadRedactor, redactJsonlLine, type Redactor } from './redaction.js';
 
 /**
  * Import legacy Cursor conversations from Cursor's global SQLite store
@@ -141,6 +142,8 @@ export interface CursorLegacyImportOptions {
   force?: boolean;
   /** Report what would be exported without writing files. */
   dryRun?: boolean;
+  /** `undefined` loads from the environment (strict mode throws on bad rules); `null` disables. */
+  redactor?: Redactor | null;
 }
 
 export interface CursorLegacyImportResult {
@@ -160,6 +163,7 @@ export function importCursorLegacy(options: CursorLegacyImportOptions): CursorLe
     errors: [],
   };
 
+  const redactor = options.redactor === undefined ? loadRedactor() : options.redactor;
   const liveIds = options.liveTranscriptIds ?? new Set<string>();
   const db = new Database(options.dbPath, { readonly: true, fileMustExist: true });
 
@@ -264,9 +268,14 @@ export function importCursorLegacy(options: CursorLegacyImportOptions): CursorLe
         if (!options.dryRun) {
           // Re-serialize with cwd now that it's known (it's derived from the
           // whole conversation's tool calls).
-          const finalLines = cwd
+          const withCwd = cwd
             ? lines.map(line => JSON.stringify({ ...JSON.parse(line), cwd }))
             : lines;
+          // The export dir is a plugin-owned plaintext copy, so redact it at
+          // write time like the archive (docs/REDACTION.md).
+          const finalLines = redactor
+            ? withCwd.map(line => redactJsonlLine(line, redactor, { source: 'cursor-legacy', path: outFile }))
+            : withCwd;
 
           fs.mkdirSync(path.dirname(outFile), { recursive: true });
           fs.writeFileSync(outFile, finalLines.join('\n') + '\n', 'utf-8');

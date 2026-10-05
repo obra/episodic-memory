@@ -281,6 +281,37 @@ describe('repairIndex', () => {
     dbAfter.close();
   });
 
+  it('fails closed on a corrupt rules file in strict mode, before changing the index', async () => {
+    const db = initDatabase();
+    insertExchange(db, {
+      id: 'orphan-strict-1',
+      project: 'deleted-project',
+      timestamp: '2024-01-01T00:00:00Z',
+      userMessage: 'Deleted',
+      assistantMessage: 'Still indexed',
+      archivePath: path.join(archiveDir, 'deleted-project', 'deleted.jsonl'),
+      lineStart: 1,
+      lineEnd: 2
+    }, new Array(384).fill(0.1));
+    db.close();
+
+    const rulesPath = path.join(testDir, 'redaction-rules.json');
+    fs.writeFileSync(rulesPath, '{ not json');
+    process.env.EPISODIC_MEMORY_REDACTION_RULES = rulesPath;
+    try {
+      const issues = await verifyIndex();
+      expect(issues.orphaned.length).toBe(1);
+      await expect(repairIndex(issues)).rejects.toThrow(/redaction/i);
+    } finally {
+      delete process.env.EPISODIC_MEMORY_REDACTION_RULES;
+    }
+
+    const dbAfter = initDatabase();
+    const row = dbAfter.prepare(`SELECT COUNT(*) as count FROM exchanges WHERE id = ?`).get('orphan-strict-1') as { count: number };
+    expect(row.count).toBe(1);
+    dbAfter.close();
+  });
+
   it('re-indexes outdated files during repair', { timeout: 30000 }, async () => {
     // Create conversation file with summary
     const projectArchive = path.join(archiveDir, 'test-project');

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Secrets no longer leak into your conversation memory. Azure client secrets, storage keys, SAS signatures, connection-string passwords, private keys, JWTs, GitHub, Anthropic, OpenAI, and AWS keys, and `password: …` style assignments are now replaced with tokens like `[REDACTED:azure-storage-key]` before a conversation is archived, indexed, embedded, or summarized. Before this, every pasted secret was copied into three new places on disk and could be sent to the summarization model. The rest of the conversation stays searchable, and so do git SHAs and Azure tenant, client, and object IDs. Redaction is on by default and fails closed: if the rules can't load, sync won't run rather than store secrets. .NET and Azure shapes where only the setting's name gives the secret away are covered too, even when the value has no recognizable format: `appsettings.json` fields, `web.config` `<add key=… value=…/>`, publish-profile passwords, `az webapp config appsettings list` and `az keyvault secret show` output, C# `ClientSecret = "…"` assignments, and structured MCP results.
+- With redaction on, summaries no longer resume Claude Code sessions or fork Codex threads. Both of those let the model read the original, unredacted transcript. Summaries now come from the redacted text. Codex-only users without Claude configured can set `EPISODIC_MEMORY_SKIP_SUMMARIES=1`.
+
+### Added
+
+- `episodic-memory redact --rewrite` cleans data you indexed before upgrading. It redacts the archive and the search index in place, re-embeds only the messages that changed, and deletes summaries built from unredacted text so they regenerate. Use `--dry-run` to preview (it writes nothing, not even a schema migration), and add `--report` to list each value it would redact, by location, rule and shape, without printing the value.
+- Custom redaction rules via `~/.config/superpowers/redaction-rules.json`, which extends the bundled defaults. Try rules with `episodic-memory redact --stdin`. See `docs/REDACTION.md`.
+- New settings: `EPISODIC_MEMORY_REDACTION` (`on`/`off`), `EPISODIC_MEMORY_REDACTION_RULES`, and `EPISODIC_MEMORY_REDACTION_STRICT`.
+
+### Changed
+
+- `episodic-memory index` now parses the archived copy instead of the source transcript, and refreshes that copy when the source has grown. This is the same behavior `sync` already had.
+
 ## [1.6.0] - 2026-09-08
 
 Adds a fifth conversation source, an off switch for automatic syncing, and two fixes for real-world resource problems.

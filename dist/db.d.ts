@@ -13,6 +13,12 @@ export declare function migrateSchema(db: Database.Database): void;
  *   3. Recreates the table with ON DELETE CASCADE and copies surviving rows.
  */
 export declare function migrateToolCallsCascade(db: Database.Database): void;
+/**
+ * Open the existing index read-only, without creating it, migrating it, or
+ * changing its journal mode. For dry runs that must not write. Returns null
+ * when there is no index yet.
+ */
+export declare function openDatabaseReadOnly(): Database.Database | null;
 export declare function initDatabase(): Database.Database;
 export declare function insertExchange(db: Database.Database, exchange: ConversationExchange, embedding: number[], toolNames?: string[]): void;
 export declare function getAllExchanges(db: Database.Database): Array<{

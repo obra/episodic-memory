@@ -7,6 +7,8 @@ import { summarizeConversation } from './summarizer.js';
 import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
+import { FindingsTally, formatFindings, loadRedactor } from './redaction.js';
+import { copyIfNewer } from './sync.js';
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
 // Increase max listeners for concurrent API calls
@@ -25,7 +27,18 @@ async function processBatch(items, processor, concurrency) {
 function sessionIdForSummary(exchanges) {
     return exchanges.find(exchange => exchange.sessionId)?.sessionId;
 }
+// Resume/fork would summarize the unredacted source transcript; see sync.ts.
+function summarizeOptions(redactor) {
+    return { allowResume: redactor === null };
+}
+function logRedactions(tally) {
+    if (tally.total > 0)
+        console.log(`  Redaction: ${formatFindings(tally.toArray())}`);
+}
 export async function indexConversations(limitToProject, maxConversations, concurrency = 1, noSummaries = false) {
+    // Load before touching the archive: strict mode fails closed here.
+    const redactor = loadRedactor();
+    const tally = new FindingsTally();
     console.log('Initializing database...');
     const db = initDatabase();
     console.log('Loading embedding model...');
@@ -73,14 +86,13 @@ export async function indexConversations(limitToProject, maxConversations, concu
                 // Source transcripts can vanish mid-run (Claude Code cleanup). Skip loudly.
                 let exchanges;
                 try {
-                    // Copy to archive (ensure parent dirs exist for subagent files)
-                    if (!fs.existsSync(archivePath)) {
-                        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                        fs.copyFileSync(sourcePath, archivePath);
+                    // Copy (redacted) to the archive, then parse the archive, so the index
+                    // and summaries only ever see redacted text.
+                    if (copyIfNewer(sourcePath, archivePath, redactor, tally)) {
                         console.log(`  Archived: ${file}`);
                     }
                     // Parse conversation
-                    exchanges = await parseConversation(sourcePath, project, archivePath);
+                    exchanges = await parseConversation(archivePath, project, archivePath);
                 }
                 catch (error) {
                     console.log(`  Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
@@ -105,7 +117,7 @@ export async function indexConversations(limitToProject, maxConversations, concu
                     console.log(`  Generating ${needsSummary.length} summaries (concurrency: ${concurrency})...`);
                     await processBatch(needsSummary, async (conv) => {
                         try {
-                            const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
+                            const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges), summarizeOptions(redactor));
                             fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
                             const wordCount = summary.split(/\s+/).length;
                             console.log(`  ✓ ${conv.file}: ${wordCount} words`);
@@ -145,6 +157,7 @@ export async function indexConversations(limitToProject, maxConversations, concu
                 // Check if we hit the limit
                 if (maxConversations && conversationsProcessed >= maxConversations) {
                     console.log(`\nReached limit of ${maxConversations} conversations`);
+                    logRedactions(tally);
                     db.close();
                     console.log(`✅ Indexing complete! Conversations: ${conversationsProcessed}, Exchanges: ${totalExchanges}`);
                     return;
@@ -155,11 +168,14 @@ export async function indexConversations(limitToProject, maxConversations, concu
     if (oversizeSkipped > 0) {
         console.log(`  Skipped ${oversizeSkipped} oversize exchange(s) (> ${maxMessageBytes} bytes; set EPISODIC_MEMORY_MAX_MESSAGE_BYTES to change) — likely embedded-transcript payloads (#139)`);
     }
+    logRedactions(tally);
     db.close();
     console.log(`\n✅ Indexing complete! Conversations: ${conversationsProcessed}, Exchanges: ${totalExchanges}`);
 }
 export async function indexSession(sessionId, concurrency = 1, noSummaries = false) {
     console.log(`Indexing session: ${sessionId}`);
+    const redactor = loadRedactor();
+    const tally = new FindingsTally();
     // Find the conversation file for this session
     const sourceDirs = getConversationSourceDirs();
     const ARCHIVE_DIR = getArchiveDir();
@@ -187,11 +203,8 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                 // Archive + parse — source may vanish mid-run (Claude Code cleanup).
                 let exchanges;
                 try {
-                    if (!fs.existsSync(archivePath)) {
-                        fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                        fs.copyFileSync(sourcePath, archivePath);
-                    }
-                    exchanges = await parseConversation(sourcePath, project, archivePath);
+                    copyIfNewer(sourcePath, archivePath, redactor, tally);
+                    exchanges = await parseConversation(archivePath, project, archivePath);
                 }
                 catch (error) {
                     console.log(`Skipped ${file} (read failed: ${error instanceof Error ? error.message : error})`);
@@ -204,7 +217,7 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                     if (!noSummaries && shouldQueueForSummary(summaryPath)) {
                         fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
                         try {
-                            const summary = await summarizeConversation(exchanges, sessionIdForSummary(exchanges));
+                            const summary = await summarizeConversation(exchanges, sessionIdForSummary(exchanges), summarizeOptions(redactor));
                             fs.writeFileSync(summaryPath, summary, 'utf-8');
                             console.log(`Summary: ${summary.split(/\s+/).length} words`);
                         }
@@ -235,6 +248,7 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                     if (oversizeSkipped > 0) {
                         console.log(`  Skipped ${oversizeSkipped} oversize exchange(s) (> ${maxMessageBytes} bytes; set EPISODIC_MEMORY_MAX_MESSAGE_BYTES to change) — likely embedded-transcript payloads (#139)`);
                     }
+                    logRedactions(tally);
                     console.log(`✅ Indexed session ${sessionId}: ${exchanges.length} exchanges`);
                 }
                 db.close();
@@ -254,6 +268,8 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
         console.log(`Concurrency: ${concurrency}`);
     if (noSummaries)
         console.log('⚠️  Running in no-summaries mode (skipping AI summaries)');
+    const redactor = loadRedactor();
+    const tally = new FindingsTally();
     const db = initDatabase();
     await initEmbeddings();
     const sourceDirs = getConversationSourceDirs();
@@ -280,15 +296,13 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
                 // Transcript JSONLs are append-only, so MAX(line_end) tells us where to resume.
                 const hw = db.prepare('SELECT COALESCE(MAX(line_end), 0) as maxLine FROM exchanges WHERE archive_path = ?').get(archivePath);
                 const maxIndexedLine = hw.maxLine;
-                // Ensure parent dirs exist for subagent files
                 try {
-                    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                    // Refresh the archive when the source may have grown beyond what we've seen.
-                    if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
-                        fs.copyFileSync(sourcePath, archivePath);
-                    }
+                    // Refresh the (redacted) archive, then parse the archive so the index
+                    // only sees redacted text. Force the refresh once the file is indexed:
+                    // an append inside the mtime granularity would otherwise be skipped.
+                    copyIfNewer(sourcePath, archivePath, redactor, tally, maxIndexedLine > 0);
                     // Parse and filter to exchanges past the high-water mark
-                    const exchanges = await parseConversation(sourcePath, project, archivePath);
+                    const exchanges = await parseConversation(archivePath, project, archivePath);
                     const newExchanges = maxIndexedLine > 0
                         ? exchanges.filter(e => e.lineStart > maxIndexedLine)
                         : exchanges;
@@ -303,6 +317,7 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
             }
         }
     } // end sourceDir loop
+    logRedactions(tally);
     if (unprocessed.length === 0) {
         console.log('✅ All conversations are already processed!');
         db.close();
@@ -316,7 +331,7 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
             console.log(`Generating ${needsSummary.length} summaries (concurrency: ${concurrency})...\n`);
             await processBatch(needsSummary, async (conv) => {
                 try {
-                    const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges));
+                    const summary = await summarizeConversation(conv.exchanges, sessionIdForSummary(conv.exchanges), summarizeOptions(redactor));
                     fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
                     const wordCount = summary.split(/\s+/).length;
                     console.log(`  ✓ ${conv.project}/${conv.file}: ${wordCount} words`);

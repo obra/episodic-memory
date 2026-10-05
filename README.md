@@ -327,6 +327,18 @@ Add to `.claude/hooks/session-end`:
 episodic-memory sync
 ```
 
+### `episodic-memory redact`
+
+```bash
+episodic-memory redact --rewrite --dry-run   # what would change
+episodic-memory redact --rewrite --dry-run --report   # each hit: location, rule, value shape
+episodic-memory redact --rewrite             # redact the existing archive + index in place
+episodic-memory redact --stdin < file.jsonl  # try the rules on some text
+episodic-memory redact --print-default-rules
+```
+
+See [docs/REDACTION.md](docs/REDACTION.md).
+
 ### `episodic-memory stats`
 
 Display index statistics including conversation counts, date ranges, and project breakdown.
@@ -414,6 +426,28 @@ open output.html
 3. **Embed** - Generates vector embeddings using Transformers.js (local, offline)
 4. **Index** - Stores in SQLite with sqlite-vec for fast similarity search
 5. **Search** - Semantic search using vector similarity or exact text matching
+
+## Secret Redaction
+
+Secrets in your conversations (Azure client secrets, storage keys, SAS
+signatures, connection-string passwords, private keys, JWTs, provider API keys,
+`password: …` assignments) are replaced with typed tokens such as
+`[REDACTED:azure-storage-key]` **before** anything is archived, indexed,
+embedded, or sent to the summarizer. Git SHAs and GUIDs are never redacted, so
+they stay searchable. The tokens are searchable too.
+
+Redaction is on by default and fails closed: if the rules can't be loaded, sync
+won't run. After upgrading, run `episodic-memory redact --rewrite` once to clean
+data you indexed before.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EPISODIC_MEMORY_REDACTION` | `on` | `off` disables redaction |
+| `EPISODIC_MEMORY_REDACTION_RULES` | `<config dir>/redaction-rules.json` | Custom rules file (extends the defaults) |
+| `EPISODIC_MEMORY_REDACTION_STRICT` | `1` | `0` continues unredacted (with a warning) when rules fail to load |
+
+See [docs/REDACTION.md](docs/REDACTION.md) for the rule list, the custom-rules
+format, and what is and isn't covered.
 
 ## Excluding Conversations
 

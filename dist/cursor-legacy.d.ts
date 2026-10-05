@@ -1,3 +1,4 @@
+import { type Redactor } from './redaction.js';
 export declare function getDefaultCursorVscdbPath(): string | undefined;
 /**
  * Collect composer IDs that already have live agent transcripts under
@@ -14,6 +15,8 @@ export interface CursorLegacyImportOptions {
     force?: boolean;
     /** Report what would be exported without writing files. */
     dryRun?: boolean;
+    /** `undefined` loads from the environment (strict mode throws on bad rules); `null` disables. */
+    redactor?: Redactor | null;
 }
 export interface CursorLegacyImportResult {
     exported: number;

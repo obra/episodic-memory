@@ -617,7 +617,8 @@ function getCodexSessionId(exchanges, sessionId) {
 export function getCodexModel(_exchanges) {
     return process.env.EPISODIC_MEMORY_CODEX_MODEL || undefined;
 }
-export async function summarizeConversation(exchanges, sessionId) {
+export async function summarizeConversation(exchanges, sessionId, options = {}) {
+    const allowResume = options.allowResume !== false;
     // Handle trivial conversations
     if (exchanges.length === 0) {
         return 'Trivial conversation with no substantive content.';
@@ -628,7 +629,7 @@ export async function summarizeConversation(exchanges, sessionId) {
             return 'Trivial conversation with no substantive content.';
         }
     }
-    const codexSessionId = getCodexSessionId(exchanges, sessionId);
+    const codexSessionId = allowResume ? getCodexSessionId(exchanges, sessionId) : undefined;
     if (codexSessionId) {
         try {
             const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
@@ -652,7 +653,7 @@ export async function summarizeConversation(exchanges, sessionId) {
         // would fail on every one before the no-resume retry kicks in. Treat
         // missing harness as Claude for backward compatibility with old archives.
         const isClaudeSession = exchanges.some(e => e.harness === 'claude' || e.harness === undefined);
-        const claudeSessionId = !codexSessionId && isClaudeSession ? sessionId : undefined;
+        const claudeSessionId = allowResume && !codexSessionId && isClaudeSession ? sessionId : undefined;
         const cwd = claudeSessionId ? exchanges.find(e => e.cwd)?.cwd : undefined;
         const conversationText = claudeSessionId
             ? '' // When resuming, no need to include conversation text - it's already in context

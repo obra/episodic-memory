@@ -172,4 +172,13 @@ export declare function runCodexCommand(command: CodexSummarizerCommand): Promis
  * See https://github.com/obra/episodic-memory/issues/98.
  */
 export declare function getCodexModel(_exchanges: ConversationExchange[]): string | undefined;
-export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string>;
+export interface SummarizeOptions {
+    /**
+     * Allow Claude session resume and Codex thread/fork (default true). Both
+     * paths make the model read the *source* transcript rather than `exchanges`,
+     * so callers pass false when the exchanges were redacted (see
+     * docs/REDACTION.md) to force the transcript-text path.
+     */
+    allowResume?: boolean;
+}
+export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string, options?: SummarizeOptions): Promise<string>;

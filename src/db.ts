@@ -104,6 +104,17 @@ export function migrateToolCallsCascade(db: Database.Database): void {
   console.log('  tool_calls migration complete.');
 }
 
+/**
+ * Open the existing index read-only, without creating it, migrating it, or
+ * changing its journal mode. For dry runs that must not write. Returns null
+ * when there is no index yet.
+ */
+export function openDatabaseReadOnly(): Database.Database | null {
+  const dbPath = getDbPath();
+  if (!fs.existsSync(dbPath)) return null;
+  return new Database(dbPath, { readonly: true, fileMustExist: true });
+}
+
 export function initDatabase(): Database.Database {
   const dbPath = getDbPath();
 

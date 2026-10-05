@@ -14,6 +14,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import { formatLogLine, getSyncLogPath, getSyncLockPath } from './logging.js';
 import { acquireFileLock, readLockHolder, releaseFileLock } from './file-lock.js';
+import { FindingsTally, formatFindings, getRedactionSettings, loadRedactor, type Redactor } from './redaction.js';
 
 const args = process.argv.slice(2);
 
@@ -48,9 +49,12 @@ Sync conversations from Claude Code, Codex, and opencode transcript sources to a
 
 This command:
 1. Exports opencode sessions from its SQLite database when available
-2. Copies new or updated .jsonl files to conversation archive
+2. Copies new or updated .jsonl files to conversation archive, redacting secrets
 3. Generates embeddings for semantic search
 4. Updates the search index
+
+Secrets are replaced with [REDACTED:<rule>] tokens before anything is archived,
+indexed, embedded, or summarized. See EPISODIC_MEMORY_REDACTION* in the README.
 
 Only processes files that are new or have been modified since last sync.
 Safe to run multiple times - subsequent runs are fast no-ops.
@@ -157,8 +161,23 @@ if (isBackground) {
   process.exit(0);
 }
 
+// Load redaction rules before anything is exported, copied, or indexed. In
+// strict mode (the default) a bad rules file stops the sync here: fail closed
+// rather than archive unredacted text.
+let redactor: Redactor | null;
+try {
+  redactor = loadRedactor();
+} catch (error) {
+  console.error(`episodic-memory: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(
+    'episodic-memory: refusing to sync without redaction (strict mode). Fix the rules file, ' +
+    'or set EPISODIC_MEMORY_REDACTION_STRICT=0 to sync unredacted, or EPISODIC_MEMORY_REDACTION=off.'
+  );
+  process.exit(1);
+}
+
 if (!onlyHarnesses || onlyHarnesses.includes('opencode')) {
-  const opencodeExport = exportOpencodeSessions();
+  const opencodeExport = exportOpencodeSessions({ redactor });
   if (opencodeExport.exported > 0 || opencodeExport.skipped > 0) {
     console.log(`opencode export: ${opencodeExport.exported} exported, ${opencodeExport.skipped} skipped`);
   }
@@ -215,8 +234,11 @@ console.log(`Destination: ${destDir}\n`);
 async function syncAll() {
   const totals = { copied: 0, skipped: 0, indexed: 0, summarized: 0, errors: [] as Array<{file: string; error: string}>, sourcesWithSummaryWork: 0, totalNeedingSummaries: 0 };
 
+  const redactions = new FindingsTally();
+
   for (const sourceDir of sourceDirs) {
-    const result = await syncConversations(sourceDir, destDir, { ...syncOptions, summaryLimit });
+    const result = await syncConversations(sourceDir, destDir, { ...syncOptions, summaryLimit, redactor });
+    redactions.add(result.redactions);
     totals.copied += result.copied;
     totals.skipped += result.skipped;
     totals.indexed += result.indexed;
@@ -232,6 +254,14 @@ async function syncAll() {
     console.log('  Summaries: skipped (EPISODIC_MEMORY_SKIP_SUMMARIES=1)');
   } else {
     console.log(`  Summarized: ${totals.summarized}`);
+  }
+  // Rule IDs and counts only — never matched values.
+  if (redactor) {
+    console.log(`  Redaction: ${formatFindings(redactions.toArray())}`);
+  } else if (getRedactionSettings().enabled) {
+    console.log('  Redaction: NOT APPLIED (rules failed to load; EPISODIC_MEMORY_REDACTION_STRICT=0)');
+  } else {
+    console.log('  Redaction: off (EPISODIC_MEMORY_REDACTION=off)');
   }
 
   if (totals.errors.length > 0) {

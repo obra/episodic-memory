@@ -702,7 +702,23 @@ export function getCodexModel(_exchanges: ConversationExchange[]): string | unde
   return process.env.EPISODIC_MEMORY_CODEX_MODEL || undefined;
 }
 
-export async function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string> {
+export interface SummarizeOptions {
+  /**
+   * Allow Claude session resume and Codex thread/fork (default true). Both
+   * paths make the model read the *source* transcript rather than `exchanges`,
+   * so callers pass false when the exchanges were redacted (see
+   * docs/REDACTION.md) to force the transcript-text path.
+   */
+  allowResume?: boolean;
+}
+
+export async function summarizeConversation(
+  exchanges: ConversationExchange[],
+  sessionId?: string,
+  options: SummarizeOptions = {}
+): Promise<string> {
+  const allowResume = options.allowResume !== false;
+
   // Handle trivial conversations
   if (exchanges.length === 0) {
     return 'Trivial conversation with no substantive content.';
@@ -715,7 +731,7 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
     }
   }
 
-  const codexSessionId = getCodexSessionId(exchanges, sessionId);
+  const codexSessionId = allowResume ? getCodexSessionId(exchanges, sessionId) : undefined;
   if (codexSessionId) {
     try {
       const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
@@ -742,7 +758,7 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
     const isClaudeSession = exchanges.some(
       e => e.harness === 'claude' || e.harness === undefined
     );
-    const claudeSessionId = !codexSessionId && isClaudeSession ? sessionId : undefined;
+    const claudeSessionId = allowResume && !codexSessionId && isClaudeSession ? sessionId : undefined;
     const cwd = claudeSessionId ? exchanges.find(e => e.cwd)?.cwd : undefined;
     const conversationText = claudeSessionId
       ? '' // When resuming, no need to include conversation text - it's already in context
