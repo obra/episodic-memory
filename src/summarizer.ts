@@ -693,8 +693,8 @@ function getCodexSessionId(exchanges: ConversationExchange[], sessionId?: string
  *
  * Default to `undefined` so `app-server` uses the current Codex config
  * (`~/.codex/config.toml#model`). Operators can override via
- * `EPISODIC_MEMORY_CODEX_MODEL` if they need a specific model id (e.g. an
- * API-key user wanting `gpt-5.5-codex`).
+ * `EPISODIC_MEMORY_CODEX_MODEL` if they need a supported model id for their
+ * selected Codex route.
  *
  * See https://github.com/obra/episodic-memory/issues/98.
  */
@@ -715,20 +715,20 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
     }
   }
 
-  const codexSessionId = getCodexSessionId(exchanges, sessionId);
-  if (codexSessionId) {
-    try {
-      const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
-      return extractSummary(result);
-    } catch (error) {
-      console.log(`  Codex summarizer unavailable, falling back to transcript text: ${error instanceof Error ? error.message : String(error)}`);
+  const isCodexConversation = exchanges.some(exchange => exchange.harness === 'codex');
+  if (isCodexConversation) {
+    const codexSessionId = getCodexSessionId(exchanges, sessionId);
+    if (!codexSessionId) {
+      throw new Error('Codex session ID is required for a read-only summary fork');
     }
+    const result = await callCodex(buildCodexSummaryPrompt(), codexSessionId, getCodexModel(exchanges));
+    return extractSummary(result);
   }
 
   // Cost safety (#104): everything below this point calls the metered Claude API
-  // path. If a stray global ANTHROPIC_API_KEY would be billed and the user hasn't
+  // path. Codex conversations return or fail before reaching this point.
+  // If a stray global ANTHROPIC_API_KEY would be billed and the user hasn't
   // acknowledged it, warn once and proceed (don't silently spend without notice).
-  // Placed AFTER the Codex attempt so pure-Codex users are never warned needlessly.
   if (wouldBillMeteredApi() && !meteredApiOptIn()) {
     warnMeteredApiOnce();
   }
@@ -742,7 +742,7 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
     const isClaudeSession = exchanges.some(
       e => e.harness === 'claude' || e.harness === undefined
     );
-    const claudeSessionId = !codexSessionId && isClaudeSession ? sessionId : undefined;
+    const claudeSessionId = isClaudeSession ? sessionId : undefined;
     const cwd = claudeSessionId ? exchanges.find(e => e.cwd)?.cwd : undefined;
     const conversationText = claudeSessionId
       ? '' // When resuming, no need to include conversation text - it's already in context

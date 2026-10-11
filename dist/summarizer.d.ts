@@ -166,8 +166,8 @@ export declare function runCodexCommand(command: CodexSummarizerCommand): Promis
  *
  * Default to `undefined` so `app-server` uses the current Codex config
  * (`~/.codex/config.toml#model`). Operators can override via
- * `EPISODIC_MEMORY_CODEX_MODEL` if they need a specific model id (e.g. an
- * API-key user wanting `gpt-5.5-codex`).
+ * `EPISODIC_MEMORY_CODEX_MODEL` if they need a supported model id for their
+ * selected Codex route.
  *
  * See https://github.com/obra/episodic-memory/issues/98.
  */
