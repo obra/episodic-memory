@@ -132,7 +132,7 @@ export function buildSyncOptionsFromEnv(env: NodeJS.ProcessEnv): SyncOptions {
   return { skipSummaries: env.EPISODIC_MEMORY_SKIP_SUMMARIES === '1' };
 }
 
-function copyIfNewer(src: string, dest: string): boolean {
+export function copyIfNewer(src: string, dest: string): boolean {
   // Ensure destination directory exists
   const destDir = path.dirname(dest);
   if (!fs.existsSync(destDir)) {
@@ -143,7 +143,7 @@ function copyIfNewer(src: string, dest: string): boolean {
   if (fs.existsSync(dest)) {
     const srcStat = fs.statSync(src);
     const destStat = fs.statSync(dest);
-    if (destStat.mtimeMs >= srcStat.mtimeMs) {
+    if (destStat.mtimeMs >= srcStat.mtimeMs && destStat.size === srcStat.size) {
       return false; // Dest is current, skip
     }
   }

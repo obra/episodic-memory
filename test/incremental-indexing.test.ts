@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, statSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import Database from 'better-sqlite3';
-import { indexUnprocessed } from '../src/indexer.js';
+import { indexSession, indexUnprocessed } from '../src/indexer.js';
+import { getArchiveDir } from '../src/paths.js';
 import { suppressConsole } from './test-utils.js';
 
 /**
@@ -104,5 +105,34 @@ describe('indexer: incremental indexing', () => {
     );
     await indexUnprocessed(1, true);
     expect(countExchanges()).toBe(5);
+  });
+
+  it('does not replace indexed rows when indexing a resumed session', async () => {
+    const projectDir = join(projectsDir, 'project-a');
+    mkdirSync(projectDir, { recursive: true });
+    const transcriptPath = join(projectDir, 'session-1.jsonl');
+    writeFileSync(transcriptPath, makeExchangeLines(1, 'session-1'), 'utf-8');
+
+    await indexSession('session-1', 1, true);
+    const before = new Database(dbPath);
+    before.prepare('UPDATE exchanges SET last_indexed = ? WHERE line_start = 1').run(123);
+    before.close();
+
+    const archivePath = join(getArchiveDir(), 'project-a', 'session-1.jsonl');
+    const archiveMtime = statSync(archivePath).mtime;
+    appendFileSync(transcriptPath, makeExchangeLines(2, 'session-1'), 'utf-8');
+    // Appends can share a filesystem timestamp with the archived prefix.
+    utimesSync(transcriptPath, archiveMtime, archiveMtime);
+    await indexSession('session-1', 1, true);
+
+    const after = new Database(dbPath);
+    const rows = after.prepare('SELECT line_start AS lineStart, last_indexed AS lastIndexed FROM exchanges ORDER BY line_start')
+      .all() as Array<{ lineStart: number; lastIndexed: number }>;
+    after.close();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ lineStart: 1, lastIndexed: 123 });
+    expect(rows[1].lineStart).toBe(3);
+    expect(rows[1].lastIndexed).toBeGreaterThan(123);
+    expect(readFileSync(archivePath, 'utf-8')).toBe(readFileSync(transcriptPath, 'utf-8'));
   });
 });

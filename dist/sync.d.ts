@@ -39,5 +39,6 @@ export interface SyncOptions {
  * Claude quota and can stall on a permission prompt.
  */
 export declare function buildSyncOptionsFromEnv(env: NodeJS.ProcessEnv): SyncOptions;
+export declare function copyIfNewer(src: string, dest: string): boolean;
 export declare function extractSessionIdFromPath(filePath: string): string | null;
 export declare function syncConversations(sourceDir: string, destDir: string, options?: SyncOptions): Promise<SyncResult>;
