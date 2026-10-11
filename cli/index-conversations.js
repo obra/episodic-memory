@@ -50,16 +50,16 @@ USAGE:
 
 COMMANDS:
   (default)      Index all conversations
-  --cleanup      Process only unindexed conversations (fast, cheap)
+  --cleanup      Process unindexed exchanges (may generate AI summaries)
   --session ID   Index specific session (used by hook)
-  --verify       Check index health
-  --repair       Fix detected issues
+  --verify       Classify index and summary state
+  --repair       Re-embed and summarize repair candidates (review first)
   --rebuild      Delete DB and re-index everything (requires confirmation)
 
 OPTIONS:
   --concurrency N    Parallel summarization (1-16, default: 1)
   -c N               Short form of --concurrency
-  --no-summaries     Skip AI summary generation (free, but no summaries in results)
+  --no-summaries     Skip AI summary provider calls
   --help, -h         Show this help
 
 EXAMPLES:
@@ -69,13 +69,13 @@ EXAMPLES:
   # Index with 8 parallel summarizations (8x faster)
   index-conversations --cleanup --concurrency 8
 
-  # Index without AI summaries (free, fast)
+  # Index without AI summary provider calls
   index-conversations --cleanup --no-summaries
 
   # Check index health
   index-conversations --verify
 
-  # Fix any issues found
+  # Review candidates and provider cost before broad repair
   index-conversations --repair
 
   # Nuclear option (deletes everything, re-indexes)
@@ -85,7 +85,7 @@ WORKFLOW:
   1. Initial setup: index-conversations --cleanup
   2. Ongoing: Auto-indexed by sessionEnd hook
   3. Health check: index-conversations --verify (weekly)
-  4. Recovery: index-conversations --repair (if issues found)
+  4. Recovery: review exact verifier categories before repair
 
 SEE ALSO:
   INDEXING.md - Setup and maintenance guide

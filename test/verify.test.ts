@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import { initDatabase, insertExchange } from '../src/db.js';
 import { ConversationExchange } from '../src/types.js';
+import { summarizeConversation } from '../src/summarizer.js';
 
 vi.mock('../src/embeddings.js', () => ({
   initEmbeddings: vi.fn(async () => {}),
@@ -43,6 +44,21 @@ describe('verifyIndex', () => {
     delete process.env.TEST_PROJECTS_DIR;
     delete process.env.TEST_ARCHIVE_DIR;
     delete process.env.TEST_DB_PATH;
+  });
+
+  it('does not create an index database merely by verifying an archive', async () => {
+    const projectArchive = path.join(archiveDir, 'read-only-project');
+    fs.mkdirSync(projectArchive, { recursive: true });
+    const conversationPath = path.join(projectArchive, 'conversation.jsonl');
+    fs.writeFileSync(conversationPath, [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' }),
+    ].join('\n'));
+
+    expect(fs.existsSync(dbPath)).toBe(false);
+    const result = await verifyIndex();
+    expect(result.unindexed.map(item => item.path)).toContain(conversationPath);
+    expect(fs.existsSync(dbPath)).toBe(false);
   });
 
   it('should skip excluded projects', async () => {
@@ -156,7 +172,7 @@ describe('verifyIndex', () => {
     expect(result.orphaned[0].path).toBe(exchange.archivePath);
   });
 
-  it('detects outdated files (file modified after last_indexed)', async () => {
+  it('detects appended exchanges beyond the indexed high-water mark', async () => {
     // Create conversation file with summary
     const projectArchive = path.join(archiveDir, 'test-project');
     fs.mkdirSync(projectArchive, { recursive: true });
@@ -193,15 +209,15 @@ describe('verifyIndex', () => {
     const lastIndexed = row.last_indexed;
     db.close();
 
-    // Wait a bit, then modify the file
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    // Update the conversation file
+    // Append a complete exchange and make the timestamp comparison deterministic.
     const updatedMessages = [
       ...messages,
-      JSON.stringify({ type: 'user', message: { role: 'user', content: 'New message' }, timestamp: '2024-01-01T00:00:02Z' })
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'New message' }, timestamp: '2024-01-01T00:00:02Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'New response' }, timestamp: '2024-01-01T00:00:03Z' })
     ];
     fs.writeFileSync(conversationPath, updatedMessages.join('\n'));
+    const future = new Date(lastIndexed + 10_000);
+    fs.utimesSync(conversationPath, future, future);
 
     // Verify detects outdated file
     const result = await verifyIndex();
@@ -210,6 +226,75 @@ describe('verifyIndex', () => {
     expect(result.outdated[0].path).toBe(conversationPath);
     expect(result.outdated[0].dbTime).toBe(lastIndexed);
     expect(result.outdated[0].fileTime).toBeGreaterThan(lastIndexed);
+  });
+
+  it('does not call an mtime-only archive refresh an index delta', async () => {
+    const projectArchive = path.join(archiveDir, 'test-project');
+    fs.mkdirSync(projectArchive, { recursive: true });
+    const conversationPath = path.join(projectArchive, 'refreshed.jsonl');
+    fs.writeFileSync(conversationPath, [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' })
+    ].join('\n'));
+    fs.writeFileSync(conversationPath.replace('.jsonl', '-summary.txt'), 'Existing summary');
+    const db = initDatabase();
+    insertExchange(db, { id: 'refreshed', project: 'test-project', timestamp: '2024-01-01T00:00:00Z',
+      userMessage: 'Hello', assistantMessage: 'Hi', archivePath: conversationPath, lineStart: 1, lineEnd: 2 }, new Array(384).fill(0.1));
+    db.close();
+    const future = new Date(Date.now() + 10_000);
+    fs.utimesSync(conversationPath, future, future);
+
+    const result = await verifyIndex();
+    expect(result.outdated).toEqual([]);
+    expect(result.archiveRefreshes.map(item => item.path)).toEqual([conversationPath]);
+  });
+
+  it('reports a missing summary and an appended exchange independently', async () => {
+    const projectArchive = path.join(archiveDir, 'test-project');
+    fs.mkdirSync(projectArchive, { recursive: true });
+    const conversationPath = path.join(projectArchive, 'appended.jsonl');
+    const messages = [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' })
+    ];
+    fs.writeFileSync(conversationPath, messages.join('\n'));
+    const db = initDatabase();
+    insertExchange(db, { id: 'original', project: 'test-project', timestamp: '2024-01-01T00:00:00Z',
+      userMessage: 'Hello', assistantMessage: 'Hi', archivePath: conversationPath, lineStart: 1, lineEnd: 2 }, new Array(384).fill(0.1));
+    const lastIndexed = (db.prepare('SELECT last_indexed FROM exchanges WHERE id = ?').get('original') as { last_indexed: number }).last_indexed;
+    db.close();
+    fs.appendFileSync(conversationPath, '\n' + [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Later' }, timestamp: '2024-01-01T00:00:02Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Done' }, timestamp: '2024-01-01T00:00:03Z' })
+    ].join('\n'));
+    const future = new Date(lastIndexed + 10_000);
+    fs.utimesSync(conversationPath, future, future);
+
+    const result = await verifyIndex();
+    expect(result.missing.map(item => item.path)).toEqual([conversationPath]);
+    expect(result.outdated.map(item => item.path)).toEqual([conversationPath]);
+  });
+
+  it('distinguishes an unindexed archive from an indexed external source', async () => {
+    const projectArchive = path.join(archiveDir, 'test-project');
+    fs.mkdirSync(projectArchive, { recursive: true });
+    const archivePath = path.join(projectArchive, 'unindexed.jsonl');
+    const sourcePath = path.join(testDir, 'active.jsonl');
+    const lines = [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' })
+    ].join('\n');
+    fs.writeFileSync(archivePath, lines);
+    fs.writeFileSync(archivePath.replace('.jsonl', '-summary.txt'), 'Existing summary');
+    fs.writeFileSync(sourcePath, lines);
+    const db = initDatabase();
+    insertExchange(db, { id: 'external', project: 'test-project', timestamp: '2024-01-01T00:00:00Z',
+      userMessage: 'Hello', assistantMessage: 'Hi', archivePath: sourcePath, lineStart: 1, lineEnd: 2 }, new Array(384).fill(0.1));
+    db.close();
+
+    const result = await verifyIndex();
+    expect(result.unindexed.map(item => item.path)).toEqual([archivePath]);
+    expect(result.orphaned).toEqual([]);
   });
 
   // Note: Parser is resilient to malformed JSON - it skips bad lines
@@ -242,6 +327,26 @@ describe('repairIndex', () => {
     delete process.env.TEST_PROJECTS_DIR;
     delete process.env.TEST_ARCHIVE_DIR;
     delete process.env.TEST_DB_PATH;
+  });
+
+  it('repairs a path reported as both missing and outdated only once', async () => {
+    const projectArchive = path.join(archiveDir, 'test-project');
+    fs.mkdirSync(projectArchive, { recursive: true });
+    const conversationPath = path.join(projectArchive, 'duplicate.jsonl');
+    fs.writeFileSync(conversationPath, [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' })
+    ].join('\n'));
+    vi.mocked(summarizeConversation).mockClear();
+
+    await repairIndex({
+      ...await verifyIndex(),
+      missing: [{ path: conversationPath, reason: 'No summary file' }],
+      outdated: [{ path: conversationPath, fileTime: 2, dbTime: 1 }],
+      orphaned: [], corrupted: []
+    });
+
+    expect(summarizeConversation).toHaveBeenCalledTimes(1);
   });
 
   it('deletes orphaned database entries during repair', async () => {

@@ -372,9 +372,14 @@ This test uses your normal Claude Code auth and writes small test transcripts to
 Manual indexing tools for bulk operations and maintenance. See `episodic-memory index --help` for full options.
 
 Common operations:
-- `--cleanup` - Index all unprocessed conversations
-- `--verify` - Check index health
-- `--repair` - Fix detected issues
+- `--cleanup` - Index unprocessed exchanges; summaries may call an AI provider unless disabled
+- `--verify` - Distinguish missing summaries, unindexed archives, appended exchanges, and archive mtime refreshes
+- `--repair` - Re-embed and regenerate summaries for repair candidates; review the scope and provider cost first
+
+An archive mtime refresh without new exchanges is reported separately and is
+not an outdated-index repair target. An unindexed archive is reported, but
+that status alone does not select it for `--repair`; a separate overlapping
+repair category may still cause it to be processed.
 
 ### `episodic-memory search`
 

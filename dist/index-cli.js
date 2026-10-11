@@ -7,16 +7,16 @@ import path from 'path';
 import { getSyncLockPath } from './logging.js';
 import { acquireFileLock, readLockHolder, releaseFileLock } from './file-lock.js';
 const command = process.argv[2];
-// Serialize the whole CLI with `sync-cli`: every command can initialize or
-// migrate the database, and rebuild also deletes the database and summaries.
+// Serialize the whole CLI with `sync-cli`: writers mutate the index/archive,
+// and verification must not claim a consistent result while one is active.
 const syncLockPath = getSyncLockPath();
 const syncLock = acquireFileLock(syncLockPath);
 if (!syncLock) {
     const holder = readLockHolder(syncLockPath);
     const holderLabel = holder !== null ? `pid ${holder}` : 'another process';
-    // stderr keeps this out of stdout consumers; status 0 so hooks don't fail.
+    // A skipped write may be retried by a hook; a skipped verifier is not a result.
     console.error(`episodic-memory: sync already running (${holderLabel}); skipping`);
-    process.exit(0);
+    process.exit(command === 'verify' ? 2 : 0);
 }
 const releaseSyncLockOnce = () => {
     if (releaseSyncLockOnce.done)
@@ -63,15 +63,25 @@ async function main() {
                 const issues = await verifyIndex();
                 console.log('\n=== Verification Results ===');
                 console.log(`Missing summaries: ${issues.missing.length}`);
+                console.log(`Unindexed archives: ${issues.unindexed.length}`);
                 console.log(`Orphaned entries: ${issues.orphaned.length}`);
                 console.log(`Outdated files: ${issues.outdated.length}`);
+                console.log(`Archive refreshes (no new exchanges): ${issues.archiveRefreshes.length}`);
                 console.log(`Corrupted files: ${issues.corrupted.length}`);
                 if (issues.missing.length > 0) {
                     console.log('\nMissing summaries:');
                     issues.missing.forEach(m => console.log(`  ${m.path}`));
                 }
-                if (issues.missing.length + issues.orphaned.length + issues.outdated.length + issues.corrupted.length > 0) {
-                    console.log('\nRun with --repair to fix these issues.');
+                if (issues.unindexed.length > 0) {
+                    console.log('\nUnindexed archives:');
+                    issues.unindexed.forEach(item => console.log(`  ${item.path}`));
+                }
+                if (issues.outdated.length > 0) {
+                    console.log('\nArchives with appended exchanges:');
+                    issues.outdated.forEach(item => console.log(`  ${item.path}`));
+                }
+                if (issues.missing.length + issues.unindexed.length + issues.orphaned.length + issues.outdated.length + issues.corrupted.length > 0) {
+                    console.log('\nReview exact candidates before repair; --repair may regenerate summaries and embeddings.');
                     process.exit(1);
                 }
                 else {
@@ -81,10 +91,14 @@ async function main() {
             case 'repair':
                 console.log('Verifying conversation index...');
                 const repairIssues = await verifyIndex();
+                if (repairIssues.unindexed.length > 0) {
+                    console.log(`${repairIssues.unindexed.length} unindexed archive(s) require separate review; --repair does not select them by this status alone.`);
+                    process.exitCode = 1;
+                }
                 if (repairIssues.missing.length + repairIssues.orphaned.length + repairIssues.outdated.length > 0) {
                     await repairIndex(repairIssues);
                 }
-                else {
+                else if (repairIssues.unindexed.length === 0) {
                     console.log('✅ No issues to repair!');
                 }
                 break;
