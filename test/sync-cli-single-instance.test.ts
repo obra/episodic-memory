@@ -70,6 +70,8 @@ describe('sync-cli single-instance lock (#97)', () => {
       TEST_ARCHIVE_DIR: join(testDir, 'archive'),
       TEST_DB_PATH: join(testDir, 'test.db'),
       EPISODIC_MEMORY_CONFIG_DIR: join(testDir, 'config'),
+      EPISODIC_MEMORY_OPENCODE_DB_PATH: join(testDir, 'opencode-missing.db'),
+      EPISODIC_MEMORY_OPENCODE_TRANSCRIPT_DIR: join(testDir, 'opencode-transcripts'),
     };
   });
 
@@ -101,6 +103,24 @@ describe('sync-cli single-instance lock (#97)', () => {
     const result = runWith(envOverrides);
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/Sync complete/);
+  });
+
+  it('does not print a green completion headline when the offline model is unavailable', () => {
+    const transcript = join(testDir, 'projects', 'project-a', '00000000-0000-0000-0000-000000000001.jsonl');
+    writeFileSync(transcript, [
+      JSON.stringify({ type: 'user', uuid: 'user-1', parentUuid: null,
+        timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'What changed?' } }),
+      JSON.stringify({ type: 'assistant', uuid: 'assistant-1', parentUuid: 'user-1',
+        timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: [{ type: 'text', text: 'The build changed.' }] } })
+    ].join('\n'));
+
+    const result = runWith({ ...envOverrides,
+      EPISODIC_MEMORY_MODEL_CACHE_DIR: join(testDir, 'empty-model-cache'),
+      EPISODIC_MEMORY_OFFLINE: '1', EPISODIC_MEMORY_SKIP_SUMMARIES: '1' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Sync finished with errors');
+    expect(result.stdout).not.toContain('✅ Sync complete!');
+    expect(result.stdout).toContain('Indexed: 0');
   });
 
   it('releases the lock on normal exit — a subsequent run is not skipped', () => {

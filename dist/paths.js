@@ -191,6 +191,21 @@ export function getArchiveDir() {
     return ensureDir(path.join(getSuperpowersDir(), 'conversation-archive'));
 }
 /**
+ * Keep downloaded embedding models outside npm-owned node_modules so plugin
+ * upgrades do not discard the cache. An explicit override supports shared or
+ * pre-seeded caches on hosts without model-network access.
+ */
+export function getModelCacheDir() {
+    const override = process.env.EPISODIC_MEMORY_MODEL_CACHE_DIR;
+    if (override) {
+        if (!path.isAbsolute(override)) {
+            throw new Error('EPISODIC_MEMORY_MODEL_CACHE_DIR must be an absolute path');
+        }
+        return ensureDir(override);
+    }
+    return ensureDir(path.join(getSuperpowersDir(), 'models'));
+}
+/**
  * Get conversation index directory
  */
 export function getIndexDir() {

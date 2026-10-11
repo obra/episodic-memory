@@ -83,6 +83,12 @@ export declare function getSuperpowersDir(): string;
  */
 export declare function getArchiveDir(): string;
 /**
+ * Keep downloaded embedding models outside npm-owned node_modules so plugin
+ * upgrades do not discard the cache. An explicit override supports shared or
+ * pre-seeded caches on hosts without model-network access.
+ */
+export declare function getModelCacheDir(): string;
+/**
  * Get conversation index directory
  */
 export declare function getIndexDir(): string;

@@ -1,3 +1,4 @@
+import { getModelCacheDir } from './paths.js';
 /**
  * Embedding model configuration.
  *
@@ -65,6 +66,8 @@ export class EmbeddingsUnavailableError extends Error {
 export async function initEmbeddings() {
     if (embeddingPipeline)
         return;
+    const modelCacheDir = getModelCacheDir();
+    const offline = process.env.EPISODIC_MEMORY_OFFLINE === '1';
     // Load @huggingface/transformers lazily. Its module graph eagerly requires
     // `sharp`, so a static top-level import would crash *every* consumer of this
     // file at import time on hosts where sharp's native binding can't load —
@@ -73,9 +76,11 @@ export async function initEmbeddings() {
     let pipeline;
     try {
         const transformers = await import('@huggingface/transformers');
-        // Disable progress callbacks / remote cache to prevent stdout pollution in
-        // MCP context, where stdout is reserved for JSON-RPC communication.
-        transformers.env.allowLocalModels = true;
+        // Native settings apply to the shared Transformers.js module instance.
+        // Keep the durable cache and only restrict existing loading permissions.
+        transformers.env.cacheDir = modelCacheDir;
+        if (offline)
+            transformers.env.allowRemoteModels = false;
         transformers.env.useBrowserCache = false;
         pipeline = transformers.pipeline;
     }
@@ -97,7 +102,15 @@ export async function initEmbeddings() {
             interOpNumThreads: 1,
         };
     }
-    embeddingPipeline = await pipeline('feature-extraction', MODEL_ID, options);
+    try {
+        embeddingPipeline = await pipeline('feature-extraction', MODEL_ID, options);
+    }
+    catch (error) {
+        const message = offline
+            ? 'Embedding model unavailable in the local cache while EPISODIC_MEMORY_OFFLINE=1; pre-seed the model cache or disable offline mode.'
+            : 'Embedding model unavailable; check the model cache and remote model access.';
+        throw new EmbeddingsUnavailableError(message, { cause: error });
+    }
     console.error('Embedding model loaded');
 }
 export async function generateEmbedding(text) {

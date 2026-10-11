@@ -224,7 +224,7 @@ async function syncAll() {
     totals.errors.push(...result.errors);
   }
 
-  console.log(`\n✅ Sync complete!`);
+  console.log(totals.errors.length > 0 ? '\n⚠️  Sync finished with errors.' : '\n✅ Sync complete!');
   console.log(`  Copied: ${totals.copied}`);
   console.log(`  Skipped: ${totals.skipped}`);
   console.log(`  Indexed: ${totals.indexed}`);

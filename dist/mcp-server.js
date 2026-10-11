@@ -29454,6 +29454,16 @@ function getSuperpowersDir() {
   }
   return ensureDir(dir);
 }
+function getModelCacheDir() {
+  const override = process.env.EPISODIC_MEMORY_MODEL_CACHE_DIR;
+  if (override) {
+    if (!path.isAbsolute(override)) {
+      throw new Error("EPISODIC_MEMORY_MODEL_CACHE_DIR must be an absolute path");
+    }
+    return ensureDir(override);
+  }
+  return ensureDir(path.join(getSuperpowersDir(), "models"));
+}
 function getIndexDir() {
   return ensureDir(path.join(getSuperpowersDir(), "conversation-index"));
 }
@@ -29652,10 +29662,13 @@ var EmbeddingsUnavailableError = class extends Error {
 };
 async function initEmbeddings() {
   if (embeddingPipeline) return;
+  const modelCacheDir = getModelCacheDir();
+  const offline = process.env.EPISODIC_MEMORY_OFFLINE === "1";
   let pipeline;
   try {
     const transformers = await import("@huggingface/transformers");
-    transformers.env.allowLocalModels = true;
+    transformers.env.cacheDir = modelCacheDir;
+    if (offline) transformers.env.allowRemoteModels = false;
     transformers.env.useBrowserCache = false;
     pipeline = transformers.pipeline;
   } catch (error61) {
@@ -29677,7 +29690,12 @@ async function initEmbeddings() {
       interOpNumThreads: 1
     };
   }
-  embeddingPipeline = await pipeline("feature-extraction", MODEL_ID, options);
+  try {
+    embeddingPipeline = await pipeline("feature-extraction", MODEL_ID, options);
+  } catch (error61) {
+    const message = offline ? "Embedding model unavailable in the local cache while EPISODIC_MEMORY_OFFLINE=1; pre-seed the model cache or disable offline mode." : "Embedding model unavailable; check the model cache and remote model access.";
+    throw new EmbeddingsUnavailableError(message, { cause: error61 });
+  }
   console.error("Embedding model loaded");
 }
 async function generateEmbedding(text) {
