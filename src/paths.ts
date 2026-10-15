@@ -93,8 +93,8 @@ export type ConversationSourceHarness = 'claude' | 'codex' | 'cursor' | 'opencod
 /**
  * Get all directories where supported harnesses store conversation files.
  * Checks Claude Code legacy (projects/) and current (transcripts/) locations,
- * Codex sessions, Cursor agent transcripts (live and legacy exports), and
- * generated opencode transcripts.
+ * Codex live and archived sessions, Cursor agent transcripts (live and legacy
+ * exports), and generated opencode transcripts.
  * Returns only directories that exist.
  */
 export function getConversationSourceDirs(only?: ConversationSourceHarness[]): string[] {
@@ -109,6 +109,7 @@ export function getConversationSourceDirs(only?: ConversationSourceHarness[]): s
     { harness: 'claude', dir: path.join(claudeDir, 'projects') },
     { harness: 'claude', dir: path.join(claudeDir, 'transcripts') },
     { harness: 'codex', dir: path.join(codexDir, 'sessions') },
+    { harness: 'codex', dir: path.join(codexDir, 'archived_sessions') },
     { harness: 'cursor', dir: path.join(cursorDir, 'projects') },
     { harness: 'cursor', dir: getCursorLegacyExportDir() },
     { harness: 'opencode', dir: getOpencodeTranscriptDir() },
@@ -128,18 +129,22 @@ export function getConversationSourceDirs(only?: ConversationSourceHarness[]): s
  * the set, at any depth. Top-level project skipping at the caller is the
  * usual case; this parameter handles nested directories like `subagents/`
  * inside session UUIDs (#80).
+ *
+ * `includeCompressed` also returns Codex's zstd-compressed `.jsonl.zst`
+ * rollouts, for callers that can read them.
  */
-export function findJsonlFiles(dir: string, excludedDirNames?: ReadonlySet<string>): string[] {
+export function findJsonlFiles(dir: string, excludedDirNames?: ReadonlySet<string>,
+  options: { includeCompressed?: boolean } = {}): string[] {
   const results: string[] = [];
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+      if (entry.isFile() && (entry.name.endsWith('.jsonl') || options.includeCompressed && entry.name.endsWith('.jsonl.zst'))) {
         results.push(entry.name);
       } else if (entry.isDirectory()) {
         if (excludedDirNames?.has(entry.name)) continue;
         const subDir = path.join(dir, entry.name);
-        for (const f of findJsonlFiles(subDir, excludedDirNames)) {
+        for (const f of findJsonlFiles(subDir, excludedDirNames, options)) {
           results.push(path.join(entry.name, f));
         }
       }
@@ -148,6 +153,18 @@ export function findJsonlFiles(dir: string, excludedDirNames?: ReadonlySet<strin
     // Directory might not be readable
   }
   return results;
+}
+
+/**
+ * Codex moves a finished rollout from `sessions/YYYY/MM/DD/` to a flat
+ * `archived_sessions/` directory, usually compressing it. Map such a flat
+ * rollout back to the dated archive path it had before it moved, so a moved
+ * session keeps one archive identity. Returns null for any other file name.
+ */
+export function archivedRolloutRelativePath(fileName: string): string | null {
+  const match = /^rollout-(\d{4})-(\d{2})-(\d{2})T.*\.jsonl(?:\.zst)?$/.exec(fileName);
+  if (!match) return null;
+  return path.join(match[1], match[2], match[3], fileName.replace(/\.zst$/, ''));
 }
 
 /**
