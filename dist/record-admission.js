@@ -584,7 +584,18 @@ export function createSearchAdmission() {
             return !cached.excluded;
         let fd;
         try {
-            const pathInfo = fs.lstatSync(file);
+            let pathInfo;
+            try {
+                pathInfo = fs.lstatSync(file);
+            }
+            catch (error) {
+                // A transcript removed since indexing has nothing left to verify or expose:
+                // withhold its retained rows instead of failing the whole search.
+                if (error.code !== 'ENOENT')
+                    throw error;
+                files.set(file, { excluded: true });
+                return false;
+            }
             if (!pathInfo.isFile())
                 throw new Error('Conversation changed during record admission');
             fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -628,7 +639,7 @@ export function createSearchAdmission() {
         verify() {
             assertUnchangedPolicy(policySnapshot);
             for (const [file, { initial, digest }] of files) {
-                if (digest !== undefined)
+                if (initial !== undefined && digest !== undefined)
                     assertUnchangedSearchPrefix(file, initial, digest);
             }
             assertUnchangedPolicy(policySnapshot);

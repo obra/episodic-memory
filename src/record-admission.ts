@@ -512,14 +512,22 @@ export async function archiveAdmittedConversation(source: string, destination: s
 export function createSearchAdmission() {
   const policy = readRecordExclusions();
   const policySnapshot = JSON.stringify(policy);
-  const files = new Map<string, { initial: fs.Stats; excluded: boolean; digest?: string }>();
+  const files = new Map<string, { initial?: fs.Stats; excluded: boolean; digest?: string }>();
   const checkFile = (file: string) => {
     assertUnchangedPolicy(policySnapshot);
     const cached = files.get(file);
     if (cached) return !cached.excluded;
     let fd: number | undefined;
     try {
-      const pathInfo = fs.lstatSync(file);
+      let pathInfo: fs.Stats;
+      try { pathInfo = fs.lstatSync(file); }
+      catch (error) {
+        // A transcript removed since indexing has nothing left to verify or expose:
+        // withhold its retained rows instead of failing the whole search.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        files.set(file, { excluded: true });
+        return false;
+      }
       if (!pathInfo.isFile()) throw new Error('Conversation changed during record admission');
       fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       const initial = fs.fstatSync(fd);
@@ -554,7 +562,7 @@ export function createSearchAdmission() {
     verify() {
       assertUnchangedPolicy(policySnapshot);
       for (const [file, { initial, digest }] of files) {
-        if (digest !== undefined) assertUnchangedSearchPrefix(file, initial, digest);
+        if (initial !== undefined && digest !== undefined) assertUnchangedSearchPrefix(file, initial, digest);
       }
       assertUnchangedPolicy(policySnapshot);
     },

@@ -130,6 +130,12 @@ describe('retained search admission', () => {
     fs.symlinkSync(file + '.original', file);
     await expect(searchConversations('needle', { mode: 'text' })).rejects.toThrow(/changed during record admission/);
   });
+  it.each(['text', 'vector', 'both'] as const)('withholds a removed transcript without failing %s search', async mode => {
+    seed('safe'); const removed = seed('removed', '2026-02-01T00:00:00Z');
+    fs.rmSync(removed);
+    const results = await searchConversations('needle', { mode, limit: 2 });
+    expect(results.map(x => x.exchange.id)).toEqual(['safe']);
+  });
   it('keeps an indexed exchange searchable while its transcript grows during admission', async () => {
     const file = seed('safe');
     const original = fs.readSync;
