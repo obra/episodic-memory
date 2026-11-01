@@ -7,6 +7,7 @@ import { summarizeConversation } from './summarizer.js';
 import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
+import { cloneOrCopyFileSync } from './clone-copy.js';
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
 // Increase max listeners for concurrent API calls
@@ -76,7 +77,7 @@ export async function indexConversations(limitToProject, maxConversations, concu
                     // Copy to archive (ensure parent dirs exist for subagent files)
                     if (!fs.existsSync(archivePath)) {
                         fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                        fs.copyFileSync(sourcePath, archivePath);
+                        cloneOrCopyFileSync(sourcePath, archivePath);
                         console.log(`  Archived: ${file}`);
                     }
                     // Parse conversation
@@ -189,7 +190,7 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                 try {
                     if (!fs.existsSync(archivePath)) {
                         fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-                        fs.copyFileSync(sourcePath, archivePath);
+                        cloneOrCopyFileSync(sourcePath, archivePath);
                     }
                     exchanges = await parseConversation(sourcePath, project, archivePath);
                 }
@@ -285,7 +286,7 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
                     fs.mkdirSync(path.dirname(archivePath), { recursive: true });
                     // Refresh the archive when the source may have grown beyond what we've seen.
                     if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
-                        fs.copyFileSync(sourcePath, archivePath);
+                        cloneOrCopyFileSync(sourcePath, archivePath);
                     }
                     // Parse and filter to exchanges past the high-water mark
                     const exchanges = await parseConversation(sourcePath, project, archivePath);
