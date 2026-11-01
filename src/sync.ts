@@ -5,6 +5,7 @@ import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
+import { cloneOrCopyFileSync } from './clone-copy.js';
 
 const EXCLUSION_MARKERS = [
   '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
@@ -150,7 +151,7 @@ function copyIfNewer(src: string, dest: string): boolean {
 
   // Atomic copy: temp file + rename
   const tempDest = dest + '.tmp.' + process.pid;
-  fs.copyFileSync(src, tempDest);
+  cloneOrCopyFileSync(src, tempDest);
   fs.renameSync(tempDest, dest); // Atomic on same filesystem
 
   // Preserve source mtime: harnesses without per-message timestamps (Cursor
