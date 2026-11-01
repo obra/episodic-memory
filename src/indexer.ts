@@ -9,6 +9,7 @@ import { ConversationExchange } from './types.js';
 import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
+import { cloneOrCopyFileSync } from './clone-copy.js';
 
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
@@ -116,7 +117,7 @@ export async function indexConversations(
         // Copy to archive (ensure parent dirs exist for subagent files)
         if (!fs.existsSync(archivePath)) {
           fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-          fs.copyFileSync(sourcePath, archivePath);
+          cloneOrCopyFileSync(sourcePath, archivePath);
           console.log(`  Archived: ${file}`);
         }
 
@@ -248,7 +249,7 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
       try {
         if (!fs.existsSync(archivePath)) {
           fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-          fs.copyFileSync(sourcePath, archivePath);
+          cloneOrCopyFileSync(sourcePath, archivePath);
         }
         exchanges = await parseConversation(sourcePath, project, archivePath);
       } catch (error) {
@@ -367,7 +368,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
 
         // Refresh the archive when the source may have grown beyond what we've seen.
         if (!fs.existsSync(archivePath) || maxIndexedLine > 0) {
-          fs.copyFileSync(sourcePath, archivePath);
+          cloneOrCopyFileSync(sourcePath, archivePath);
         }
 
         // Parse and filter to exchanges past the high-water mark
