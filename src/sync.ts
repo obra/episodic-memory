@@ -1,10 +1,20 @@
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
+import zlib from 'zlib';
+import { pipeline } from 'stream/promises';
 import { StringDecoder } from 'string_decoder';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
-import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
+import { archivedRolloutRelativePath, getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
+
+/** Codex compresses archived rollouts with zstd, which node:zlib reads from Node 22.15. */
+const zstdAvailable = typeof (zlib as { createZstdDecompress?: unknown }).createZstdDecompress === 'function';
+
+function isCompressedRollout(file: string): boolean {
+  return file.endsWith('.jsonl.zst');
+}
 
 const EXCLUSION_MARKERS = [
   '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
@@ -56,11 +66,19 @@ export function shouldSkipConversation(filePath: string): boolean {
  * every run — one new stub per summary generated. A transcript that has no
  * messages *yet* (a session that just started) is skipped this run and picked
  * up on a later sync once it has content, since its mtime keeps advancing.
+ * Reading streams until the first message line, so a large or compressed
+ * transcript is never loaded whole.
  */
-function hasConversationContent(filePath: string): boolean {
+async function hasConversationContent(filePath: string): Promise<boolean> {
+  const input = fs.createReadStream(filePath);
+  const decompressed = isCompressedRollout(filePath) ? zlib.createZstdDecompress() : undefined;
+  if (decompressed) {
+    input.on('error', error => decompressed.destroy(error));
+    input.pipe(decompressed);
+  }
+  const lines = readline.createInterface({ input: decompressed ?? input, crlfDelay: Infinity });
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    for (const line of content.split('\n')) {
+    for await (const line of lines) {
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line);
@@ -96,6 +114,10 @@ function hasConversationContent(filePath: string): boolean {
   } catch {
     // If we can't read the file, let the normal pipeline handle it
     return true;
+  } finally {
+    lines.close();
+    decompressed?.destroy();
+    input.destroy();
   }
 }
 
@@ -132,7 +154,32 @@ export function buildSyncOptionsFromEnv(env: NodeJS.ProcessEnv): SyncOptions {
   return { skipSummaries: env.EPISODIC_MEMORY_SKIP_SUMMARIES === '1' };
 }
 
-function copyIfNewer(src: string, dest: string): boolean {
+/** True when `file` begins with every byte of `prefix`. */
+function startsWithFile(file: string, prefix: string): boolean {
+  const prefixSize = fs.statSync(prefix).size;
+  if (fs.statSync(file).size < prefixSize) return false;
+  const fileFd = fs.openSync(file, 'r');
+  const prefixFd = fs.openSync(prefix, 'r');
+  try {
+    const a = Buffer.allocUnsafe(MARKER_SCAN_CHUNK_BYTES);
+    const b = Buffer.allocUnsafe(MARKER_SCAN_CHUNK_BYTES);
+    for (let position = 0; position < prefixSize;) {
+      const want = Math.min(a.length, prefixSize - position);
+      const read = fs.readSync(prefixFd, b, 0, want, position);
+      if (read <= 0 || fs.readSync(fileFd, a, 0, read, position) !== read) return false;
+      if (!a.subarray(0, read).equals(b.subarray(0, read))) return false;
+      position += read;
+    }
+    return true;
+  } finally {
+    fs.closeSync(fileFd);
+    fs.closeSync(prefixFd);
+  }
+}
+
+type CopyOutcome = 'copied' | 'current' | 'kept';
+
+async function copyIfNewer(src: string, dest: string): Promise<CopyOutcome> {
   // Ensure destination directory exists
   const destDir = path.dirname(dest);
   if (!fs.existsSync(destDir)) {
@@ -140,27 +187,42 @@ function copyIfNewer(src: string, dest: string): boolean {
   }
 
   // Check if destination exists and is up-to-date
-  if (fs.existsSync(dest)) {
+  const existing = fs.existsSync(dest);
+  if (existing) {
     const srcStat = fs.statSync(src);
     const destStat = fs.statSync(dest);
     if (destStat.mtimeMs >= srcStat.mtimeMs) {
-      return false; // Dest is current, skip
+      return 'current'; // Dest is current, skip
     }
   }
 
   // Atomic copy: temp file + rename
   const tempDest = dest + '.tmp.' + process.pid;
-  fs.copyFileSync(src, tempDest);
-  fs.renameSync(tempDest, dest); // Atomic on same filesystem
+  let outcome: CopyOutcome = 'copied';
+  try {
+    if (isCompressedRollout(src)) {
+      await pipeline(fs.createReadStream(src), zlib.createZstdDecompress(), fs.createWriteStream(tempDest));
+      // A rollout archived earlier as plain JSONL may have been rewritten by Codex
+      // before it was compressed. Index rows address the existing archive's lines,
+      // so only content that extends that archive replaces it.
+      if (existing && !startsWithFile(tempDest, dest)) outcome = 'kept';
+    } else {
+      fs.copyFileSync(src, tempDest);
+    }
+    if (outcome === 'copied') fs.renameSync(tempDest, dest); // Atomic on same filesystem
+  } finally {
+    if (fs.existsSync(tempDest)) fs.unlinkSync(tempDest);
+  }
 
   // Preserve source mtime: harnesses without per-message timestamps (Cursor
   // agent transcripts) fall back to file mtime. Round up to the next whole
   // millisecond — utimes can't always represent the source's sub-millisecond
   // precision, and a dest mtime even fractionally older would defeat the
-  // skip-if-current check above on every subsequent sync.
+  // skip-if-current check above on every subsequent sync. A kept archive is
+  // stamped too, so an unchanged rewritten source is not decompressed again.
   const srcStat = fs.statSync(src);
   fs.utimesSync(dest, srcStat.atimeMs / 1000, Math.ceil(srcStat.mtimeMs) / 1000);
-  return true;
+  return outcome;
 }
 
 export function extractSessionIdFromPath(filePath: string): string | null {
@@ -201,6 +263,7 @@ export async function syncConversations(
   const excludedProjects = getExcludedProjects();
   const excludedDirSet = new Set(excludedProjects);
 
+  const sources: Array<{ srcFile: string; destFile: string }> = [];
   for (const project of projects) {
     if (excludedProjects.includes(project)) {
       console.log("\nSkipping excluded project: " + project);
@@ -210,50 +273,59 @@ export async function syncConversations(
     const projectPath = path.join(sourceDir, project);
     const stat = statIfExists(projectPath);
 
+    if (stat?.isFile()) {
+      // A finished Codex rollout moved out of its dated directory.
+      const relative = zstdAvailable || !isCompressedRollout(project) ? archivedRolloutRelativePath(project) : null;
+      if (relative) sources.push({ srcFile: projectPath, destFile: path.join(destDir, relative) });
+      continue;
+    }
     if (!stat?.isDirectory()) continue;
 
-    const files = findJsonlFiles(projectPath, excludedDirSet);
+    for (const file of findJsonlFiles(projectPath, excludedDirSet, { includeCompressed: zstdAvailable })) {
+      // A compressed rollout is archived as the plain transcript it holds.
+      sources.push({ srcFile: path.join(projectPath, file), destFile: path.join(destDir, project, file.replace(/\.zst$/, '')) });
+    }
+  }
 
-    for (const file of files) {
-      const srcFile = path.join(projectPath, file);
-      const destFile = path.join(destDir, project, file);
-
-      try {
-        // Skip message-less transcripts (summarizer-spawned stubs, sessions
-        // that haven't produced content yet) before they enter the archive.
-        if (!hasConversationContent(srcFile)) {
-          result.skipped++;
-          continue;
-        }
-
-        const wasCopied = copyIfNewer(srcFile, destFile);
-        if (wasCopied) {
-          result.copied++;
-          filesToIndex.push(destFile);
-        } else {
-          result.skipped++;
-        }
-
-        // Check if this file needs a summary (whether newly copied or existing).
-        // shouldQueueForSummary skips files that already have a real summary or
-        // an empty zero-exchange sentinel, and retries stale error sentinels (#96).
-        if (!options.skipSummaries) {
-          const summaryPath = destFile.replace('.jsonl', '-summary.txt');
-          if (shouldQueueForSummary(summaryPath) && !shouldSkipConversation(destFile)) {
-            // sessionId enables Claude session-resume summarization; when the
-            // filename has no UUID to extract (e.g. subagent transcripts named
-            // agent-<hex>.jsonl), queue anyway — summarizeConversation falls
-            // back to summarizing from the transcript text.
-            const sessionId = extractSessionIdFromPath(destFile) ?? undefined;
-            filesToSummarize.push({ path: destFile, sessionId });
-          }
-        }
-      } catch (error) {
-        result.errors.push({
-          file: srcFile,
-          error: error instanceof Error ? error.message : String(error)
-        });
+  for (const { srcFile, destFile } of sources) {
+    try {
+      // Skip message-less transcripts (summarizer-spawned stubs, sessions
+      // that haven't produced content yet) before they enter the archive.
+      if (!(await hasConversationContent(srcFile))) {
+        result.skipped++;
+        continue;
       }
+
+      const outcome = await copyIfNewer(srcFile, destFile);
+      if (outcome === 'copied') {
+        result.copied++;
+        filesToIndex.push(destFile);
+      } else {
+        result.skipped++;
+        if (outcome === 'kept') {
+          console.log(`  Kept ${destFile}: its source was rewritten and no longer extends the indexed archive`);
+        }
+      }
+
+      // Check if this file needs a summary (whether newly copied or existing).
+      // shouldQueueForSummary skips files that already have a real summary or
+      // an empty zero-exchange sentinel, and retries stale error sentinels (#96).
+      if (!options.skipSummaries) {
+        const summaryPath = destFile.replace('.jsonl', '-summary.txt');
+        if (shouldQueueForSummary(summaryPath) && !shouldSkipConversation(destFile)) {
+          // sessionId enables Claude session-resume summarization; when the
+          // filename has no UUID to extract (e.g. subagent transcripts named
+          // agent-<hex>.jsonl), queue anyway — summarizeConversation falls
+          // back to summarizing from the transcript text.
+          const sessionId = extractSessionIdFromPath(destFile) ?? undefined;
+          filesToSummarize.push({ path: destFile, sessionId });
+        }
+      }
+    } catch (error) {
+      result.errors.push({
+        file: srcFile,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 
