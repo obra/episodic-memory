@@ -7,20 +7,16 @@ import { summarizeConversation } from './summarizer.js';
 import { getArchiveDir, getExcludedProjects, getConversationSourceDirs, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
+import { mapWithConcurrency } from './concurrency.js';
 // Set max output tokens for Claude SDK (used by summarizer)
 process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
 // Increase max listeners for concurrent API calls
 import { EventEmitter } from 'events';
 EventEmitter.defaultMaxListeners = 20;
-// Process items in batches with limited concurrency
+// Process items with at most `concurrency` in flight. A worker pool, so one
+// slow item never idles the other slots (#204); see ./concurrency.ts.
 async function processBatch(items, processor, concurrency) {
-    const results = [];
-    for (let i = 0; i < items.length; i += concurrency) {
-        const batch = items.slice(i, i + concurrency);
-        const batchResults = await Promise.all(batch.map(processor));
-        results.push(...batchResults);
-    }
-    return results;
+    return mapWithConcurrency(items, processor, concurrency);
 }
 function sessionIdForSummary(exchanges) {
     return exchanges.find(exchange => exchange.sessionId)?.sessionId;
