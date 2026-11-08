@@ -237,7 +237,7 @@ To route summarization through a custom Anthropic-compatible endpoint or overrid
 # Override model (default: haiku)
 export EPISODIC_MEMORY_API_MODEL=opus
 
-# Override fallback model on error (default: sonnet)
+# Override the Claude fallback model on error (default: sonnet; not used for Codex)
 export EPISODIC_MEMORY_API_MODEL_FALLBACK=sonnet
 
 # Route through custom endpoint
@@ -309,7 +309,7 @@ These pass through unchanged to episodic-memory's summarizer subprocess. Because
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
-Codex summarization requires `codex-cli 0.130.0` or newer; isolated transcript-only summaries require `0.154.0` or newer. If Codex app-server summarization is unavailable, sync records a retryable summary failure rather than switching providers.
+Codex summarization requires `codex-cli 0.130.0` or newer; isolated transcript-only summaries require `0.154.0` or newer. If the applicable Codex route is unavailable, sync records a retryable summary failure rather than switching to Claude or a metered Anthropic API. Exchanges can still be indexed and searched without a generated summary.
 
 ### What's Affected
 
