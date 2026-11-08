@@ -22,7 +22,18 @@ async function processBatch(items, processor, concurrency) {
     }
     return results;
 }
-function sessionIdForSummary(exchanges) {
+/**
+ * Session ID to resume when summarizing. A subagent transcript
+ * (`<parent>/subagents/agent-<hex>.jsonl`) stamps every line with the PARENT
+ * session's ID and `isSidechain: true`; resuming that ID summarizes the
+ * parent, not the subagent. Return undefined so the summarizer reads the
+ * transcript text instead, matching sync's extractSessionIdFromPath(), which
+ * finds no session ID in an `agent-<hex>` filename.
+ */
+export function sessionIdForSummary(exchanges) {
+    if (exchanges.some(exchange => exchange.isSidechain)) {
+        return undefined;
+    }
     return exchanges.find(exchange => exchange.sessionId)?.sessionId;
 }
 export async function indexConversations(limitToProject, maxConversations, concurrency = 1, noSummaries = false) {
