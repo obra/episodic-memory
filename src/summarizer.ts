@@ -784,10 +784,14 @@ export function getCodexModel(_exchanges: ConversationExchange[]): string | unde
   return process.env.EPISODIC_MEMORY_CODEX_MODEL || undefined;
 }
 
-export async function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string> {
+export interface SummarizeOptions {
+  allowResume?: boolean;
+}
+
+export async function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string, options: SummarizeOptions = {}): Promise<string> {
   const recordPolicy = readRecordExclusions();
   exchanges = exchanges.map(exchange => admitExchange(exchange, recordPolicy)).filter((exchange): exchange is ConversationExchange => exchange !== null);
-  if (recordPolicy) sessionId = undefined;
+  const allowResume = options.allowResume !== false && recordPolicy === null;
   // Handle trivial conversations
   if (exchanges.length === 0) {
     return 'Trivial conversation with no substantive content.';
@@ -800,11 +804,10 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
     }
   }
 
-  const codexSessionId = getCodexSessionId(exchanges, sessionId);
+  const codexSessionId = allowResume ? getCodexSessionId(exchanges, sessionId) : undefined;
   if (exchanges.some(exchange => exchange.harness === 'codex')) {
-    // A sessionless or policy-filtered transcript has no source context to fork.
-    // Summarize its admitted text in a fresh, isolated Codex thread instead.
-    const isolated = recordPolicy !== null || !codexSessionId;
+    // Filtered text must not recover unscreened source context.
+    const isolated = !codexSessionId;
     const prompt = isolated
       ? `${SUMMARIZER_CONTEXT_MARKER}. Summarize only the following admitted transcript in 2-4 factual sentences inside <summary></summary>. Do not inspect files, use tools or recover any original session.\n\n${formatConversationText(exchanges)}`
       : buildCodexSummaryPrompt();
@@ -829,7 +832,7 @@ export async function summarizeConversation(exchanges: ConversationExchange[], s
     const isClaudeSession = exchanges.some(
       e => e.harness === 'claude' || e.harness === undefined
     );
-    const claudeSessionId = !codexSessionId && isClaudeSession ? sessionId : undefined;
+    const claudeSessionId = allowResume && isClaudeSession ? sessionId : undefined;
     const cwd = claudeSessionId ? exchanges.find(e => e.cwd)?.cwd : undefined;
     const conversationText = claudeSessionId
       ? '' // When resuming, no need to include conversation text - it's already in context

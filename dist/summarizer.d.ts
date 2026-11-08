@@ -174,4 +174,7 @@ export declare function runCodexCommand(command: CodexSummarizerCommand): Promis
  * See https://github.com/obra/episodic-memory/issues/98.
  */
 export declare function getCodexModel(_exchanges: ConversationExchange[]): string | undefined;
-export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string>;
+export interface SummarizeOptions {
+    allowResume?: boolean;
+}
+export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string, options?: SummarizeOptions): Promise<string>;

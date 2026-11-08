@@ -183,6 +183,25 @@ describe('Codex summary provider ownership', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('uses only admitted Codex text when source-session resume is disabled', async () => {
+    installFakeCodex('thread/fork');
+
+    expect(await summarizeConversation([exchange('source-session')], 'source-session', { allowResume: false }))
+      .toBe('Codex kept provider ownership.');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('uses only transcript text when Claude source-session resume is disabled', async () => {
+    const transcript = { ...exchange('source-session'), harness: 'claude' as const };
+
+    expect(await summarizeConversation([transcript], 'source-session', { allowResume: false }))
+      .toBe('Wrong provider.');
+    const [request] = vi.mocked(query).mock.calls[0];
+    expect(request.options?.resume).toBeUndefined();
+    expect(request.prompt).toContain(transcript.userMessage);
+    expect(request.prompt).toContain(transcript.assistantMessage);
+  });
+
   it('does not fall back to Claude when a Codex fork fails', async () => {
     installFakeCodex('thread/fork');
 
