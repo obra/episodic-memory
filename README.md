@@ -231,6 +231,8 @@ In Codex and opencode, the skill guides the agent to use the episodic-memory MCP
 
 By default, episodic-memory uses your Claude Code authentication for Claude Code summarization. Codex-indexed sessions with a session ID are summarized through `codex app-server` by creating an ephemeral `thread/fork`, so the summary can use Codex session context and reasoning summaries without appending to the original rollout. A Codex transcript without a session ID is summarized from its admitted text in an isolated ephemeral `thread/start`; it is never sent to Claude.
 
+Claude summaries preserve the user-level `apiKeyHelper` and `env.ANTHROPIC_BASE_URL` from the selected Claude configuration directory. The helper remains with Claude Code; episodic-memory does not retrieve or store its credential. Explicit environment and episodic endpoint overrides take precedence. Hooks, plugins, project settings and MCP servers remain excluded from the summarizer. Missing settings leave native environment or OAuth authentication available; unreadable or malformed settings stop the call with a message that omits their contents.
+
 To route summarization through a custom Anthropic-compatible endpoint or override the model:
 
 ```bash

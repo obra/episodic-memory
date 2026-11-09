@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { admitExchange, readRecordExclusions } from './record-admission.js';
 import { ConversationExchange } from './types.js';
+import { getClaudeDir } from './paths.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { VERSION } from './version.js';
@@ -334,6 +335,24 @@ function extractSummary(text: string): string {
   return text.trim();
 }
 
+function readClaudeSummaryAuthentication(): { apiKeyHelper?: string; baseUrl?: string } {
+  let settings: { apiKeyHelper?: unknown; env?: { ANTHROPIC_BASE_URL?: unknown } } | null;
+  try {
+    settings = JSON.parse(fs.readFileSync(path.join(getClaudeDir(), 'settings.json'), 'utf8'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    // Parser and filesystem errors can contain private setting values or paths.
+    throw new Error('Cannot read Claude summarizer authentication settings');
+  }
+  const apiKeyHelper = settings?.apiKeyHelper;
+  const baseUrl = settings?.env?.ANTHROPIC_BASE_URL;
+  if ((apiKeyHelper !== undefined && typeof apiKeyHelper !== 'string') ||
+      (baseUrl !== undefined && typeof baseUrl !== 'string')) {
+    throw new Error('Cannot read Claude summarizer authentication settings');
+  }
+  return { apiKeyHelper, baseUrl };
+}
+
 /**
  * Build the options object passed to the Claude Agent SDK's query() for a
  * summarization call.
@@ -352,10 +371,16 @@ export function buildSummarizerQueryOptions(args: {
   cwd?: string;
 }): Record<string, unknown> {
   const { model, sessionId, cwd } = args;
+  const authentication = readClaudeSummaryAuthentication();
+  const env = getApiEnv()!;
+  if (!env.ANTHROPIC_BASE_URL && authentication.baseUrl) {
+    env.ANTHROPIC_BASE_URL = authentication.baseUrl;
+  }
   return {
     model,
     max_tokens: 4096,
-    env: getApiEnv(),
+    env,
+    ...(authentication.apiKeyHelper ? { settings: { apiKeyHelper: authentication.apiKeyHelper } } : {}),
     resume: sessionId,
     persistSession: false,
     // Summarizers never call tools — disabling them stops a resumed live
@@ -370,7 +395,7 @@ export function buildSummarizerQueryOptions(args: {
     // strictMcpConfig only blocks ~/.claude.json MCP servers; user settings
     // still load every enabled plugin (each with its own MCP server) plus the
     // user's Stop/Notification hooks (#136) into the subprocess. Summarizers
-    // need no plugins, hooks, or user settings at all.
+    // need no behavior settings. Only authentication is passed separately.
     settingSources: [],
     // Resume looks up the session under ~/.claude/projects/<encoded-cwd>/, so pass the recorded cwd when it still exists on disk.
     ...(cwd && fs.existsSync(cwd) ? { cwd } : {}),
