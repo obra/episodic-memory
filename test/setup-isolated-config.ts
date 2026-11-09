@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'fs';
+import { afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -9,6 +10,10 @@ import { join } from 'path';
  * See https://github.com/obra/episodic-memory/issues/119
  */
 const isolatedRoot = mkdtempSync(join(tmpdir(), 'episodic-memory-vitest-'));
+
+afterAll(() => {
+  rmSync(isolatedRoot, { recursive: true, force: true });
+});
 
 process.env.EPISODIC_MEMORY_CONFIG_DIR = join(isolatedRoot, 'superpowers');
 process.env.CLAUDE_CONFIG_DIR = join(isolatedRoot, 'claude');
