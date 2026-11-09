@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { detectCursorCwd } from './parser.js';
+import { loadRedactor, redactJsonlLine } from './redaction.js';
 /**
  * Import legacy Cursor conversations from Cursor's global SQLite store
  * (state.vscdb) into JSONL files compatible with the Cursor transcript parser.
@@ -111,6 +112,7 @@ export function importCursorLegacy(options) {
         skippedEmpty: 0,
         errors: [],
     };
+    const redactor = options.redactor === undefined ? loadRedactor() : options.redactor;
     const liveIds = options.liveTranscriptIds ?? new Set();
     const db = new Database(options.dbPath, { readonly: true, fileMustExist: true });
     try {
@@ -200,13 +202,18 @@ export function importCursorLegacy(options) {
                 if (!options.dryRun) {
                     // Re-serialize with cwd now that it's known (it's derived from the
                     // whole conversation's tool calls).
-                    const finalLines = cwd
+                    const withCwd = cwd
                         ? lines.map(line => JSON.stringify({ ...JSON.parse(line), cwd }))
                         : lines;
+                    // The export dir is a plugin-owned plaintext copy, so redact it at
+                    // write time like the archive (docs/REDACTION.md).
+                    const finalLines = redactor
+                        ? withCwd.map(line => redactJsonlLine(line, redactor, { source: 'cursor-legacy', path: outFile }))
+                        : withCwd;
                     fs.mkdirSync(path.dirname(outFile), { recursive: true });
                     fs.writeFileSync(outFile, finalLines.join('\n') + '\n', 'utf-8');
                     // Stamp the conversation's end time so mtime-based fallbacks and
-                    // copyIfNewer comparisons reflect when it actually happened.
+                    // archive freshness comparisons reflect when it actually happened.
                     const mtime = toIsoTimestamp(composer.lastUpdatedAt) ?? lastTimestamp;
                     const mtimeDate = new Date(mtime);
                     fs.utimesSync(outFile, mtimeDate, mtimeDate);

@@ -15,6 +15,7 @@ vi.mock('../src/embeddings.js', () => ({
   generateExchangeEmbedding: vi.fn(async () => new Array(384).fill(0)),
 }));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
+import { createRedactor, loadRedactionConfig } from '../src/redaction.js';
 import type { ConversationExchange } from '../src/types.js';
 
 const SESSION = '00000000-1111-4222-8333-444444444444';
@@ -80,6 +81,44 @@ afterEach(() => {
 });
 
 describe('persistent record exclusion at native ingestion boundaries', () => {
+  it('redacts admitted records after exclusions without changing source coordinates', async () => {
+    policy();
+    const original = transcript().replace('safe question one', 'safe question one fixture_secret_1234');
+    fs.writeFileSync(sourceFile, original.replace(/\n/g, '\r\n'));
+    const before = fs.readFileSync(sourceFile);
+    const redactor = createRedactor(loadRedactionConfig({ includeDefaults: false,
+      rules: [{ id: 'fixture-secret', pattern: 'fixture_secret_[0-9]{4}' }] }));
+
+    const result = await syncConversations(source, archive, { skipIndex: true, skipSummaries: true, redactor });
+
+    expect(result.errors).toEqual([]);
+    expect(result.redactions).toEqual([{ ruleId: 'fixture-secret', count: 1 }]);
+    const copied = fs.readFileSync(archiveFile, 'utf8');
+    expect(copied).not.toContain(PRIVATE);
+    expect(copied).not.toContain('fixture_secret_1234');
+    expect(copied).toContain('[REDACTED:fixture-secret]');
+    expect(copied.split('\r\n')).toHaveLength(original.split('\n').length);
+    const exchanges = await parseConversation(archiveFile, '2026', archiveFile);
+    expect(exchanges.map(exchange => exchange.lineStart)).toEqual([2, 6]);
+    expect(fs.readFileSync(sourceFile)).toEqual(before);
+  });
+
+  it('reapplies changed redaction rules when source mtime stays unchanged', async () => {
+    const original = transcript().replace('safe question one', 'safe question one fixture_secret_1234');
+    fs.writeFileSync(sourceFile, original);
+    const redactor = createRedactor(loadRedactionConfig({ includeDefaults: false,
+      rules: [{ id: 'fixture-secret', pattern: 'fixture_secret_[0-9]{4}' }] }));
+    await syncConversations(source, archive, { skipIndex: true, skipSummaries: true, redactor: null });
+    const before = fs.statSync(sourceFile).mtimeMs;
+
+    const result = await syncConversations(source, archive, { skipIndex: true, skipSummaries: true, redactor });
+
+    expect(result.copied).toBe(1);
+    expect(fs.readFileSync(archiveFile, 'utf8')).not.toContain('fixture_secret_1234');
+    expect(fs.statSync(sourceFile).mtimeMs).toBe(before);
+    expect(fs.readFileSync(sourceFile, 'utf8')).toBe(original);
+  });
+
   it('does not apply one transcript range to a sibling that shares its session', async () => {
     policy({ version: 1, exchanges: [{ session_id: SESSION, transcript: `rollout-${SESSION}.jsonl`, line_start: 4, line_end: 5 }], tool_calls: [] });
     const sibling = path.join(source, '2026', 'agent-sibling.jsonl');

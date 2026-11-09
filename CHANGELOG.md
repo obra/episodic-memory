@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Recognized secrets are replaced with typed tokens before admitted records enter the archive, index, embeddings or summaries. The rules cover common provider keys, private keys, JWTs, connection strings and secret-named configuration fields. Record exclusions apply first, source transcripts stay unchanged, and safe neighboring records retain their original line numbers. Redaction is on by default and stops ingestion if its rules cannot load. See `docs/REDACTION.md` for coverage and limits.
+- With redaction on, summaries use the admitted transcript instead of resuming the original session. Codex conversations stay on Codex; failures do not switch to Claude. Claude conversations keep their transcript-text route.
+
+### Added
+
+- `episodic-memory redact --rewrite` cleans data you indexed before upgrading. It redacts the archive and the search index in place, re-embeds only the messages that changed, and deletes summaries built from unredacted text so they regenerate. Use `--dry-run` to preview (it writes nothing, not even a schema migration), and add `--report` to list each value it would redact, by location, rule and shape, without printing the value.
+- Custom redaction rules via `~/.config/superpowers/redaction-rules.json`, which extends the bundled defaults. Try rules with `episodic-memory redact --stdin`. See `docs/REDACTION.md`.
+- New settings: `EPISODIC_MEMORY_REDACTION` (`on`/`off`), `EPISODIC_MEMORY_REDACTION_RULES`, and `EPISODIC_MEMORY_REDACTION_STRICT`.
+
+### Changed
+
+- `episodic-memory index` now parses the archived copy instead of the source transcript, and refreshes that copy when the source has grown. This is the same behavior `sync` already had.
+
 ## [1.6.0] - 2026-09-08
 
 Adds a fifth conversation source, an off switch for automatic syncing, and two fixes for real-world resource problems.

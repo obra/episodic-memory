@@ -1,3 +1,4 @@
+import { type RedactionFinding, type Redactor } from './redaction.js';
 export { shouldSkipConversation } from './record-admission.js';
 export interface SyncResult {
     copied: number;
@@ -8,11 +9,18 @@ export interface SyncResult {
         file: string;
         error: string;
     }>;
+    /** Rule IDs and counts only — never matched values. */
+    redactions: RedactionFinding[];
 }
 export interface SyncOptions {
     skipIndex?: boolean;
     skipSummaries?: boolean;
     summaryLimit?: number;
+    /**
+     * Redactor applied at the archive write. `undefined` loads it from the
+     * environment (loadRedactor); `null` means redaction is off.
+     */
+    redactor?: Redactor | null;
 }
 /**
  * Derive sync options from the process environment.

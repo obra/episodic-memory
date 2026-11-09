@@ -5,6 +5,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getSuperpowersDir } from './paths.js';
+import { redactJsonlLine } from './redaction.js';
 const EXCLUSION_MARKERS = [
     '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
     'Only use NO_INSIGHTS_FOUND',
@@ -505,7 +506,7 @@ export function admitExchange(exchange, policy = readRecordExclusions()) {
     }
 }
 /** Publish only admitted bytes. Never write an unfiltered temporary copy. */
-export async function archiveAdmittedConversation(source, destination, policy = readRecordExclusions()) {
+export async function archiveAdmittedConversation(source, destination, policy = readRecordExclusions(), redactor = null, tally) {
     const policySnapshot = JSON.stringify(policy);
     assertUnchangedPolicy(policySnapshot);
     if (shouldSkipConversation(source))
@@ -522,7 +523,7 @@ export async function archiveAdmittedConversation(source, destination, policy = 
             throw new Error('Source and derived archive must be distinct regular files');
         }
     }
-    if (!policy && target && target.mtimeMs >= original.mtimeMs && target.size === original.size)
+    if (!policy && !redactor && target && target.mtimeMs >= original.mtimeMs && target.size === original.size)
         return false;
     const initial = fs.statSync(source);
     const parent = prepareArchiveParent(path.dirname(path.resolve(destination)));
@@ -533,7 +534,11 @@ export async function archiveAdmittedConversation(source, destination, policy = 
     const hash = crypto.createHash('sha256');
     try {
         for await (const record of admittedRecords(source, policy)) {
-            const bytes = Buffer.from(record.line + record.ending);
+            // Exclusions use source coordinates; only admitted text reaches redaction.
+            const line = redactor
+                ? redactJsonlLine(record.line, redactor, { source: 'archive', path: source }, tally)
+                : record.line;
+            const bytes = Buffer.from(line + record.ending);
             hash.update(bytes);
             fs.writeFileSync(fd, bytes);
         }

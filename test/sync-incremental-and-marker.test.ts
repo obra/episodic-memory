@@ -123,7 +123,7 @@ describe('sync: high-water mark (#152 Part A)', () => {
 
     const callsAfterFirstSync = embedSpy.mock.calls.length;
 
-    // Append a 3rd exchange and bump mtime forward so copyIfNewer copies it.
+    // Append a 3rd exchange and bump mtime forward so the archive writer copies it.
     appendFileSync(srcFile, exchangeLines(3, sessionId), 'utf-8');
     const future = new Date(Date.now() + 5000);
     utimesSync(srcFile, future, future);

@@ -4,6 +4,7 @@ import path from 'path';
 import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { formatErrorSentinel, shouldQueueForSummary } from './summary-sentinel.js';
 import { getMaxMessageBytes, isOversizeExchange } from './message-size.js';
+import { FindingsTally, loadRedactor, type RedactionFinding, type Redactor } from './redaction.js';
 
 export { shouldSkipConversation } from './record-admission.js';
 import { shouldSkipConversation } from './record-admission.js';
@@ -65,12 +66,19 @@ export interface SyncResult {
   indexed: number;
   summarized: number;
   errors: Array<{ file: string; error: string }>;
+  /** Rule IDs and counts only — never matched values. */
+  redactions: RedactionFinding[];
 }
 
 export interface SyncOptions {
   skipIndex?: boolean;
   skipSummaries?: boolean;
   summaryLimit?: number; // Max summaries to generate per run (default: 10)
+  /**
+   * Redactor applied at the archive write. `undefined` loads it from the
+   * environment (loadRedactor); `null` means redaction is off.
+   */
+  redactor?: Redactor | null;
 }
 
 /**
@@ -114,8 +122,15 @@ export async function syncConversations(
     skipped: 0,
     indexed: 0,
     summarized: 0,
-    errors: []
+    errors: [],
+    redactions: []
   };
+
+  // Load the redactor before touching the archive. In strict mode (the
+  // default) a rules-load failure throws here, so nothing unredacted is
+  // archived, indexed, or summarized (fail closed).
+  const redactor = options.redactor === undefined ? loadRedactor() : options.redactor;
+  const tally = new FindingsTally();
 
   // Ensure source directory exists
   if (!fs.existsSync(sourceDir)) {
@@ -156,7 +171,7 @@ export async function syncConversations(
           continue;
         }
 
-        const wasCopied = await archiveAdmittedConversation(srcFile, destFile, exclusions);
+        const wasCopied = await archiveAdmittedConversation(srcFile, destFile, exclusions, redactor, tally);
         if (wasCopied) {
           result.copied++;
           filesToIndex.push(destFile);
@@ -186,6 +201,8 @@ export async function syncConversations(
       }
     }
   }
+
+  result.redactions = tally.toArray();
 
   // Index copied files (unless skipIndex is set)
   if (!options.skipIndex && filesToIndex.length > 0) {
@@ -325,7 +342,10 @@ export async function syncConversations(
         }
 
         console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
-        const summary = await summarizeConversation(exchanges, sessionId);
+        // With redaction on, never resume/fork the session: those paths hand
+        // the model the unredacted source transcript instead of these
+        // (redacted) exchanges.
+        const summary = await summarizeConversation(exchanges, sessionId, { allowResume: redactor === null });
 
         const summaryPath = filePath.replace('.jsonl', '-summary.txt');
         fs.writeFileSync(summaryPath, summary, 'utf-8');

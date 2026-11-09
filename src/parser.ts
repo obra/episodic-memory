@@ -1076,7 +1076,7 @@ async function parseCursorConversation(
   const rl = admittedConversationLines(filePath);
 
   // Live Cursor transcripts carry no per-message timestamps; fall back to the
-  // file mtime (preserved from the source by sync's copyIfNewer). Legacy
+  // file mtime (preserved from the source by the archive writer). Legacy
   // exports from import-cursor-history embed real per-message timestamps.
   let fallbackTimestamp: string;
   try {

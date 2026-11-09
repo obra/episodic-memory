@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import type { ConversationExchange } from './types.js';
 import { getSuperpowersDir } from './paths.js';
+import { redactJsonlLine, type FindingsTally, type Redactor } from './redaction.js';
 
 const EXCLUSION_MARKERS = [
   '<INSTRUCTIONS-TO-EPISODIC-MEMORY>DO NOT INDEX THIS CHAT</INSTRUCTIONS-TO-EPISODIC-MEMORY>',
@@ -451,7 +452,13 @@ export function admitExchange(exchange: ConversationExchange, policy = readRecor
 }
 
 /** Publish only admitted bytes. Never write an unfiltered temporary copy. */
-export async function archiveAdmittedConversation(source: string, destination: string, policy = readRecordExclusions()): Promise<boolean> {
+export async function archiveAdmittedConversation(
+  source: string,
+  destination: string,
+  policy = readRecordExclusions(),
+  redactor: Redactor | null = null,
+  tally?: FindingsTally,
+): Promise<boolean> {
   const policySnapshot = JSON.stringify(policy);
   assertUnchangedPolicy(policySnapshot);
   if (shouldSkipConversation(source)) return false;
@@ -465,7 +472,7 @@ export async function archiveAdmittedConversation(source: string, destination: s
       throw new Error('Source and derived archive must be distinct regular files');
     }
   }
-  if (!policy && target && target.mtimeMs >= original.mtimeMs && target.size === original.size) return false;
+  if (!policy && !redactor && target && target.mtimeMs >= original.mtimeMs && target.size === original.size) return false;
   const initial = fs.statSync(source);
   const parent = prepareArchiveParent(path.dirname(path.resolve(destination)));
   const parentIdentity = fs.statSync(parent);
@@ -475,7 +482,11 @@ export async function archiveAdmittedConversation(source: string, destination: s
   const hash = crypto.createHash('sha256');
   try {
     for await (const record of admittedRecords(source, policy)) {
-      const bytes = Buffer.from(record.line + record.ending);
+      // Exclusions use source coordinates; only admitted text reaches redaction.
+      const line = redactor
+        ? redactJsonlLine(record.line, redactor, { source: 'archive', path: source }, tally)
+        : record.line;
+      const bytes = Buffer.from(line + record.ending);
       hash.update(bytes);
       fs.writeFileSync(fd, bytes);
     }

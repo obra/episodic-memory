@@ -1,3 +1,4 @@
+import { type Redactor } from './redaction.js';
 export interface OpencodeExportResult {
     exported: number;
     skipped: number;
@@ -15,4 +16,6 @@ export declare function getOpencodeTranscriptFilePath(transcriptDir: string, inp
 export declare function exportOpencodeSessions(options?: {
     dbPath?: string;
     transcriptDir?: string;
+    /** `undefined` loads from the environment (strict mode throws on bad rules); `null` disables. */
+    redactor?: Redactor | null;
 }): OpencodeExportResult;
