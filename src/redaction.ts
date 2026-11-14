@@ -250,8 +250,8 @@ export function loadRedactionConfig(file: RedactionRulesFile): RedactionConfig {
   const config: RedactionConfig = {
     rules: replaceById(baseRules, file.rules ?? []).filter(rule => !disabled.has(rule.id)),
     allowlist: replaceById(baseAllowlist, file.allowlist ?? []),
-    entropy: { ...DEFAULT_REDACTION_CONFIG.entropy, ...(file.entropy ?? {}) },
-    secretFields: { ...DEFAULT_REDACTION_CONFIG.secretFields, ...(file.secretFields ?? {}) },
+    entropy: { ...DEFAULT_REDACTION_CONFIG.entropy, enabled: includeDefaults && DEFAULT_REDACTION_CONFIG.entropy.enabled, ...(file.entropy ?? {}) },
+    secretFields: { ...DEFAULT_REDACTION_CONFIG.secretFields, enabled: includeDefaults && DEFAULT_REDACTION_CONFIG.secretFields.enabled, ...(file.secretFields ?? {}) },
   };
   compileConfig(config); // validate
   return config;

@@ -65,7 +65,6 @@ function requireRedactor(): Redactor {
 }
 
 async function runRewrite(dryRun: boolean, report: boolean): Promise<void> {
-  if (report && !dryRun) fail('--report needs --dry-run: review the hits, then apply without it.');
   const redactor = requireRedactor();
 
   // Share sync's single-instance lock so a background sync can't write
@@ -126,9 +125,18 @@ async function runStdin(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const known = new Set(['--rewrite', '--dry-run', '--report', '--stdin', '--print-default-rules', '--help', '-h']);
+  const unknown = args.filter(arg => !known.has(arg));
+  if (unknown.length) fail(`unknown option(s): ${unknown.join(' ')}. Try: episodic-memory redact --help`);
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     console.log(HELP);
     return;
+  }
+  const modes = ['--rewrite', '--stdin', '--print-default-rules'].filter(mode => args.includes(mode));
+  if (modes.length !== 1) fail('choose one of --rewrite, --stdin or --print-default-rules.');
+  if (args.includes('--dry-run') && !args.includes('--rewrite')) fail('--dry-run requires --rewrite.');
+  if (args.includes('--report') && !(args.includes('--rewrite') && args.includes('--dry-run'))) {
+    fail('--report requires --rewrite --dry-run.');
   }
   if (args.includes('--print-default-rules')) {
     console.log(JSON.stringify(DEFAULT_REDACTION_CONFIG, null, 2));

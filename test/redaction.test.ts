@@ -519,6 +519,21 @@ describe('redaction: settings and rules loading', () => {
     expect(redactor.ruleIds).toEqual(['only-this']);
   });
 
+  it('custom-only rules leave bundled field and entropy detection disabled', () => {
+    const config = loadRedactionConfig({ includeDefaults: false, rules: [{ id: 'only-this', pattern: 'zzz[0-9]+' }] });
+    const redactor = createRedactor(config);
+    const line = JSON.stringify({ password: 'plain-value', content: 'zzz123' });
+    expect(JSON.parse(redactJsonlLine(line, redactor))).toEqual({ password: 'plain-value', content: '[REDACTED:only-this]' });
+    expect(config.secretFields.enabled).toBe(false);
+    expect(config.entropy.enabled).toBe(false);
+  });
+
+  it('custom-only rules can explicitly enable field detection', () => {
+    const redactor = createRedactor(loadRedactionConfig({ includeDefaults: false, secretFields: { enabled: true } }));
+    expect(JSON.parse(redactJsonlLine(JSON.stringify({ password: 'plain-value' }), redactor)))
+      .toEqual({ password: '[REDACTED:secret-field]' });
+  });
+
   it('strict mode throws RedactionConfigError on a corrupt rules file', () => {
     const file = join(dir, 'bad.json');
     writeFileSync(file, '{ "rules": [ this is not json');

@@ -46,6 +46,7 @@ describe('redact --rewrite backfill', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     process.env = { ...savedEnv };
     rmSync(root, { recursive: true, force: true });
   });
@@ -163,6 +164,50 @@ describe('redact --rewrite backfill', () => {
     expect(existsSync(dirty.replace('.jsonl', '-summary.txt'))).toBe(true);
     expect(dbDump()).toContain(secret);
     expect(embed).not.toHaveBeenCalled();
+  });
+
+  it('--dry-run scans archive and staging files without opening a write handle', async () => {
+    const { dirty } = await seedLegacy(new FakeSecrets(914));
+    const stagingDir = join(root, 'staging');
+    mkdirSync(stagingDir);
+    const staged = join(stagingDir, 'staged.jsonl');
+    writeFileSync(staged, readFileSync(dirty));
+    const before = [dirty, staged].map(file => readFileSync(file));
+    const fs = await import('fs');
+    const originalOpen = fs.default.openSync;
+    vi.spyOn(fs.default, 'openSync').mockImplementation((file, flags, mode) => {
+      if (String(file).startsWith(archiveDir) || String(file).startsWith(stagingDir)) {
+        expect(flags).toBe('r');
+      }
+      return originalOpen(file, flags, mode);
+    });
+
+    const result = await rewriteArchive({ archiveDir, stagingDirs: [stagingDir], redactor: createRedactor(DEFAULT_REDACTION_CONFIG), embed, dryRun: true });
+
+    expect(result.filesRewritten).toBe(2);
+    expect(result.stagingFilesRewritten).toBe(1);
+    expect([dirty, staged].map(file => readFileSync(file))).toEqual(before);
+    expect(embed).not.toHaveBeenCalled();
+  });
+
+  it('removes archive-derived summaries before an embedding failure, including unindexed conversations', async () => {
+    const { dirty, clean } = await seedLegacy(new FakeSecrets(915));
+    const unindexed = join(archiveDir, '-work-legacy', 'unindexed.jsonl');
+    writeFileSync(unindexed, readFileSync(dirty));
+    const stale = unindexed.replace('.jsonl', '-summary.txt');
+    writeFileSync(stale, 'A shapeless secret no rule recognizes.');
+    embed.mockRejectedValueOnce(new Error('embedding unavailable'));
+
+    await expect(rewriteArchive({ archiveDir, redactor: createRedactor(DEFAULT_REDACTION_CONFIG), embed }))
+      .rejects.toThrow('embedding unavailable');
+
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(dirty.replace('.jsonl', '-summary.txt'))).toBe(false);
+    expect(existsSync(clean.replace('.jsonl', '-summary.txt'))).toBe(true);
+    expect(readFileSync(unindexed, 'utf-8')).toContain('[REDACTED:');
+    const retry = await rewriteArchive({ archiveDir, redactor: createRedactor(DEFAULT_REDACTION_CONFIG), embed });
+    expect(retry.filesRewritten).toBe(0);
+    expect(existsSync(stale)).toBe(false);
   });
 
   it('--dry-run leaves an older-schema index byte-identical instead of migrating it', async () => {

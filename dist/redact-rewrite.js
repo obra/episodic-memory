@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { createInterface } from 'readline';
 import { initDatabase, openDatabaseReadOnly } from './db.js';
 import { recordReembedded } from './embedding-migration.js';
 import { copyFileRedacted, describeShape, findRedactionTokens, FindingsTally, redactJsonlLine, } from './redaction.js';
@@ -101,21 +102,32 @@ function redactReporting(ctx, location, report, run) {
     });
     return matches.length > 0 ? reportHits(out, matches, location, report) : out;
 }
-/** Report every hit in a JSONL file, line by line. Writes nothing. */
-function reportFile(file, label, redactor, report) {
-    const lines = fs.readFileSync(file, 'utf-8').split('\n');
+/** Count and optionally report each hit without opening a write handle. */
+async function scanFile(file, label, redactor, tally, report) {
+    const stream = fs.createReadStream(file, { encoding: 'utf-8' });
+    const lines = createInterface({ input: stream, crlfDelay: Infinity });
+    const fileTally = new FindingsTally();
     const ctx = { source: 'rewrite', path: file };
-    lines.forEach((line, i) => {
-        redactReporting(ctx, `${label}:${i + 1}`, report, c => redactJsonlLine(line, redactor, c));
-    });
+    let lineNumber = 0;
+    try {
+        for await (const line of lines) {
+            redactReporting(ctx, `${label}:${++lineNumber}`, report, c => redactJsonlLine(line, redactor, c, fileTally));
+        }
+    }
+    finally {
+        lines.close();
+        stream.destroy();
+    }
+    tally.add(fileTally.toArray());
+    return fileTally.total;
 }
 /** Redact one JSONL file in place. Returns the number of values redacted. */
-function rewriteFileInPlace(file, redactor, dryRun, tally) {
+function rewriteFileInPlace(file, redactor, tally) {
     const fileTally = new FindingsTally();
     const temp = `${file}.redact.${process.pid}`;
     try {
         copyFileRedacted(file, temp, redactor, { source: 'rewrite', path: file }, fileTally);
-        if (fileTally.total > 0 && !dryRun) {
+        if (fileTally.total > 0) {
             const stat = fs.statSync(file);
             fs.renameSync(temp, file);
             // Same rounding as archiveAdmittedConversation: never leave the archive older than its source.
@@ -149,25 +161,37 @@ export async function rewriteArchive(options) {
     };
     // Conversations whose summary was built from unredacted text.
     const staleSummaries = new Set();
+    const invalidateSummary = (file) => {
+        if (staleSummaries.has(file))
+            return;
+        staleSummaries.add(file);
+        if (!fs.existsSync(file))
+            return;
+        if (!dryRun)
+            fs.unlinkSync(file);
+        result.summariesRemoved++;
+    };
     // 1. Archive files.
     const archiveFiles = walk(archiveDir);
     for (const file of archiveFiles.filter(f => f.endsWith('.jsonl'))) {
         result.filesScanned++;
-        if (rewriteFileInPlace(file, redactor, dryRun, tally) > 0) {
+        const findings = dryRun
+            ? await scanFile(file, path.relative(archiveDir, file), redactor, tally, options.report)
+            : rewriteFileInPlace(file, redactor, tally);
+        if (findings > 0) {
             result.filesRewritten++;
-            staleSummaries.add(summaryPathFor(file));
-            if (options.report)
-                reportFile(file, path.relative(archiveDir, file), redactor, options.report);
+            invalidateSummary(summaryPathFor(file));
         }
     }
     log(`Archive: ${result.filesRewritten} of ${result.filesScanned} file(s) ${dryRun ? 'would be ' : ''}rewritten`);
     // 2. Staging dirs.
     for (const dir of options.stagingDirs ?? []) {
         for (const file of walk(dir).filter(f => f.endsWith('.jsonl'))) {
-            if (rewriteFileInPlace(file, redactor, dryRun, tally) > 0) {
+            const findings = dryRun
+                ? await scanFile(file, `staging:${path.relative(dir, file)}`, redactor, tally, options.report)
+                : rewriteFileInPlace(file, redactor, tally);
+            if (findings > 0) {
                 result.stagingFilesRewritten++;
-                if (options.report)
-                    reportFile(file, `staging:${path.relative(dir, file)}`, redactor, options.report);
             }
         }
     }
@@ -215,7 +239,7 @@ export async function rewriteArchive(options) {
                         continue;
                     tally.add(rowTally.toArray());
                     result.rowsUpdated++;
-                    staleSummaries.add(summaryPathFor(row.archive_path));
+                    invalidateSummary(summaryPathFor(row.archive_path));
                     if (dryRun)
                         continue;
                     const toolNames = tools.length > 0 ? tools.map(t => t.tool_name) : undefined;
@@ -247,15 +271,8 @@ export async function rewriteArchive(options) {
         const r = redactor.redact(text, { source: 'summary', path: file });
         if (r.findings.length > 0) {
             tally.add(r.findings);
-            staleSummaries.add(file);
+            invalidateSummary(file);
         }
-    }
-    for (const summary of staleSummaries) {
-        if (!fs.existsSync(summary))
-            continue;
-        result.summariesRemoved++;
-        if (!dryRun)
-            fs.unlinkSync(summary);
     }
     log(`Summaries: ${result.summariesRemoved} ${dryRun ? 'would be ' : ''}removed (regenerated from redacted text on the next sync)`);
     result.findings = tally.toArray();
