@@ -103,6 +103,24 @@ describe('sync-cli single-instance lock (#97)', () => {
     expect(result.stdout).toMatch(/Sync complete/);
   });
 
+  it('exits nonzero without a success claim when record admission rejects a source', () => {
+    const session = '00000000-0000-0000-0000-000000000002';
+    const transcript = `rollout-${session}.jsonl`;
+    writeFileSync(join(testDir, 'projects', 'project-a', transcript), [
+      { type: 'session_meta', payload: { id: '00000000-aaaa-4bbb-8ccc-dddddddddddd' } },
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'text', text: 'public fixture' }] } },
+    ].map(row => JSON.stringify(row)).join('\n') + '\n');
+    writeFileSync(join(testDir, 'config', 'record-exclusions.json'), JSON.stringify({
+      version: 1, exchanges: [{ session_id: session, transcript, line_start: 2, line_end: 2 }], tool_calls: [],
+    }));
+    const result = runWith({ ...envOverrides, EPISODIC_MEMORY_SKIP_SUMMARIES: '1' });
+    expect(result.stdout + result.stderr).toMatch(/session identity mismatch/);
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toMatch(/Sync complete/);
+    expect(existsSync(join(testDir, 'archive', 'project-a', transcript))).toBe(false);
+    expect(existsSync(join(testDir, 'config', 'logs', 'episodic-memory-sync.lock'))).toBe(false);
+  });
+
   it('releases the lock on normal exit — a subsequent run is not skipped', () => {
     const first = runWith(envOverrides);
     expect(first.status).toBe(0);

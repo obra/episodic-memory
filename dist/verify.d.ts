@@ -3,11 +3,25 @@ export interface VerificationResult {
         path: string;
         reason: string;
     }>;
+    unindexed: Array<{
+        path: string;
+    }>;
     orphaned: Array<{
         uuid: string;
         path: string;
     }>;
     outdated: Array<{
+        path: string;
+        fileTime: number;
+        dbTime: number;
+    }>;
+    screeningRejected: Array<{
+        path: string;
+    }>;
+    screeningUnavailable: Array<{
+        path: string;
+    }>;
+    archiveRefreshes: Array<{
         path: string;
         fileTime: number;
         dbTime: number;

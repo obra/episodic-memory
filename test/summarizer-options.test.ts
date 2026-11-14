@@ -110,6 +110,22 @@ describe('isResumeFailure', () => {
 });
 
 describe('buildCodexSummarizerCommand', () => {
+  it('disables host capabilities before an isolated summary server can load them', () => {
+    const command = buildCodexSummarizerCommand({ prompt: 'Admitted text.', isolated: true });
+    expect(command.isolated).toBe(true);
+    for (const option of ['features.shell_tool=false', 'features.plugins=false', 'features.hooks=false',
+      'features.apps=false', 'features.code_mode_host=false', 'features.skip_host_skill_discovery=true',
+      'skills.bundled.enabled=false', 'skills.include_instructions=false', 'project_doc_max_bytes=0',
+      'tools.experimental_request_user_input.enabled=false', 'web_search="disabled"']) {
+      expect(command.args).toContain(option);
+    }
+  });
+
+  it('refuses to combine isolated admitted text with an original session identity', () => {
+    expect(() => buildCodexSummarizerCommand({ prompt: 'Admitted text.', isolated: true, sessionId: 'original' }))
+      .toThrow(/isolated.*session/i);
+  });
+
   it('starts the Codex app-server so the summarizer can fork ephemerally', () => {
     const command = buildCodexSummarizerCommand({
       sessionId: '019e4c75-d5bf-7c71-9df7-77f5fb86b711',
@@ -129,6 +145,55 @@ describe('buildCodexSummarizerCommand', () => {
 });
 
 describe('runCodexCommand', () => {
+  it('disables inherited MCP and skill entries per subject and removes its temporary cwd', async () => {
+    const fake = `
+      const fs = require('fs');
+      const readline = require('readline');
+      const emit = value => console.log(JSON.stringify(value));
+      readline.createInterface({ input: process.stdin }).on('line', line => {
+        const m = JSON.parse(line);
+        if (m.method === 'initialize') emit({ id: m.id, result: {} });
+        if (m.method === 'config/read') emit({ id: m.id, result: { config: { mcp_servers: { inherited: { command: 'false', enabled: true } } } } });
+        if (m.method === 'skills/list') emit({ id: m.id, result: { data: [{ skills: [{ path: '/public-fixture/SKILL.md', enabled: true }], errors: [] }] } });
+        if (m.method === 'thread/fork') process.exit(8);
+        if (m.method === 'thread/start') {
+          const p = m.params;
+          if (p.config?.mcp_servers?.inherited?.enabled !== false) process.exit(9);
+          if (p.config?.['skills.config']?.[0]?.enabled !== false) process.exit(10);
+          if ([p.dynamicTools, p.environments, p.selectedCapabilityRoots].some(x => !Array.isArray(x) || x.length)) process.exit(11);
+          if (p.cwd !== process.cwd() || !fs.existsSync(p.cwd)) process.exit(12);
+          if (!p.ephemeral || p.allowProviderModelFallback !== false) process.exit(13);
+          emit({ id: m.id, result: { thread: { id: 'isolated' } } });
+        }
+        if (m.method === 'turn/start') {
+          emit({ id: m.id, result: { turn: { id: 'turn' } } });
+          emit({ method: 'item/completed', params: { item: { type: 'agentMessage', text: process.cwd() } } });
+          emit({ method: 'turn/completed', params: { turn: { id: 'turn', status: 'completed' } } });
+        }
+      });
+    `;
+    const result = await runCodexCommand({ command: process.execPath, args: ['-e', fake],
+      prompt: 'Admitted public fixture.', isolated: true, skipVersionCheck: true });
+    expect(result).toMatch(/episodic-memory-summary-/);
+    const { existsSync } = await import('fs');
+    expect(existsSync(result)).toBe(false);
+  });
+
+  it('does not echo a provider error payload from an isolated summary', async () => {
+    const fake = `
+      const readline = require('readline');
+      readline.createInterface({ input: process.stdin }).on('line', line => {
+        const m = JSON.parse(line);
+        console.log(JSON.stringify(m.method === 'initialize'
+          ? { id: m.id, result: {} }
+          : { id: m.id, error: { message: 'EXCLUDED_PUBLIC_FIXTURE' } }));
+      });
+    `;
+    await expect(runCodexCommand({ command: process.execPath, args: ['-e', fake],
+      prompt: 'Admitted text.', isolated: true, skipVersionCheck: true }))
+      .rejects.toThrow(/^Isolated Codex summary failed; provider details suppressed$/);
+  });
+
   it('forks the session ephemerally and returns the completed agent message', async () => {
     const fakeAppServer = `
       const readline = require('readline');

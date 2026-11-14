@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readAdmittedConversation } from './record-admission.js';
 import { formatConversationAsMarkdown, formatConversationAsHTML } from './show.js';
 
 const args = process.argv.slice(2);
@@ -46,7 +46,7 @@ if (!filePath) {
 }
 
 try {
-  const jsonl = readFileSync(filePath, 'utf-8');
+  const jsonl = await readAdmittedConversation(filePath);
 
   if (format === 'html') {
     console.log(formatConversationAsHTML(jsonl));

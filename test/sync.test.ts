@@ -240,10 +240,12 @@ describe('sync command', () => {
     // Sync with indexing enabled
     const result = await syncConversations(sourceDir, destDir);
 
-    // Both files should be copied
-    expect(result.copied).toBe(2);
+    // Whole-conversation opt-out now rejects copying as well as indexing.
+    expect(result.copied).toBe(1);
+    expect(existsSync(join(destDir, 'project-a', 'marked.jsonl'))).toBe(false);
+    expect(existsSync(join(destDir, 'project-a', 'normal.jsonl'))).toBe(true);
 
-    // But only normal conversation should be indexed
+    // Only the normal conversation should be indexed
     expect(result.indexed).toBe(1);
 
     // Verify in database

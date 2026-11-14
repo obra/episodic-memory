@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { getOpencodeDbPath, getOpencodeTranscriptDir } from './paths.js';
+import { loadRedactor, redactJsonlLine } from './redaction.js';
 function safeParseJson(value) {
     if (!value)
         return undefined;
@@ -40,7 +41,7 @@ function shouldExportSession(filePath, sessionUpdatedMs) {
     const stat = fs.statSync(filePath);
     return Math.floor(stat.mtimeMs) < Math.floor(sessionUpdatedMs);
 }
-function writeSessionTranscript(db, session, filePath) {
+function writeSessionTranscript(db, session, filePath, redactor) {
     const messages = db.prepare(`
     SELECT id, session_id, time_created, time_updated, data
     FROM message
@@ -115,14 +116,20 @@ function writeSessionTranscript(db, session, filePath) {
             parts,
         }));
     }
+    // The staging transcript is a plugin-owned plaintext copy, so redact it at
+    // write time like the archive (docs/REDACTION.md).
+    const output = redactor
+        ? lines.map(line => redactJsonlLine(line, redactor, { source: 'opencode', path: filePath }))
+        : lines;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const tempPath = `${filePath}.tmp.${process.pid}`;
-    fs.writeFileSync(tempPath, `${lines.join('\n')}\n`, 'utf-8');
+    fs.writeFileSync(tempPath, `${output.join('\n')}\n`, 'utf-8');
     fs.renameSync(tempPath, filePath);
     const mtime = dateFromMillis(session.time_updated);
     fs.utimesSync(filePath, mtime, mtime);
 }
 export function exportOpencodeSessions(options = {}) {
+    const redactor = options.redactor === undefined ? loadRedactor() : options.redactor;
     const dbPath = options.dbPath || getOpencodeDbPath();
     const transcriptDir = options.transcriptDir || getOpencodeTranscriptDir();
     const result = {
@@ -168,7 +175,7 @@ export function exportOpencodeSessions(options = {}) {
                     result.skipped++;
                     continue;
                 }
-                writeSessionTranscript(db, session, filePath);
+                writeSessionTranscript(db, session, filePath, redactor);
                 result.exported++;
             }
             catch (error) {

@@ -1,8 +1,8 @@
 import fs from 'fs';
-import readline from 'readline';
 import path from 'path';
 import { ConversationExchange, ConversationHarness, ToolCall } from './types.js';
 import crypto from 'crypto';
+import { admittedConversationLines } from './record-admission.js';
 
 interface JSONLMessage {
   type: string;
@@ -91,11 +91,7 @@ interface ExchangeBuilder {
 }
 
 async function detectConversationHarness(filePath: string): Promise<ConversationHarness> {
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
+  const rl = admittedConversationLines(filePath);
 
   for await (const line of rl) {
     if (!line.trim()) continue;
@@ -175,11 +171,7 @@ async function parseClaudeConversation(
   archivePath: string
 ): Promise<ConversationExchange[]> {
   const exchanges: ConversationExchange[] = [];
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
+  const rl = admittedConversationLines(filePath);
 
   let lineNumber = 0;
   let currentExchange: ExchangeBuilder | null = null;
@@ -479,11 +471,7 @@ async function parseOpencodeConversation(
   archivePath: string
 ): Promise<ConversationExchange[]> {
   const exchanges: ConversationExchange[] = [];
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
+  const rl = admittedConversationLines(filePath);
 
   let lineNumber = 0;
   let sessionId: string | undefined;
@@ -687,11 +675,7 @@ async function parseOmpConversation(
   archivePath: string
 ): Promise<ConversationExchange[]> {
   const exchanges: ConversationExchange[] = [];
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
+  const rl = admittedConversationLines(filePath);
 
   let sessionId: string | undefined;
   let cwd: string | undefined;
@@ -811,11 +795,7 @@ async function parseCodexConversation(
   archivePath: string
 ): Promise<ConversationExchange[]> {
   const exchanges: ConversationExchange[] = [];
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
+  const rl = admittedConversationLines(filePath);
 
   let lineNumber = 0;
   let sessionId: string | undefined;
@@ -955,7 +935,8 @@ async function parseCodexConversation(
       const timestamp = parsed.timestamp || new Date().toISOString();
 
       if (parsed.type === 'session_meta' && payload) {
-        sessionId = payload.id || sessionId;
+        // Forked transcripts may retain ancestor headers after the primary one.
+        sessionId = sessionId || payload.id;
         cwd = payload.cwd || cwd;
         gitBranch = payload.git?.branch || gitBranch;
         agentVersion = payload.cli_version || agentVersion;
@@ -1092,14 +1073,10 @@ async function parseCursorConversation(
   archivePath: string
 ): Promise<ConversationExchange[]> {
   const exchanges: ConversationExchange[] = [];
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
+  const rl = admittedConversationLines(filePath);
 
   // Live Cursor transcripts carry no per-message timestamps; fall back to the
-  // file mtime (preserved from the source by sync's copyIfNewer). Legacy
+  // file mtime (preserved from the source by the archive writer). Legacy
   // exports from import-cursor-history embed real per-message timestamps.
   let fallbackTimestamp: string;
   try {

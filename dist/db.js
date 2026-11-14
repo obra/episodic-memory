@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { admitExchange } from './record-admission.js';
 import path from 'path';
 import fs from 'fs';
 import * as sqliteVec from 'sqlite-vec';
@@ -89,6 +90,17 @@ export function migrateToolCallsCascade(db) {
     tx();
     db.pragma('foreign_keys = ON');
     console.log('  tool_calls migration complete.');
+}
+/**
+ * Open the existing index read-only, without creating it, migrating it, or
+ * changing its journal mode. For dry runs that must not write. Returns null
+ * when there is no index yet.
+ */
+export function openDatabaseReadOnly() {
+    const dbPath = getDbPath();
+    if (!fs.existsSync(dbPath))
+        return null;
+    return new Database(dbPath, { readonly: true, fileMustExist: true });
 }
 export function initDatabase() {
     const dbPath = getDbPath();
@@ -186,6 +198,10 @@ export function initDatabase() {
     return db;
 }
 export function insertExchange(db, exchange, embedding, toolNames) {
+    const admitted = admitExchange(exchange);
+    if (!admitted)
+        return;
+    exchange = admitted;
     const now = Date.now();
     const stmt = db.prepare(`
     INSERT OR REPLACE INTO exchanges

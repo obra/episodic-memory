@@ -24,15 +24,16 @@ interface ConversationMessage {
 }
 
 export function formatConversationAsMarkdown(jsonl: string, startLine?: number, endLine?: number): string {
-  const allLines = jsonl.trim().split('\n').filter(line => line.trim());
+  const allLines = jsonl.split('\n');
 
   // Apply line range if specified (1-indexed, inclusive)
-  const lines = startLine !== undefined || endLine !== undefined
+  const selectedLines = startLine !== undefined || endLine !== undefined
     ? allLines.slice(
         startLine !== undefined ? startLine - 1 : 0,
         endLine !== undefined ? endLine : undefined
       )
     : allLines;
+  const lines = selectedLines.filter(line => line.trim());
 
   if (isCodexRollout(lines)) {
     return formatCodexConversationAsMarkdown(lines);

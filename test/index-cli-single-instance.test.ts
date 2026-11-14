@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
@@ -75,16 +75,37 @@ describe('index-cli single-instance lock (#97)', () => {
     expect(existsSync(join(testDir, 'test.db'))).toBe(false);
   });
 
-  it('skips `verify`, which can initialize and migrate the database', () => {
+  it('reports a lock-blocked `verify` as incomplete rather than healthy', () => {
     heldLock = acquireFileLock(lockPath);
     expect(heldLock).not.toBeNull();
 
     const result = runIndexCli(['verify']);
 
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(2);
     expect(result.stderr).toMatch(/sync already running.*skipping/);
     expect(result.stdout).not.toMatch(/Verifying conversation index/);
     expect(existsSync(join(testDir, 'test.db'))).toBe(false);
+  });
+
+  it('reports unindexed archives as actionable without calling them outdated', () => {
+    const projectDir = join(testDir, 'archive', 'project');
+    mkdirSync(projectDir, { recursive: true });
+    const archivePath = join(projectDir, 'session.jsonl');
+    writeFileSync(archivePath, [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' }),
+    ].join('\n'));
+    writeFileSync(archivePath.replace('.jsonl', '-summary.txt'), 'Existing summary');
+
+    const result = runIndexCli(['verify']);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Unindexed archives: 1');
+    expect(result.stdout).toContain(archivePath);
+    expect(result.stdout).toContain('Outdated files: 0');
+
+    const repair = runIndexCli(['repair']);
+    expect(repair.status).toBe(1);
+    expect(repair.stdout).toContain('unindexed archive(s) require separate review');
   });
 
   it('releases the lock after an uncontended run', () => {

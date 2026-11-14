@@ -57,10 +57,11 @@ export interface CodexSummarizerCommand {
     command: string;
     args: string[];
     prompt: string;
-    sessionId: string;
+    sessionId?: string;
     model?: string;
     versionArgs?: string[];
     skipVersionCheck?: boolean;
+    isolated?: boolean;
 }
 /**
  * Get API environment overrides for summarization calls.
@@ -150,10 +151,11 @@ export declare function buildSummarizerQueryOptions(args: {
 }): Record<string, unknown>;
 export declare function buildCodexSummaryPrompt(): string;
 export declare function buildCodexSummarizerCommand(args: {
-    sessionId: string;
+    sessionId?: string;
     prompt: string;
     model?: string;
     codexBin?: string;
+    isolated?: boolean;
 }): CodexSummarizerCommand;
 export declare function runCodexCommand(command: CodexSummarizerCommand): Promise<string>;
 /**
@@ -166,10 +168,13 @@ export declare function runCodexCommand(command: CodexSummarizerCommand): Promis
  *
  * Default to `undefined` so `app-server` uses the current Codex config
  * (`~/.codex/config.toml#model`). Operators can override via
- * `EPISODIC_MEMORY_CODEX_MODEL` if they need a specific model id (e.g. an
- * API-key user wanting `gpt-5.5-codex`).
+ * `EPISODIC_MEMORY_CODEX_MODEL` if they need a supported model id for their
+ * selected Codex route.
  *
  * See https://github.com/obra/episodic-memory/issues/98.
  */
 export declare function getCodexModel(_exchanges: ConversationExchange[]): string | undefined;
-export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string): Promise<string>;
+export interface SummarizeOptions {
+    allowResume?: boolean;
+}
+export declare function summarizeConversation(exchanges: ConversationExchange[], sessionId?: string, options?: SummarizeOptions): Promise<string>;

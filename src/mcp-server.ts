@@ -23,6 +23,7 @@ import {
 import { formatConversationAsMarkdown } from './show.js';
 import { VERSION } from './version.js';
 import fs from 'fs';
+import { readAdmittedConversation } from './record-admission.js';
 
 // Zod Schemas for Input Validation
 
@@ -291,7 +292,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // Read and format conversation with optional line range
-      const jsonlContent = fs.readFileSync(params.path, 'utf-8');
+      const jsonlContent = await readAdmittedConversation(params.path, params.startLine, params.endLine);
       const markdownContent = formatConversationAsMarkdown(
         jsonlContent,
         params.startLine,

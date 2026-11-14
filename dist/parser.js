@@ -1,13 +1,9 @@
 import fs from 'fs';
-import readline from 'readline';
 import path from 'path';
 import crypto from 'crypto';
+import { admittedConversationLines } from './record-admission.js';
 async function detectConversationHarness(filePath) {
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-        input: fileStream,
-        crlfDelay: Infinity
-    });
+    const rl = admittedConversationLines(filePath);
     for await (const line of rl) {
         if (!line.trim())
             continue;
@@ -73,11 +69,7 @@ export async function parseConversation(filePath, projectName, archivePath) {
 }
 async function parseClaudeConversation(filePath, projectName, archivePath) {
     const exchanges = [];
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-        input: fileStream,
-        crlfDelay: Infinity
-    });
+    const rl = admittedConversationLines(filePath);
     let lineNumber = 0;
     let currentExchange = null;
     const finalizeExchange = () => {
@@ -343,11 +335,7 @@ function extractOpencodeToolCalls(parts, fallbackTimestamp) {
 }
 async function parseOpencodeConversation(filePath, projectName, archivePath) {
     const exchanges = [];
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-        input: fileStream,
-        crlfDelay: Infinity
-    });
+    const rl = admittedConversationLines(filePath);
     let lineNumber = 0;
     let sessionId;
     let cwd;
@@ -524,11 +512,7 @@ function extractOmpText(content) {
  */
 async function parseOmpConversation(filePath, projectName, archivePath) {
     const exchanges = [];
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-        input: fileStream,
-        crlfDelay: Infinity
-    });
+    const rl = admittedConversationLines(filePath);
     let sessionId;
     let cwd;
     let headerTimestamp;
@@ -632,11 +616,7 @@ async function parseOmpConversation(filePath, projectName, archivePath) {
 }
 async function parseCodexConversation(filePath, projectName, archivePath) {
     const exchanges = [];
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-        input: fileStream,
-        crlfDelay: Infinity
-    });
+    const rl = admittedConversationLines(filePath);
     let lineNumber = 0;
     let sessionId;
     let cwd;
@@ -763,7 +743,8 @@ async function parseCodexConversation(filePath, projectName, archivePath) {
             const payload = parsed.payload;
             const timestamp = parsed.timestamp || new Date().toISOString();
             if (parsed.type === 'session_meta' && payload) {
-                sessionId = payload.id || sessionId;
+                // Forked transcripts may retain ancestor headers after the primary one.
+                sessionId = sessionId || payload.id;
                 cwd = payload.cwd || cwd;
                 gitBranch = payload.git?.branch || gitBranch;
                 agentVersion = payload.cli_version || agentVersion;
@@ -884,13 +865,9 @@ function cursorProjectFromPath(filePath) {
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 async function parseCursorConversation(filePath, projectName, archivePath) {
     const exchanges = [];
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-        input: fileStream,
-        crlfDelay: Infinity
-    });
+    const rl = admittedConversationLines(filePath);
     // Live Cursor transcripts carry no per-message timestamps; fall back to the
-    // file mtime (preserved from the source by sync's copyIfNewer). Legacy
+    // file mtime (preserved from the source by the archive writer). Legacy
     // exports from import-cursor-history embed real per-message timestamps.
     let fallbackTimestamp;
     try {

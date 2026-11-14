@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { initDatabase } from './db.js';
+import { createSearchAdmission } from './record-admission.js';
 import { initEmbeddings, generateQueryEmbedding } from './embeddings.js';
 import { SearchResult, ConversationExchange, MultiConceptResult } from './types.js';
 import { isErroredSentinel } from './summary-sentinel.js';
@@ -188,81 +189,77 @@ export async function searchConversations(
   if (after) validateISODate(after, '--after');
   if (before) validateISODate(before, '--before');
 
+  const admission = createSearchAdmission();
   const db = initDatabase();
+  const admitted = (row: any) => admission.admit(exchangeFromRow(row)) !== null;
 
   let results: any[] = [];
 
   const { sql: filterClause, params: filterParams } = buildSearchFilters(options);
 
-  if (mode === 'vector' || mode === 'both') {
-    // Vector similarity search.
-    // vec0 applies KNN before the WHERE clause and before our sidechain
-    // de-rank, so we over-fetch candidates and trim after the final ordering.
-    await initEmbeddings();
-    const queryEmbedding = await generateQueryEmbedding(query);
-    const k = limit * 3;
-
-    const stmt = db.prepare(`
-      SELECT
-        ${EXCHANGE_SELECT_COLUMNS},
-        vec.distance
-      FROM vec_exchanges AS vec
-      JOIN exchanges AS e ON vec.id = e.id
-      WHERE vec.embedding MATCH ?
-        AND k = ?
-        ${sidechainClause}
-        ${filterClause}
-      ORDER BY (vec.distance + e.is_sidechain * ?) ASC
-    `);
-
-    results = stmt.all(
-      Buffer.from(new Float32Array(queryEmbedding).buffer),
-      k,
-      ...filterParams,
-      SIDECHAIN_DISTANCE_PENALTY
-    );
-    if (results.length > limit) {
-      results = results.slice(0, limit);
-    }
-  }
-
-  if (mode === 'text' || mode === 'both') {
-    // Text search: AND of per-token LIKE patterns so multi-word queries match
-    // when every term appears somewhere in the exchange (any order, either field).
-    // See #127 — whole-query contiguous substring matching returned empty for
-    // typical multi-word searches that are not verbatim phrases. Sidechain rows
-    // are de-ranked (ordered after main-thread rows), not excluded (#128).
-    const { sql: textMatchSql, params: textMatchParams } = buildTextMatchClause(query);
-    const textStmt = db.prepare(`
-      SELECT
-        ${EXCHANGE_SELECT_COLUMNS},
-        0 as distance
-      FROM exchanges AS e
-      WHERE ${textMatchSql}
-        ${sidechainClause}
-        ${filterClause}
-      ORDER BY e.is_sidechain ASC, e.timestamp DESC
-      LIMIT ?
-    `);
-
-    const textResults = textStmt.all(...textMatchParams, ...filterParams, limit);
-
-    if (mode === 'both') {
-      // Merge and deduplicate by ID
-      const seenIds = new Set(results.map(r => r.id));
-      for (const textResult of textResults) {
-        if (!seenIds.has((textResult as any).id)) {
-          results.push(textResult);
-        }
+  try {
+    if (mode === 'vector' || mode === 'both') {
+      // Order the filtered candidates before admission. The vec0 KNN API caps k;
+      // increasing k cannot find safe results beyond a large excluded prefix.
+      await initEmbeddings();
+      const queryEmbedding = await generateQueryEmbedding(query);
+      const stmt = db.prepare(`
+        SELECT ${EXCHANGE_SELECT_COLUMNS},
+          vec_distance_l2(vec.embedding, ?) AS retrieval_distance
+        FROM vec_exchanges AS vec
+        JOIN exchanges AS e ON vec.id = e.id
+        WHERE 1 = 1 ${sidechainClause} ${filterClause}
+        ORDER BY (retrieval_distance + e.is_sidechain * ?) ASC
+      `);
+      for (const row of stmt.iterate(
+        Buffer.from(new Float32Array(queryEmbedding).buffer),
+        ...filterParams, SIDECHAIN_DISTANCE_PENALTY
+      )) {
+        if (admitted(row)) results.push(row);
+        if (results.length === limit) break;
       }
-    } else {
-      results = textResults;
     }
-  }
 
-  db.close();
+    if (mode === 'text' || mode === 'both') {
+      // Text search: AND of per-token LIKE patterns so multi-word queries match
+      // when every term appears somewhere in the exchange (any order, either field).
+      // See #127 — whole-query contiguous substring matching returned empty for
+      // typical multi-word searches that are not verbatim phrases. Sidechain rows
+      // are de-ranked (ordered after main-thread rows), not excluded (#128).
+      const { sql: textMatchSql, params: textMatchParams } = buildTextMatchClause(query);
+      const textStmt = db.prepare(`
+        SELECT
+          ${EXCHANGE_SELECT_COLUMNS},
+          0 as retrieval_distance
+        FROM exchanges AS e
+        WHERE ${textMatchSql}
+          ${sidechainClause}
+          ${filterClause}
+        ORDER BY e.is_sidechain ASC, e.timestamp DESC
+      `);
 
-  return results.map((row: any) => {
+      const textResults: any[] = [];
+      for (const row of textStmt.iterate(...textMatchParams, ...filterParams)) {
+        if (admitted(row)) textResults.push(row);
+        if (textResults.length === limit) break;
+      }
+
+      if (mode === 'both') {
+        // Merge and deduplicate by ID
+        const seenIds = new Set(results.map(r => r.id));
+        for (const textResult of textResults) {
+          if (!seenIds.has((textResult as any).id)) {
+            results.push(textResult);
+          }
+        }
+      } else {
+        results = textResults;
+      }
+    }
+
+  } finally { db.close(); }
+
+  const output = results.map((row: any) => {
     const exchange = exchangeFromRow(row);
 
     // Try to load summary if available. Skip error sentinels (#96) so failed
@@ -272,7 +269,7 @@ export async function searchConversations(
     if (fs.existsSync(summaryPath)) {
       const raw = fs.readFileSync(summaryPath, 'utf-8');
       if (!isErroredSentinel(raw)) {
-        summary = raw.trim();
+        summary = admission.summary(exchange, raw.trim());
       }
     }
 
@@ -282,11 +279,13 @@ export async function searchConversations(
 
     return {
       exchange,
-      similarity: mode === 'text' ? undefined : l2DistanceToCosineSimilarity(row.distance),
+      similarity: mode === 'text' ? undefined : l2DistanceToCosineSimilarity(row.retrieval_distance),
       snippet,
       summary
     } as SearchResult & { summary?: string };
   });
+  admission.verify();
+  return output;
 }
 
 // Helper function to count lines in a file efficiently

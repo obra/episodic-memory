@@ -44,6 +44,7 @@ COMMANDS:
   stats                  Show index statistics
   doctor                 Diagnose Claude Code or Codex integration issues
   import-cursor-history  Export legacy Cursor conversations from state.vscdb for indexing
+  redact                 Re-run secret redaction over the archive and index (--rewrite)
 
 Run 'episodic-memory <command> --help' for command-specific help.
 
@@ -92,6 +93,10 @@ async function main() {
 
       case 'import-cursor-history':
         await runScript(join(distDir, 'cursor-import-cli.js'), args);
+        break;
+
+      case 'redact':
+        await runScript(join(distDir, 'redact-cli.js'), args);
         break;
 
       case '--help':

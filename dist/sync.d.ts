@@ -1,13 +1,5 @@
-/**
- * Stream and scan for any exclusion marker, carrying an overlap between
- * chunks so a marker split across a boundary is still found. A single
- * fs.readFileSync(path, 'utf-8') throws ERR_STRING_TOO_LONG above Node's
- * ~512 MB max string length; the old catch returned false (fail OPEN),
- * silently indexing a file whose DO NOT INDEX marker we never read (#152).
- * Streaming confirms cleanliness at any size, and a real read error now
- * fails CLOSED (skip) rather than open.
- */
-export declare function shouldSkipConversation(filePath: string): boolean;
+import { type RedactionFinding, type Redactor } from './redaction.js';
+export { shouldSkipConversation } from './record-admission.js';
 export interface SyncResult {
     copied: number;
     skipped: number;
@@ -17,11 +9,18 @@ export interface SyncResult {
         file: string;
         error: string;
     }>;
+    /** Rule IDs and counts only — never matched values. */
+    redactions: RedactionFinding[];
 }
 export interface SyncOptions {
     skipIndex?: boolean;
     skipSummaries?: boolean;
     summaryLimit?: number;
+    /**
+     * Redactor applied at the archive write. `undefined` loads it from the
+     * environment (loadRedactor); `null` means redaction is off.
+     */
+    redactor?: Redactor | null;
 }
 /**
  * Derive sync options from the process environment.
