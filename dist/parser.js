@@ -1036,13 +1036,10 @@ async function parseCursorConversation(filePath, projectName, archivePath) {
  * Extracts project name from the file path and returns exchanges with metadata
  */
 export async function parseConversationFile(filePath) {
-    // Extract project name from path (directory name before the .jsonl file)
-    const pathParts = filePath.split('/');
-    let project = 'unknown';
-    // Find the parent directory name (second to last part)
-    if (pathParts.length >= 2) {
-        project = pathParts[pathParts.length - 2];
-    }
+    // Extract project name from path (directory name before the .jsonl file).
+    // path.dirname uses the platform's separators, so Windows paths with `\` work too.
+    const parentDir = path.basename(path.dirname(filePath));
+    const project = parentDir && parentDir !== '.' ? parentDir : 'unknown';
     const exchanges = await parseConversation(filePath, project, filePath);
     return {
         project,

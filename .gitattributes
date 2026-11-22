@@ -1,0 +1,3 @@
+# Check out text files with LF on every platform, overriding core.autocrlf.
+# The build writes LF, so CRLF checkouts make every dist/ file look modified.
+* text=auto eol=lf
