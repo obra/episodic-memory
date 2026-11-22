@@ -66,11 +66,12 @@ async function main() {
                 console.log(`Orphaned entries: ${issues.orphaned.length}`);
                 console.log(`Outdated files: ${issues.outdated.length}`);
                 console.log(`Corrupted files: ${issues.corrupted.length}`);
+                console.log(`Not in index: ${issues.unindexed.length}`);
                 if (issues.missing.length > 0) {
                     console.log('\nMissing summaries:');
                     issues.missing.forEach(m => console.log(`  ${m.path}`));
                 }
-                if (issues.missing.length + issues.orphaned.length + issues.outdated.length + issues.corrupted.length > 0) {
+                if (issues.missing.length + issues.orphaned.length + issues.outdated.length + issues.corrupted.length + issues.unindexed.length > 0) {
                     console.log('\nRun with --repair to fix these issues.');
                     process.exit(1);
                 }

@@ -9,7 +9,8 @@ export async function verifyIndex() {
         missing: [],
         orphaned: [],
         outdated: [],
-        corrupted: []
+        corrupted: [],
+        unindexed: []
     };
     const archiveDir = getArchiveDir();
     // Track all files we find
@@ -49,13 +50,18 @@ export async function verifyIndex() {
                 result.missing.push({ path: conversationPath, reason: 'No summary file' });
                 continue;
             }
-            if (isErroredSentinel(fs.readFileSync(summaryPath, 'utf-8'))) {
+            const summaryContent = fs.readFileSync(summaryPath, 'utf-8');
+            if (isErroredSentinel(summaryContent)) {
                 result.missing.push({ path: conversationPath, reason: 'Previous summarization failed (error sentinel)' });
                 continue;
             }
-            // Check if file is outdated (modified after last_indexed)
+            // Check if file is outdated (modified after last_indexed), or never indexed at all.
+            // An empty summary is the permanent-skip sentinel (#91): nothing to index there.
             const lastIndexed = getFileLastIndexed(db, conversationPath);
-            if (lastIndexed !== null) {
+            if (lastIndexed === null && summaryContent.length > 0) {
+                result.unindexed.push({ path: conversationPath });
+            }
+            else if (lastIndexed !== null) {
                 const fileStat = fs.statSync(conversationPath);
                 if (fileStat.mtimeMs > lastIndexed) {
                     result.outdated.push({
@@ -105,12 +111,14 @@ export async function repairIndex(issues) {
         console.log(`Removing orphaned entry: ${orphan.uuid}`);
         deleteExchange(db, orphan.uuid);
     }
-    // Re-index missing and outdated conversations
+    // Re-index missing and outdated conversations, and index the unindexed ones. An unindexed
+    // conversation already has its summary, so it is not summarized again.
     const toReindex = [
-        ...issues.missing.map(m => m.path),
-        ...issues.outdated.map(o => o.path)
+        ...issues.missing.map(m => ({ conversationPath: m.path, summarize: true })),
+        ...issues.outdated.map(o => ({ conversationPath: o.path, summarize: true })),
+        ...(issues.unindexed ?? []).map(u => ({ conversationPath: u.path, summarize: false }))
     ];
-    for (const conversationPath of toReindex) {
+    for (const { conversationPath, summarize } of toReindex) {
         console.log(`Re-indexing: ${conversationPath}`);
         try {
             // Extract project name from path
@@ -124,10 +132,12 @@ export async function repairIndex(issues) {
                 continue;
             }
             // Generate/update summary
-            const summaryPath = conversationPath.replace('.jsonl', '-summary.txt');
-            const summary = await summarizeConversation(exchanges);
-            fs.writeFileSync(summaryPath, summary, 'utf-8');
-            console.log(`  Created summary: ${summary.split(/\s+/).length} words`);
+            if (summarize) {
+                const summaryPath = conversationPath.replace('.jsonl', '-summary.txt');
+                const summary = await summarizeConversation(exchanges);
+                fs.writeFileSync(summaryPath, summary, 'utf-8');
+                console.log(`  Created summary: ${summary.split(/\s+/).length} words`);
+            }
             // Index exchanges
             for (const exchange of exchanges) {
                 const toolNames = exchange.toolCalls?.map(tc => tc.toolName);

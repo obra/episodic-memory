@@ -11,6 +11,7 @@ const EXCLUSION_MARKERS = [
     SUMMARIZER_CONTEXT_MARKER,
 ];
 const MARKER_SCAN_CHUNK_BYTES = 1 << 20; // 1 MiB
+const RENAME_RETRIES = 4;
 /**
  * Stream and scan for any exclusion marker, carrying an overlap between
  * chunks so a marker split across a boundary is still found. A single
@@ -136,10 +137,29 @@ function copyIfNewer(src, dest) {
             return false; // Dest is current, skip
         }
     }
-    // Atomic copy: temp file + rename
+    // Atomic copy: temp file + rename. On Windows the rename throws (EPERM/EBUSY) while
+    // another process has the destination open; retry, then fall back to a direct copy,
+    // and always remove the temp file so a failure never leaves a full copy behind.
     const tempDest = dest + '.tmp.' + process.pid;
-    fs.copyFileSync(src, tempDest);
-    fs.renameSync(tempDest, dest); // Atomic on same filesystem
+    try {
+        fs.copyFileSync(src, tempDest);
+        for (let attempt = 0;; attempt++) {
+            try {
+                fs.renameSync(tempDest, dest); // Atomic on same filesystem
+                break;
+            }
+            catch (error) {
+                if (attempt >= RENAME_RETRIES) {
+                    fs.copyFileSync(src, dest);
+                    break;
+                }
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100 * (attempt + 1));
+            }
+        }
+    }
+    finally {
+        fs.rmSync(tempDest, { force: true });
+    }
     // Preserve source mtime: harnesses without per-message timestamps (Cursor
     // agent transcripts) fall back to file mtime. Round up to the next whole
     // millisecond — utimes can't always represent the source's sub-millisecond
