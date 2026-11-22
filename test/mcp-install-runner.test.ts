@@ -119,6 +119,21 @@ describe('install-runner — runNpmInstall termination handling (#161)', () => {
     expect(process.listenerCount('exit')).toBe(beforeExit);
   });
 
+  it('installs runtime dependencies only (--omit=dev) (#203)', async () => {
+    const child = makeFakeChild();
+    const fakeSpawn = vi.fn((..._args: unknown[]) => child);
+    const install = runNpmInstall(root, { spawn: fakeSpawn });
+
+    const [command, args, options] = fakeSpawn.mock.calls[0] as [string, string[], { cwd: string }];
+    expect(command).toMatch(/^npm(\.cmd)?$/);
+    expect(args[0]).toBe('install');
+    expect(args).toContain('--omit=dev');
+    expect(options.cwd).toBe(root);
+
+    child.emit('exit', 0);
+    await install.promise;
+  });
+
   it('resolves and removes handlers when the child exits 0 normally (no termination)', async () => {
     const beforeSigterm = process.listenerCount('SIGTERM');
 

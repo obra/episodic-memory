@@ -133,7 +133,11 @@ export function runNpmInstall(pluginRoot, { spawn = defaultSpawn, lockHandle } =
   console.error('Installing episodic-memory dependencies (first run only)...');
   console.error('This may take 30-60 seconds...');
 
-  const child = spawn(npmCommand, ['install', '--no-audit', '--no-fund'], {
+  // --omit=dev: the plugin runs prebuilt dist/, so dev tooling (tsx, esbuild,
+  // vitest, typescript) is never loaded at runtime. Skipping it makes this
+  // install smaller and faster, and drops native postinstall steps (esbuild's
+  // binary check) that can fail the whole install (#203).
+  const child = spawn(npmCommand, ['install', '--omit=dev', '--no-audit', '--no-fund'], {
     cwd: pluginRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: isWindows, // On Windows, we need shell: true to find npm.cmd
