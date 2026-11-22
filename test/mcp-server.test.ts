@@ -5,6 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { indexTestFiles } from './test-indexer.js';
+import { getFixturePath } from './test-utils.js';
 
 const serverPath = fileURLToPath(new URL('../dist/mcp-server.js', import.meta.url));
 
@@ -65,6 +67,18 @@ describe('MCP search tool', () => {
     mkdirSync(join(testDir, 'archive'), { recursive: true });
     mkdirSync(join(testDir, 'projects'), { recursive: true });
 
+    const previousDbPath = process.env.TEST_DB_PATH;
+    process.env.TEST_DB_PATH = testDbPath;
+    try {
+      await indexTestFiles([getFixturePath('short-conversation.jsonl')]);
+    } finally {
+      if (previousDbPath === undefined) {
+        delete process.env.TEST_DB_PATH;
+      } else {
+        process.env.TEST_DB_PATH = previousDbPath;
+      }
+    }
+
     client = new Client({ name: 'episodic-memory-test', version: '1.0.0' }, { capabilities: {} });
     transport = new StdioClientTransport({
       command: process.execPath,
@@ -120,5 +134,46 @@ describe('MCP search tool', () => {
       mode: 'text',
     });
     expect(existsSync(testDbPath)).toBe(true);
+  });
+
+  it('completes the real MCP text, vector, and archive-read path', async () => {
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['search', 'read']));
+
+    const textResult = await client.callTool({
+      name: 'search',
+      arguments: {
+        query: 'Employee class',
+        mode: 'text',
+        limit: 1,
+        response_format: 'json',
+      },
+    });
+    expect(textResult.isError).toBeFalsy();
+    const textPayload = JSON.parse(getTextContent(textResult.content as ToolContent[]));
+    expect(textPayload.count).toBeGreaterThan(0);
+
+    const vectorResult = await client.callTool({
+      name: 'search',
+      arguments: {
+        query: 'Python employee data design',
+        mode: 'vector',
+        limit: 1,
+        response_format: 'json',
+      },
+    });
+    expect(vectorResult.isError).toBeFalsy();
+
+    const vectorPayload = JSON.parse(getTextContent(vectorResult.content as ToolContent[]));
+    expect(vectorPayload.count).toBeGreaterThan(0);
+    const archivePath = vectorPayload.results[0].exchange.archivePath;
+    expect(archivePath).toBe(getFixturePath('short-conversation.jsonl'));
+
+    const readResult = await client.callTool({
+      name: 'read',
+      arguments: { path: archivePath, startLine: 1, endLine: 3 },
+    });
+    expect(readResult.isError).toBeFalsy();
+    expect(getTextContent(readResult.content as ToolContent[])).toBeTruthy();
   });
 });

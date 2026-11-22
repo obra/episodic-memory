@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Native database installs now use the N-API-based `better-sqlite3` 13.x line, so switching Node versions no longer leaves an ABI-specific binding behind. This also avoids a Node 24.19-24.21 cleanup-hook crash caused by rebuilding the old 12.x addon from source. Install verification now performs a real sqlite-vec write and nearest-neighbor query, and the MCP integration test covers text search, vector search, and reading the returned archive.
+
 ## [1.6.0] - 2026-09-08
 
 Adds a fifth conversation source, an off switch for automatic syncing, and two fixes for real-world resource problems.

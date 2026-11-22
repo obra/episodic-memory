@@ -38,10 +38,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           # No `cache: npm`: that needs a lockfile, and this repo gitignores one.
-          # Measured, caching ~/.npm would buy nothing anyway - install time is
-          # node-gyp compiling better-sqlite3, not downloads (see the PR body).
-          # Installing cold every run also keeps the native-install path that
-          # issues #100/#102/#105/#125/#135/#162 are about under real test.
+          # Installing cold every run keeps the native dependency path that
+          # issues #100/#102/#105/#125/#135/#162 are about under real test,
+          # including the bundled better-sqlite3 N-API platform binary.
 
       # No lockfile is committed, so `npm ci` cannot be used. Dependency ranges
       # resolve fresh on every run; see the PR body for the caveat this implies.
