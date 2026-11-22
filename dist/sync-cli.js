@@ -142,6 +142,33 @@ if (isBackground) {
     console.log(`Sync started in background. Log: ${logPath}`);
     process.exit(0);
 }
+// Single-instance lock (#97). Independent SessionStart events from multiple
+// Claude Code sessions each fire `sync --background`; without a lock they race
+// the SQLite write path and pile up Claude subprocesses for summarization. On
+// Windows the latter exhausts the desktop heap and crashes the workers with
+// STATUS_DLL_INIT_FAILED. Acquire before the opencode export (#212): that export
+// reads every row of opencode.db, so a worker that is about to skip must not
+// reach it. Release on every exit.
+const syncLockPath = getSyncLockPath();
+const syncLock = acquireFileLock(syncLockPath);
+if (!syncLock) {
+    const holder = readLockHolder(syncLockPath);
+    const holderLabel = holder !== null ? `pid ${holder}` : 'another process';
+    console.error(`episodic-memory: sync already running (${holderLabel}); skipping`);
+    process.exit(0);
+}
+const releaseSyncLockOnce = () => {
+    if (releaseSyncLockOnce.done)
+        return;
+    releaseSyncLockOnce.done = true;
+    releaseFileLock(syncLock);
+};
+process.on('exit', releaseSyncLockOnce);
+process.on('SIGINT', () => { releaseSyncLockOnce(); process.exit(130); });
+process.on('SIGTERM', () => { releaseSyncLockOnce(); process.exit(143); });
+process.on('SIGHUP', () => { releaseSyncLockOnce(); process.exit(129); });
+// Before getConversationSourceDirs(): this export generates the opencode
+// transcripts that call then discovers.
 if (!onlyHarnesses || onlyHarnesses.includes('opencode')) {
     const opencodeExport = exportOpencodeSessions();
     if (opencodeExport.exported > 0 || opencodeExport.skipped > 0) {
@@ -166,30 +193,6 @@ if (sourceDirs.length === 0) {
     }
     process.exit(0);
 }
-// Single-instance lock (#97). Independent SessionStart events from multiple
-// Claude Code sessions each fire `sync --background`; without a lock they race
-// the SQLite write path and pile up Claude subprocesses for summarization. On
-// Windows the latter exhausts the desktop heap and crashes the workers with
-// STATUS_DLL_INIT_FAILED. Acquire after the source-dir check so help/version
-// paths don't touch the filesystem unnecessarily, and release on every exit.
-const syncLockPath = getSyncLockPath();
-const syncLock = acquireFileLock(syncLockPath);
-if (!syncLock) {
-    const holder = readLockHolder(syncLockPath);
-    const holderLabel = holder !== null ? `pid ${holder}` : 'another process';
-    console.error(`episodic-memory: sync already running (${holderLabel}); skipping`);
-    process.exit(0);
-}
-const releaseSyncLockOnce = () => {
-    if (releaseSyncLockOnce.done)
-        return;
-    releaseSyncLockOnce.done = true;
-    releaseFileLock(syncLock);
-};
-process.on('exit', releaseSyncLockOnce);
-process.on('SIGINT', () => { releaseSyncLockOnce(); process.exit(130); });
-process.on('SIGTERM', () => { releaseSyncLockOnce(); process.exit(143); });
-process.on('SIGHUP', () => { releaseSyncLockOnce(); process.exit(129); });
 console.log('Syncing conversations...');
 console.log(`Sources: ${sourceDirs.join(', ')}`);
 console.log(`Destination: ${destDir}\n`);
