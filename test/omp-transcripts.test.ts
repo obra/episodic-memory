@@ -201,6 +201,63 @@ describe('OMP (Oh My Pi) transcript parser', () => {
       lineEnd: 5,
     });
   });
+
+  it('parses current OMP files: title slot first, messages parented by non-message entries', async () => {
+    const transcriptPath = join(testDir, 'omp-real-layout.jsonl');
+    const lines = [
+      // L1 — fixed-width title slot precedes the session header
+      { type: 'title', v: 1, title: 'Real layout', source: 'auto', pad: '    ' },
+      // L2
+      { type: 'session', version: 3, id: 'omp_sess_real', timestamp: '2026-09-01T00:00:00Z', cwd: '/work/real' },
+      // L3 — non-message tree node at the root
+      { type: 'model_change', id: 'm0', parentId: null, timestamp: '2026-09-01T00:00:00Z', model: 'x/y' },
+      // L4 — user parented by the model_change entry
+      {
+        type: 'message',
+        id: 'u1',
+        parentId: 'm0',
+        timestamp: '2026-09-01T00:00:01Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'First question' }] },
+      },
+      // L5
+      {
+        type: 'message',
+        id: 'a1',
+        parentId: 'u1',
+        timestamp: '2026-09-01T00:00:02Z',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'First answer' }] },
+      },
+      // L6 — mid-session non-message nodes between turns
+      { type: 'thinking_level_change', id: 't1', parentId: 'a1', timestamp: '2026-09-01T00:00:03Z' },
+      // L7
+      { type: 'custom', id: 'c1', parentId: 't1', timestamp: '2026-09-01T00:00:03Z' },
+      // L8 — second user parented by the custom entry
+      {
+        type: 'message',
+        id: 'u2',
+        parentId: 'c1',
+        timestamp: '2026-09-01T00:00:04Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'Second question' }] },
+      },
+      // L9 — leaf
+      {
+        type: 'message',
+        id: 'a2',
+        parentId: 'u2',
+        timestamp: '2026-09-01T00:00:05Z',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Second answer' }] },
+      },
+    ];
+    writeLines(transcriptPath, lines);
+
+    const exchanges = await parseConversation(transcriptPath, 'fallback-project', transcriptPath);
+
+    expect(exchanges.map(e => [e.harness, e.userMessage, e.assistantMessage, e.lineStart, e.lineEnd])).toEqual([
+      ['omp', 'First question', 'First answer', 4, 5],
+      ['omp', 'Second question', 'Second answer', 8, 9],
+    ]);
+    expect(exchanges[0]).toMatchObject({ sessionId: 'omp_sess_real', cwd: '/work/real', project: 'real' });
+  });
 });
 
 describe('OMP source directory discovery', () => {

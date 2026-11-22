@@ -31467,6 +31467,7 @@ function extractOmpText(content) {
 function formatOmpConversationAsMarkdown(lines) {
   const metadata = {};
   const nodesById = /* @__PURE__ */ new Map();
+  const parentById = /* @__PURE__ */ new Map();
   let leafId;
   for (const line of lines) {
     let entry;
@@ -31480,6 +31481,9 @@ function formatOmpConversationAsMarkdown(lines) {
       metadata.cwd = entry.cwd || metadata.cwd;
       continue;
     }
+    if (entry.id) {
+      parentById.set(entry.id, entry.parentId ?? void 0);
+    }
     if (entry.type !== "message" || !entry.message || !entry.message.role || !entry.id) {
       continue;
     }
@@ -31489,11 +31493,13 @@ function formatOmpConversationAsMarkdown(lines) {
   const chain = [];
   const seen = /* @__PURE__ */ new Set();
   let currentId = leafId;
-  while (currentId && nodesById.has(currentId) && !seen.has(currentId)) {
+  while (currentId && parentById.has(currentId) && !seen.has(currentId)) {
     seen.add(currentId);
     const node2 = nodesById.get(currentId);
-    chain.push(node2);
-    currentId = node2.parentId ?? void 0;
+    if (node2) {
+      chain.push(node2);
+    }
+    currentId = parentById.get(currentId);
   }
   chain.reverse();
   let output2 = "# Conversation\n\n";

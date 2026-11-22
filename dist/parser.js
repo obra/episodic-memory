@@ -28,7 +28,12 @@ async function detectConversationHarness(filePath) {
             // Oh My Pi (OMP) pi-lineage transcripts open with a bare session header
             // ({type:"session", id, cwd}) with no payload/session sub-object (which
             // would be Codex/opencode), and their turns are {type:"message",
-            // message:{role, content}} — a shape no other harness uses.
+            // message:{role, content}} — a shape no other harness uses. Current OMP
+            // writes a fixed-width {type:"title"} slot before the header; skip it so
+            // the header decides instead of the Claude fallback.
+            if (parsed.type === 'title') {
+                continue;
+            }
             const maybeOmp = parsed;
             if (parsed.type === 'session' && !parsed.payload && !maybeOmp.session) {
                 return 'omp';
@@ -515,7 +520,10 @@ function extractOmpText(content) {
  * `type:"message"` entry in file order. Transcripts are append-only, so the
  * most recently written message is the current tip; abandoned/regenerated
  * branches remain earlier in the file but are not on the leaf's parentId chain.
- * We follow parentId from that leaf up to the root (a message whose parentId is
+ * Non-message entries (model_change, thinking_level_change, custom, compaction,
+ * ...) are tree nodes too: a message's parent is often one of them, so the walk
+ * follows every id-bearing entry and keeps only the messages it passes. We
+ * follow parentId from that leaf up to the root (an entry whose parentId is
  * null/absent or not present in the file), then reverse to root->leaf order and
  * linearize. Because parents are always written before their children, line
  * numbers stay monotonic along the chain, keeping the #152 high-water mark and
@@ -533,6 +541,7 @@ async function parseOmpConversation(filePath, projectName, archivePath) {
     let cwd;
     let headerTimestamp;
     const nodesById = new Map();
+    const parentById = new Map();
     let leafId;
     let lineNumber = 0;
     for await (const line of rl) {
@@ -553,6 +562,9 @@ async function parseOmpConversation(filePath, projectName, archivePath) {
             headerTimestamp = parsed.timestamp ?? headerTimestamp;
             continue;
         }
+        if (parsed.id) {
+            parentById.set(parsed.id, parsed.parentId ?? undefined);
+        }
         // Skip title/session_init/custom line types and malformed messages.
         if (parsed.type !== 'message' || !parsed.message || !parsed.message.role || !parsed.id) {
             continue;
@@ -568,15 +580,18 @@ async function parseOmpConversation(filePath, projectName, archivePath) {
         nodesById.set(node.id, node);
         leafId = node.id; // the last message wins as the active leaf
     }
-    // Walk from the active leaf back to the root, guarding against cycles.
+    // Walk from the active leaf back to the root through every entry, guarding
+    // against cycles; only message entries join the chain.
     const chain = [];
     const seen = new Set();
     let currentId = leafId;
-    while (currentId && nodesById.has(currentId) && !seen.has(currentId)) {
+    while (currentId && parentById.has(currentId) && !seen.has(currentId)) {
         seen.add(currentId);
         const node = nodesById.get(currentId);
-        chain.push(node);
-        currentId = node.parentId;
+        if (node) {
+            chain.push(node);
+        }
+        currentId = parentById.get(currentId);
     }
     chain.reverse(); // root -> leaf
     const project = projectFromCwd(cwd) || projectName;
