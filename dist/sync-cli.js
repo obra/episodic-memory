@@ -136,6 +136,7 @@ if (isBackground) {
         ...filteredArgs
     ], {
         detached: true,
+        windowsHide: true,
         stdio: ['ignore', logFd, logFd]
     });
     child.unref(); // Allow parent to exit

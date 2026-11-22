@@ -456,7 +456,8 @@ function readCommandOutput(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       env: getApiEnv(),
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
     });
     let output = '';
 
@@ -511,7 +512,8 @@ export async function runCodexCommand(command: CodexSummarizerCommand): Promise<
   return new Promise((resolve, reject) => {
     const child = spawn(command.command, command.args, {
       env: getApiEnv(),
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true
     });
 
     let stderr = '';

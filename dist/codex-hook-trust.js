@@ -43,6 +43,7 @@ export async function detectCodexHookTrustState(codexHome, cwd, timeoutMs = 1000
     const child = spawn('codex', ['app-server'], {
         env: { ...process.env, CODEX_HOME: codexHome },
         stdio: ['pipe', 'pipe', 'ignore'],
+        windowsHide: true,
     });
     const rl = readline.createInterface({ input: child.stdout });
     const pending = new Map();
