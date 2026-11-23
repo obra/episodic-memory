@@ -29595,6 +29595,12 @@ function initDatabase() {
     )
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS completed_migrations (
+      name TEXT PRIMARY KEY,
+      completed_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_exchanges USING vec0(
       id TEXT PRIMARY KEY,
       embedding FLOAT[384]
@@ -31198,7 +31204,7 @@ function formatConversationAsMarkdown(jsonl, startLine, endLine) {
     endLine !== void 0 ? endLine : void 0
   ) : allLines;
   if (isCodexRollout(lines)) {
-    return formatCodexConversationAsMarkdown(lines);
+    return formatCodexConversationAsMarkdown(lines, allLines);
   }
   if (isOpencodeTranscript(lines)) {
     return formatOpencodeConversationAsMarkdown(lines);
@@ -31704,18 +31710,29 @@ ${typeof value === "string" ? value : JSON.stringify(value, null, 2)}
   return output2 ? `${output2}
 ` : "";
 }
-function formatCodexConversationAsMarkdown(lines) {
+function formatCodexConversationAsMarkdown(lines, allLines = lines) {
   const entries = lines.map((line) => JSON.parse(line));
   const metadata = {};
+  for (const line of allLines) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const payload = entry?.payload;
+    if (entry?.type === "session_meta" && payload) {
+      metadata.sessionId = payload.id;
+      metadata.cwd = payload.cwd;
+      metadata.gitBranch = payload.git?.branch;
+      metadata.cliVersion = payload.cli_version;
+      metadata.modelProvider = payload.model_provider;
+      break;
+    }
+  }
   for (const entry of entries) {
     const payload = entry.payload;
-    if (entry.type === "session_meta" && payload) {
-      metadata.sessionId = payload.id || metadata.sessionId;
-      metadata.cwd = payload.cwd || metadata.cwd;
-      metadata.gitBranch = payload.git?.branch || metadata.gitBranch;
-      metadata.cliVersion = payload.cli_version || metadata.cliVersion;
-      metadata.modelProvider = payload.model_provider || metadata.modelProvider;
-    } else if (entry.type === "turn_context" && payload) {
+    if (entry.type === "turn_context" && payload) {
       metadata.cwd = payload.cwd || metadata.cwd;
       metadata.model = payload.model || metadata.model;
     }

@@ -73,6 +73,15 @@ CREATE VIRTUAL TABLE vec_exchanges USING vec0(
 );
 ```
 
+### `completed_migrations`
+
+One-time data migrations that have finished against this database, so later syncs skip them.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `name` | TEXT PRIMARY KEY | Migration name, e.g. `codex-sidechain-backfill` |
+| `completed_at` | TEXT NOT NULL | ISO timestamp |
+
 ## Indexes
 
 ```sql
@@ -101,3 +110,5 @@ Schema changes are applied via migrations in `src/db.ts`:
 3. Populate with data from re-indexing if needed
 
 Migrations are idempotent - safe to run multiple times.
+
+Data migrations that must read archived transcripts run once per database during sync and record themselves in `completed_migrations`. `codex-sidechain-backfill` marks Codex subagent rows indexed before the parser recognised them as sidechains and restores the rollout's own metadata.

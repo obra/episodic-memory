@@ -1,4 +1,19 @@
 import { ConversationExchange } from './types.js';
+/**
+ * Codex marks review, guardian and spawned-agent rollouts with
+ * session_meta.source = {subagent: ...}; user-started sessions use a string
+ * source ("cli", "exec", "vscode").
+ */
+export declare function isCodexSubagentSource(source: unknown): boolean;
+/**
+ * The first session_meta payload of a Codex rollout, which describes the
+ * rollout itself. Forked subagent rollouts embed a copy of the parent
+ * thread's session_meta after their own, so later ones must be ignored.
+ */
+export declare function readCodexSessionMeta(filePath: string): Promise<{
+    id?: string;
+    source?: unknown;
+} | undefined>;
 export declare function parseConversation(filePath: string, projectName: string, archivePath: string): Promise<ConversationExchange[]>;
 /**
  * Cursor transcripts carry no workspace field; recover the working directory
