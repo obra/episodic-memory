@@ -1,7 +1,7 @@
 import { buildSyncOptionsFromEnv, syncConversations } from './sync.js';
 import { getArchiveDir, getConversationSourceDirs, getIndexDir, } from './paths.js';
 import { shouldSkipReentrantSync } from './summarizer.js';
-import { initDatabase } from './db.js';
+import { initDatabase, backfillCodexSidechains } from './db.js';
 import { generateExchangeEmbedding, initEmbeddings } from './embeddings.js';
 import { runMigrationBatch, countStale } from './embedding-migration.js';
 import { exportOpencodeSessions } from './opencode-sync.js';
@@ -227,10 +227,32 @@ async function syncAll() {
             console.log(`  Check your API configuration (EPISODIC_MEMORY_API_BASE_URL / ANTHROPIC_API_KEY).`);
         }
     }
+    await runCodexSidechainBackfill();
     // After regular sync, do a batch of embedding migration if any rows are
     // still on the old encoder. Lock-protected; if another process is already
     // migrating, this is a no-op.
     await runEmbeddingMigrationPhase();
+}
+async function runCodexSidechainBackfill() {
+    if (onlyHarnesses && !onlyHarnesses.includes('codex'))
+        return;
+    const db = initDatabase();
+    try {
+        const { updated, failed } = await backfillCodexSidechains(db);
+        if (updated > 0) {
+            console.error(`episodic-memory: corrected ${updated} Codex exchange(s) indexed as main-thread or under another session`);
+        }
+        if (failed.length > 0) {
+            console.error(`episodic-memory: Codex sidechain backfill could not read ${failed.length} archive(s); will retry next sync`);
+            failed.forEach(f => console.error(`  ${f}`));
+        }
+    }
+    catch (err) {
+        console.error('episodic-memory: Codex sidechain backfill error:', err instanceof Error ? err.message : err);
+    }
+    finally {
+        db.close();
+    }
 }
 const MIGRATION_BATCH_SIZE = parseInt(process.env.EPISODIC_MEMORY_MIGRATION_BATCH || '500', 10);
 async function runEmbeddingMigrationPhase() {

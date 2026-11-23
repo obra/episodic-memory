@@ -35,7 +35,7 @@ export function formatConversationAsMarkdown(jsonl: string, startLine?: number, 
     : allLines;
 
   if (isCodexRollout(lines)) {
-    return formatCodexConversationAsMarkdown(lines);
+    return formatCodexConversationAsMarkdown(lines, allLines);
   }
   if (isOpencodeTranscript(lines)) {
     return formatOpencodeConversationAsMarkdown(lines);
@@ -1098,7 +1098,7 @@ function formatCodexToolInputMarkdown(input: unknown): string {
   return output ? `${output}\n` : '';
 }
 
-function formatCodexConversationAsMarkdown(lines: string[]): string {
+function formatCodexConversationAsMarkdown(lines: string[], allLines: string[] = lines): string {
   const entries = lines.map(line => JSON.parse(line));
   const metadata: {
     sessionId?: string;
@@ -1109,15 +1109,30 @@ function formatCodexConversationAsMarkdown(lines: string[]): string {
     modelProvider?: string;
   } = {};
 
+  // The rollout's identity is its first session_meta (see readCodexSessionMeta),
+  // taken from the whole transcript so a ranged read cannot start at a forked
+  // subagent's embedded copy of its parent's header.
+  for (const line of allLines) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue; // malformed lines are skipped, as in readCodexSessionMeta
+    }
+    const payload = entry?.payload;
+    if (entry?.type === 'session_meta' && payload) {
+      metadata.sessionId = payload.id;
+      metadata.cwd = payload.cwd;
+      metadata.gitBranch = payload.git?.branch;
+      metadata.cliVersion = payload.cli_version;
+      metadata.modelProvider = payload.model_provider;
+      break;
+    }
+  }
+
   for (const entry of entries) {
     const payload = entry.payload;
-    if (entry.type === 'session_meta' && payload) {
-      metadata.sessionId = payload.id || metadata.sessionId;
-      metadata.cwd = payload.cwd || metadata.cwd;
-      metadata.gitBranch = payload.git?.branch || metadata.gitBranch;
-      metadata.cliVersion = payload.cli_version || metadata.cliVersion;
-      metadata.modelProvider = payload.model_provider || metadata.modelProvider;
-    } else if (entry.type === 'turn_context' && payload) {
+    if (entry.type === 'turn_context' && payload) {
       metadata.cwd = payload.cwd || metadata.cwd;
       metadata.model = payload.model || metadata.model;
     }

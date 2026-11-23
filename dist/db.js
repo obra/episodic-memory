@@ -4,6 +4,7 @@ import fs from 'fs';
 import * as sqliteVec from 'sqlite-vec';
 import { getDbPath } from './paths.js';
 import { EMBEDDING_VERSION } from './embedding-migration.js';
+import { isCodexSubagentSource, parseConversation, readCodexSessionMeta } from './parser.js';
 export function migrateSchema(db) {
     const columns = db.prepare(`SELECT name FROM pragma_table_info('exchanges')`).all();
     const columnNames = new Set(columns.map(c => c.name));
@@ -36,6 +37,84 @@ export function migrateSchema(db) {
         console.log('Migration complete.');
     }
     migrateToolCallsCascade(db);
+}
+const CODEX_SIDECHAIN_BACKFILL = 'codex-sidechain-backfill';
+/**
+ * One-time correction of Codex rows indexed before the parser took a
+ * rollout's identity from its first session_meta: mark subagent rows as
+ * sidechains, and refresh the metadata a fresh parse assigns wherever rows
+ * were stored under another session (forks embed their parent's
+ * session_meta, whose session, cwd, project, version and provider used to
+ * win). Sync skips unchanged transcripts, so
+ * only this pass corrects existing rows. Rows whose exchange ID a fresh parse
+ * no longer produces still get the rollout's sidechain flag and session ID.
+ *
+ * Each rollout commits on its own. Deleted archives are skipped; other
+ * unreadable archives are returned in `failed` and the pass is recorded as complete only when there are none, so
+ * they are retried on the next call. Once complete, later calls return
+ * immediately instead of re-reading every main-thread rollout.
+ */
+export async function backfillCodexSidechains(db) {
+    if (db.prepare('SELECT 1 FROM completed_migrations WHERE name = ?').get(CODEX_SIDECHAIN_BACKFILL)) {
+        return { updated: 0, failed: [] };
+    }
+    const candidates = db.prepare(`SELECT id, archive_path, session_id FROM exchanges WHERE harness = 'codex' AND is_sidechain = 0`).all();
+    const rowsByArchive = new Map();
+    for (const { id, archive_path, session_id } of candidates) {
+        let rows = rowsByArchive.get(archive_path);
+        if (!rows) {
+            rows = [];
+            rowsByArchive.set(archive_path, rows);
+        }
+        rows.push({ id, sessionId: session_id });
+    }
+    const updateRow = db.prepare('UPDATE exchanges SET is_sidechain = ?, session_id = COALESCE(?, session_id) WHERE id = ?');
+    const updateExchange = db.prepare(`
+    UPDATE exchanges SET session_id = ?, project = ?, cwd = ?, git_branch = ?, agent_version = ?, model_provider = ?
+    WHERE id = ?
+  `);
+    const applyRollout = db.transaction((rowIds, isSidechain, sessionId, exchanges) => {
+        let changes = 0;
+        for (const id of rowIds) {
+            changes += updateRow.run(isSidechain ? 1 : 0, sessionId, id).changes;
+        }
+        for (const e of exchanges) {
+            updateExchange.run(e.sessionId ?? null, e.project, e.cwd ?? null, e.gitBranch ?? null, e.agentVersion ?? null, e.modelProvider ?? null, e.id);
+        }
+        return changes;
+    });
+    let updated = 0;
+    const failed = [];
+    for (const [archivePath, rows] of rowsByArchive) {
+        let sessionId;
+        let isSidechain;
+        let exchanges;
+        try {
+            const meta = await readCodexSessionMeta(archivePath);
+            if (!meta)
+                continue;
+            isSidechain = isCodexSubagentSource(meta.source);
+            sessionId = meta.id || null;
+            const storedUnderOtherSession = sessionId !== null && rows.some(row => row.sessionId !== sessionId);
+            if (!isSidechain && !storedUnderOtherSession)
+                continue;
+            exchanges = await parseConversation(archivePath, path.basename(path.dirname(archivePath)), archivePath);
+        }
+        catch (error) {
+            // A deleted archive can never be reclassified; anything else (permissions,
+            // an unmounted volume) may recover, so it keeps the pass pending.
+            if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+                continue;
+            failed.push(`${archivePath}: ${error instanceof Error ? error.message : String(error)}`);
+            continue;
+        }
+        updated += applyRollout(rows.map(row => row.id), isSidechain, sessionId, exchanges);
+    }
+    if (failed.length === 0) {
+        db.prepare('INSERT INTO completed_migrations (name, completed_at) VALUES (?, ?)')
+            .run(CODEX_SIDECHAIN_BACKFILL, new Date().toISOString());
+    }
+    return { updated, failed };
 }
 /**
  * Earlier versions created `tool_calls` with a plain
@@ -147,6 +226,13 @@ export function initDatabase() {
       is_error BOOLEAN DEFAULT 0,
       timestamp TEXT NOT NULL,
       FOREIGN KEY (exchange_id) REFERENCES exchanges(id) ON DELETE CASCADE
+    )
+  `);
+    // One-time data migrations that have finished against this database
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS completed_migrations (
+      name TEXT PRIMARY KEY,
+      completed_at TEXT NOT NULL
     )
   `);
     // Create vector search index

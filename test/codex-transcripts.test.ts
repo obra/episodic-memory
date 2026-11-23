@@ -5,7 +5,8 @@ import { tmpdir } from 'os';
 import Database from 'better-sqlite3';
 import { getConversationSourceDirs } from '../src/paths.js';
 import { parseConversation } from '../src/parser.js';
-import { initDatabase, insertExchange } from '../src/db.js';
+import { initDatabase, insertExchange, backfillCodexSidechains } from '../src/db.js';
+import { formatConversationAsMarkdown } from '../src/show.js';
 import { ConversationExchange } from '../src/types.js';
 
 function writeJsonl(path: string, lines: unknown[]): void {
@@ -93,6 +94,28 @@ function codexRolloutLines() {
         ]
       }
     }
+  ];
+}
+
+const PARENT_THREAD_ID = '019e4c75-0000-7000-8000-000000000001';
+const CHILD_THREAD_ID = '019e4c75-0000-7000-8000-000000000002';
+
+// A subagent rollout: its own session_meta, then the embedded copy of the
+// parent's that forked subagents carry, then a normal turn.
+function codexSubagentRolloutLines(source: unknown = { subagent: { thread_spawn: { parent_thread_id: PARENT_THREAD_ID, depth: 1 } } }) {
+  const [, ...rest] = codexRolloutLines();
+  return [
+    {
+      timestamp: '2026-05-12T18:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: CHILD_THREAD_ID, session_id: PARENT_THREAD_ID, cwd: '/work/child-project', source, thread_source: 'subagent' }
+    },
+    {
+      timestamp: '2026-05-12T18:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: PARENT_THREAD_ID, session_id: PARENT_THREAD_ID, cwd: '/work/parent-project', source: 'cli', thread_source: 'user' }
+    },
+    ...rest.filter(line => line.type !== 'turn_context')
   ];
 }
 
@@ -239,6 +262,115 @@ describe('Codex transcript support', () => {
         timestamp: '2026-05-12T18:00:04.000Z'
       })
     ]);
+  });
+
+  it('marks Codex subagent rollouts as sidechains and ignores the embedded parent session_meta', async () => {
+    const sources = [
+      { subagent: 'review' },
+      { subagent: { other: 'guardian' } },
+      { subagent: { thread_spawn: { parent_thread_id: PARENT_THREAD_ID, depth: 1 } } }
+    ];
+
+    for (const source of sources) {
+      const rolloutPath = join(testDir, `rollout-2026-05-12T18-00-00-${CHILD_THREAD_ID}.jsonl`);
+      writeJsonl(rolloutPath, codexSubagentRolloutLines(source));
+
+      const exchanges = await parseConversation(rolloutPath, '2026', rolloutPath);
+
+      expect(exchanges).toHaveLength(1);
+      expect(exchanges[0]).toMatchObject({
+        harness: 'codex',
+        isSidechain: true,
+        sessionId: CHILD_THREAD_ID,
+        cwd: '/work/child-project',
+        project: 'child-project'
+      });
+    }
+  });
+
+  it('keeps user-started Codex sessions on the main thread', async () => {
+    const rolloutPath = join(testDir, 'rollout-2026-05-12T18-00-00-019e4c75-d5bf-7c71-9df7-77f5fb86b711.jsonl');
+    writeJsonl(rolloutPath, codexRolloutLines());
+
+    const exchanges = await parseConversation(rolloutPath, '2026', rolloutPath);
+
+    expect(exchanges[0].isSidechain).toBe(false);
+  });
+
+  it('renders a Codex subagent transcript under its own session ID', () => {
+    const jsonl = codexSubagentRolloutLines().map(line => JSON.stringify(line)).join('\n');
+
+    const markdown = formatConversationAsMarkdown(jsonl);
+
+    expect(markdown).toContain(`**Session ID:** ${CHILD_THREAD_ID}`);
+    expect(markdown).toContain('**Working Directory:** /work/child-project');
+    expect(markdown).not.toContain(PARENT_THREAD_ID);
+
+    // A ranged read that starts on the embedded parent header, in a transcript
+    // whose first record is not valid JSON.
+    const ranged = formatConversationAsMarkdown(['{not json', jsonl].join('\n'), 3, 5);
+    expect(ranged).toContain(`**Session ID:** ${CHILD_THREAD_ID}`);
+    expect(ranged).not.toContain(PARENT_THREAD_ID);
+  });
+
+  it('backfills Codex subagent rows indexed as main-thread exchanges', async () => {
+    const originalDbPath = process.env.EPISODIC_MEMORY_DB_PATH;
+    process.env.EPISODIC_MEMORY_DB_PATH = join(testDir, 'index.sqlite');
+    try {
+      const db = initDatabase();
+      const subagentPath = join(testDir, `rollout-2026-05-12T18-00-00-${CHILD_THREAD_ID}.jsonl`);
+      const mainPath = join(testDir, 'rollout-2026-05-12T18-00-00-019e4c75-d5bf-7c71-9df7-77f5fb86b711.jsonl');
+      const unreadablePath = join(testDir, 'rollout-unreadable.jsonl');
+      const forkPath = join(testDir, 'rollout-2026-05-12T18-00-00-fork.jsonl');
+      writeJsonl(subagentPath, [null, ...codexSubagentRolloutLines()]);
+      writeJsonl(forkPath, codexSubagentRolloutLines('cli'));
+      writeJsonl(mainPath, codexRolloutLines());
+      mkdirSync(unreadablePath);
+      const [fresh] = await parseConversation(subagentPath, 'unused', subagentPath);
+
+      // Rows as an older parser stored them: main thread, parent's identity.
+      const legacyRow = (id: string, archivePath: string, sessionId: string): ConversationExchange => ({
+        id, project: 'parent-project', cwd: '/work/parent-project', timestamp: '2026-05-12T18:00:06.000Z',
+        userMessage: 'Q', assistantMessage: 'A', archivePath, lineStart: 3, lineEnd: 7,
+        harness: 'codex', sessionId, isSidechain: false
+      });
+      const embedding = new Array(384).fill(0.1);
+      insertExchange(db, legacyRow(fresh.id, subagentPath, PARENT_THREAD_ID), embedding);
+      insertExchange(db, legacyRow('stale-subagent-row', subagentPath, PARENT_THREAD_ID), embedding);
+      insertExchange(db, legacyRow('main-row', mainPath, '019e4c75-d5bf-7c71-9df7-77f5fb86b711'), embedding);
+      insertExchange(db, legacyRow('unreadable-row', unreadablePath, PARENT_THREAD_ID), embedding);
+      // A user-started fork stored under its parent's session stays on the main thread.
+      const [freshFork] = await parseConversation(forkPath, 'unused', forkPath);
+      insertExchange(db, legacyRow(freshFork.id, forkPath, PARENT_THREAD_ID), embedding);
+
+      const completed = () => db.prepare('SELECT name FROM completed_migrations').all();
+
+      const first = await backfillCodexSidechains(db);
+      expect(first.updated).toBe(3);
+      expect(first.failed).toEqual([expect.stringContaining(unreadablePath)]);
+      expect(completed()).toEqual([]);
+
+      const rows = db.prepare('SELECT id, is_sidechain, session_id, project, cwd FROM exchanges ORDER BY id').all();
+      expect(rows).toEqual([
+        { id: fresh.id, is_sidechain: 1, session_id: CHILD_THREAD_ID, project: 'child-project', cwd: '/work/child-project' },
+        { id: freshFork.id, is_sidechain: 0, session_id: CHILD_THREAD_ID, project: 'child-project', cwd: '/work/child-project' },
+        { id: 'main-row', is_sidechain: 0, session_id: '019e4c75-d5bf-7c71-9df7-77f5fb86b711', project: 'parent-project', cwd: '/work/parent-project' },
+        { id: 'stale-subagent-row', is_sidechain: 1, session_id: CHILD_THREAD_ID, project: 'parent-project', cwd: '/work/parent-project' },
+        { id: 'unreadable-row', is_sidechain: 0, session_id: PARENT_THREAD_ID, project: 'parent-project', cwd: '/work/parent-project' }
+      ].sort((a, b) => a.id.localeCompare(b.id)));
+
+      // The unreadable archive is retried; once it is gone the pass completes
+      // and later calls no longer re-read rollouts.
+      rmSync(unreadablePath, { recursive: true });
+      expect(await backfillCodexSidechains(db)).toEqual({ updated: 0, failed: [] });
+      expect(completed()).toEqual([{ name: 'codex-sidechain-backfill' }]);
+      db.prepare(`UPDATE exchanges SET is_sidechain = 0 WHERE id = 'stale-subagent-row'`).run();
+      expect((await backfillCodexSidechains(db)).updated).toBe(0);
+      db.close();
+    } finally {
+      if (originalDbPath === undefined) delete process.env.EPISODIC_MEMORY_DB_PATH;
+      else process.env.EPISODIC_MEMORY_DB_PATH = originalDbPath;
+    }
   });
 
   it('pairs Codex local shell calls with their output', async () => {

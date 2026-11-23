@@ -92,6 +92,43 @@ interface ExchangeBuilder {
   toolCalls: ToolCall[];
 }
 
+/**
+ * Codex marks review, guardian and spawned-agent rollouts with
+ * session_meta.source = {subagent: ...}; user-started sessions use a string
+ * source ("cli", "exec", "vscode").
+ */
+export function isCodexSubagentSource(source: unknown): boolean {
+  return typeof source === 'object' && source !== null && 'subagent' in source;
+}
+
+/**
+ * The first session_meta payload of a Codex rollout, which describes the
+ * rollout itself. Forked subagent rollouts embed a copy of the parent
+ * thread's session_meta after their own, so later ones must be ignored.
+ */
+export async function readCodexSessionMeta(filePath: string): Promise<{ id?: string; source?: unknown } | undefined> {
+  const fileStream = fs.createReadStream(filePath);
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      let parsed: CodexRolloutLine | null;
+      try {
+        parsed = JSON.parse(line) as CodexRolloutLine | null;
+      } catch {
+        continue; // malformed lines are skipped, as in parseCodexConversation
+      }
+      if (parsed?.type === 'session_meta' && parsed.payload) {
+        return parsed.payload;
+      }
+    }
+    return undefined;
+  } finally {
+    rl.close();
+    fileStream.destroy();
+  }
+}
+
 async function detectConversationHarness(filePath: string): Promise<ConversationHarness> {
   const fileStream = fs.createReadStream(filePath);
   const rl = readline.createInterface({
@@ -915,6 +952,8 @@ async function parseCodexConversation(
   let agentVersion: string | undefined;
   let model: string | undefined;
   let modelProvider: string | undefined;
+  let isSidechain = false;
+  let sawSessionMeta = false;
   let currentExchange: ExchangeBuilder | null = null;
   // A user item from which injected blocks were removed: either held back entirely
   // (injected-only, while an exchange was open) or trimmed to its remaining text.
@@ -961,6 +1000,7 @@ async function parseCodexConversation(
         lineStart: currentExchange.userLine,
         lineEnd: currentExchange.lastAssistantLine,
         harness: 'codex',
+        isSidechain,
         sessionId: currentExchange.sessionId,
         cwd: currentExchange.cwd,
         gitBranch: currentExchange.gitBranch,
@@ -1051,6 +1091,12 @@ async function parseCodexConversation(
       const timestamp = parsed.timestamp || new Date().toISOString();
 
       if (parsed.type === 'session_meta' && payload) {
+        // Only the first session_meta describes this rollout (see readCodexSessionMeta).
+        if (sawSessionMeta) {
+          continue;
+        }
+        sawSessionMeta = true;
+        isSidechain = isCodexSubagentSource(payload.source);
         sessionId = payload.id || sessionId;
         cwd = payload.cwd || cwd;
         gitBranch = payload.git?.branch || gitBranch;
