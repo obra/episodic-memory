@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 import { StringDecoder } from 'string_decoder';
 import { SUMMARIZER_CONTEXT_MARKER } from './constants.js';
 import { getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
@@ -58,10 +59,11 @@ export function shouldSkipConversation(filePath: string): boolean {
  * messages *yet* (a session that just started) is skipped this run and picked
  * up on a later sync once it has content, since its mtime keeps advancing.
  */
-function hasConversationContent(filePath: string): boolean {
+async function hasConversationContent(filePath: string): Promise<boolean> {
+  const input = fs.createReadStream(filePath);
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    for (const line of content.split('\n')) {
+    const lines = readline.createInterface({ input, crlfDelay: Infinity });
+    for await (const line of lines) {
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line);
@@ -97,6 +99,8 @@ function hasConversationContent(filePath: string): boolean {
   } catch {
     // If we can't read the file, let the normal pipeline handle it
     return true;
+  } finally {
+    input.destroy();
   }
 }
 
@@ -239,7 +243,7 @@ export async function syncConversations(
       try {
         // Skip message-less transcripts (summarizer-spawned stubs, sessions
         // that haven't produced content yet) before they enter the archive.
-        if (!hasConversationContent(srcFile)) {
+        if (!(await hasConversationContent(srcFile))) {
           result.skipped++;
           continue;
         }

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, utimesSync, existsSync, readdirSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs, { mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, utimesSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { syncConversations } from '../src/sync.js';
@@ -129,6 +129,23 @@ describe('sync command', () => {
     expect(result.copied).toBe(1);
     expect(existsSync(join(destDir, 'project-a'))).toBe(false);
     expect(existsSync(join(destDir, 'project-b', 'test2.jsonl'))).toBe(true);
+  });
+
+  it('finds a message after a long metadata line without reading the whole transcript', async () => {
+    const project = join(sourceDir, 'project-a');
+    mkdirSync(project);
+    const file = join(project, 'session.jsonl');
+    const metadata = JSON.stringify({ type: 'ai-title', aiTitle: 'x'.repeat(128 * 1024) });
+    writeFileSync(file, [metadata, 'invalid JSON', transcriptContent().trimEnd()].join('\n'));
+
+    const wholeFileReads = vi.spyOn(fs, 'readFileSync');
+    try {
+      const result = await syncConversations(sourceDir, destDir, { skipIndex: true, skipSummaries: true });
+      expect(result.copied).toBe(1);
+      expect(wholeFileReads.mock.calls.some(([path]) => path === file)).toBe(false);
+    } finally {
+      wholeFileReads.mockRestore();
+    }
   });
 
   it('skips message-less transcripts (summarizer-spawned ai-title stubs)', async () => {
